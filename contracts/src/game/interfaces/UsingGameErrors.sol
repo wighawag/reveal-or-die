@@ -1,57 +1,43 @@
-// SPDX-License-Identifier: AGPL-3.0
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./UsingGameTypes.sol";
-
-interface UsingGameErrors is UsingGameTypes {
-    /// @notice Game has not started yet, can't perform any action
+interface UsingGameErrors {
+    /// @notice the game has not started yet
     error GameNotStarted();
 
-    /// @notice happen when an unauthorized account attempt to control an avatar
-    error NotAuthorizedController(address account);
-
-    /// @notice happen when an unauthorized account attempt to withdraw an avatar
-    error NotAuthorizedOwner(address account);
-
-    /// @notice When in Reveal phase, it is not possible to commit new moves or cancel previous commitment
-    ///  During Reveal phase, players have to reveal their commitment, if not already done.
+    /// @notice trying to commit while the reveal phase is running
     error InRevealPhase(uint64 epoch);
 
-    /// @notice When in Commit phase, player can make new commitment but they cannot reveal their move yet.
+    /// @notice trying to reveal while the commit phase is running
     error InCommitmentPhase(uint64 epoch);
 
-    /// @notice Previous commitment need to be revealed before making a new one. Even if the corresponding reveal phase has passed.\
-    ///  It is also not possible to withdraw any amount from reserve until the commitment is revealed.\
-    /// @notice If player lost the information to reveal, it can acknowledge failure which will burn all its reserve.\
-    error PreviousCommitmentNotRevealed();
-
-    /// @notice There is no commitment registered, cannot cancel.
-    error NoCommitmentToCancel();
-
-    /// @notice Player have to reveal their commitment using the exact same move values
-    ///  If they provide different value, the commitment hash will differ and Game will reject their reveal.
-    error CommitmentHashNotMatching();
-
-    /// @notice Player can only reveal moves they commited.
+    /// @notice there is no commitment to reveal or to void
     error NothingToReveal();
 
-    /// @notice Player can only reveal their move in the same epoch they commited.abi
-    ///  If a player reveal later it can only do to minimize the reserve burn cost by calling : `acknowledgeMissedReveal`
-    error InvalidEpoch(uint64 expectedEpoch, uint64 epochGiven);
+    /// @notice there is no commitment to cancel
+    error NoCommitmentToCancel();
 
-    /// @notice Player have to reveal if they can
-    /// prevent player from acknowledging missed reveal if there is still time to reveal.
+    /// @notice an earlier commitment was never revealed; resolve it first
+    error PreviousCommitmentNotRevealed();
+
+    /// @notice the commitment belongs to a different epoch
+    error InvalidEpoch(uint64 currentEpoch, uint64 commitmentEpoch);
+
+    /// @notice the revealed placements do not hash to what was committed
+    error CommitmentHashNotMatching();
+
+    /// @notice the player can still reveal, so the commitment cannot be voided
     error CanStillReveal(uint64 epoch);
 
-    /// @notice happen when attempting to send a non-avatar ERC721 to the game
-    error OnlyAvatarsAreAccepted();
+    /// @notice the player's reserve cannot cover this
+    error ReserveTooLow(uint256 current, uint256 required);
 
-    /// @notice happen when transfering an avatar with invalid data
-    error InvalidData();
+    /// @notice the revealed placements cost more than the bond set aside
+    error BondTooLow(uint256 bond, uint256 required);
 
-    /// @notice happen when attempting to move to next phase/epoch when not configured to be able to do it.
+    /// @notice manual epoch control is not available on a timed game
     error NextPhaseNotAllowed();
 
-    /// @notice happen when attempting to move to next phase when skip commit is enabled
+    /// @notice the commit phase is skipped in this configuration
     error CommitPhaseIsSkipped();
 }

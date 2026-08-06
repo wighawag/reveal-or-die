@@ -5,7 +5,6 @@ import "./UsingGameStore.sol";
 import "../interfaces/UsingGameEvents.sol";
 import "../interfaces/UsingGameErrors.sol";
 import "../../utils/PositionUtils.sol";
-import "../../utils/StringUtils.sol";
 
 abstract contract UsingGameInternal is
     UsingGameStore,
@@ -15,63 +14,79 @@ abstract contract UsingGameInternal is
     constructor(Config memory config) UsingGameStore(config) {}
 
     //-------------------------------------------------------------------------
-    // ENTRY POINTS
+    // RESERVE
     //-------------------------------------------------------------------------
-    function _deposit(
-        uint256 avatarID,
-        address owner,
-        address controller
-    ) internal {
-        _players[avatarID] = Player({owner: owner, controller: controller});
 
-        emit AvatarDeposited(avatarID, owner, controller);
+    /// @notice Tokens a player puts at risk in order to play.
+    /// @dev The reserve is what makes commit-reveal work at all. Without
+    ///      something at stake a player who dislikes their revealed outcome
+    ///      simply never reveals, and nothing can be done about it. A game that
+    ///      prefers a different gate (custody of an NFT, say) substitutes its
+    ///      own; what the framework needs is only that SOMETHING is forfeited
+    ///      by _acknowledgeMissedReveal.
+    function _addToReserve(address player, uint256 amount) internal {
+        uint256 newAmount = _reserve[player] + amount;
+        _reserve[player] = newAmount;
+        emit ReserveDeposited(player, amount, newAmount);
     }
 
-    function _makeCommitment(
-        address controller,
-        uint256 avatarID,
-        bytes24 commitmentHash
-    ) internal {
-        if (_players[avatarID].controller != controller) {
-            revert UsingGameErrors.NotAuthorizedController(controller);
+    function _withdrawFromReserve(address player, uint256 amount) internal {
+        uint256 current = _reserve[player];
+
+        // What is bonded to an open commitment cannot be withdrawn, or a player
+        // could commit, see the epoch turn against them, and pull their stake
+        // out instead of revealing.
+        Commitment storage commitment = _commitments[player];
+        uint256 locked = commitment.epoch == 0 ? 0 : commitment.bond;
+
+        if (amount + locked > current) {
+            revert ReserveTooLow(current, amount + locked);
         }
 
+        uint256 newAmount = current - amount;
+        _reserve[player] = newAmount;
+        emit ReserveWithdrawn(player, amount, newAmount);
+    }
+
+    //-------------------------------------------------------------------------
+    // COMMIT / REVEAL
+    //-------------------------------------------------------------------------
+
+    function _makeCommitment(
+        address player,
+        bytes24 commitmentHash,
+        uint256 bond
+    ) internal {
         (uint64 epoch, bool commiting) = _epoch();
 
         if (!commiting) {
             revert InRevealPhase(epoch);
         }
 
-        Commitment storage commitment = _commitments[avatarID];
+        if (bond > _reserve[player]) {
+            revert ReserveTooLow(_reserve[player], bond);
+        }
+
+        Commitment storage commitment = _commitments[player];
 
         if (commitment.epoch != 0 && commitment.epoch != epoch) {
-            // TODO reenable
-            // revert PreviousCommitmentNotRevealed();
-            // TODO delete
-            emit PreviousCommitmentNotRevealedEvent(
-                avatarID,
-                commitment.epoch,
-                commitmentHash
-            );
+            revert PreviousCommitmentNotRevealed();
         }
 
         commitment.hash = commitmentHash;
         commitment.epoch = epoch;
+        commitment.bond = bond;
 
-        emit CommitmentMade(avatarID, epoch, commitmentHash);
+        emit CommitmentMade(player, epoch, commitmentHash, bond);
     }
 
-    function _cancelCommitment(address controller, uint256 avatarID) internal {
-        if (_players[avatarID].controller != controller) {
-            revert UsingGameErrors.NotAuthorizedController(controller);
-        }
-
+    function _cancelCommitment(address player) internal {
         (uint64 epoch, bool commiting) = _epoch();
         if (!commiting) {
             revert InRevealPhase(epoch);
         }
 
-        Commitment storage commitment = _commitments[avatarID];
+        Commitment storage commitment = _commitments[player];
         if (commitment.epoch == 0) {
             revert NoCommitmentToCancel();
         }
@@ -84,12 +99,24 @@ abstract contract UsingGameInternal is
         // This ensure the slot do not get reset and keep the gas cost consistent across execution
         commitment.epoch = 0;
 
-        emit CommitmentCancelled(avatarID, epoch);
+        emit CommitmentCancelled(player, epoch);
     }
 
+    /// @notice Apply a player's revealed placements to the board.
+    /// @dev ORDER INDEPENDENCE. Everything this does to a cell must commute
+    ///      with what any other player's reveal does to it in the same epoch,
+    ///      because reveals arrive in whatever order the mempool delivers them
+    ///      and the final board must not depend on that. Concretely: accumulate
+    ///      (`+=`), never branch on another player's state.
+    ///
+    ///      Rules like "the first to reveal takes the cell" or "reject a cell
+    ///      that is already taken" look harmless and are not: they hand the
+    ///      outcome to whoever pays the most gas, which is the very thing
+    ///      committing was supposed to prevent. Cells are shared here; two
+    ///      players placing on the same cell both hold a share of it.
     function _reveal(
-        uint256 avatarID,
-        bytes calldata actions,
+        address player,
+        Placement[] calldata placements,
         bytes32 secret
     ) internal {
         (uint64 epoch, bool commiting) = _epoch();
@@ -97,7 +124,7 @@ abstract contract UsingGameInternal is
         if (commiting) {
             revert InCommitmentPhase(epoch);
         }
-        Commitment storage commitment = _commitments[avatarID];
+        Commitment storage commitment = _commitments[player];
 
         if (commitment.epoch == 0) {
             revert NothingToReveal();
@@ -108,12 +135,68 @@ abstract contract UsingGameInternal is
         }
 
         bytes24 hashRevealed = commitment.hash;
-        _checkHash(hashRevealed, actions, secret);
+        _checkHash(hashRevealed, placements, secret);
 
-        emit CommitmentRevealed(avatarID, epoch, hashRevealed, actions);
+        uint256 cost = placements.length * PLACEMENT_COST;
+        if (cost > commitment.bond) {
+            revert BondTooLow(commitment.bond, cost);
+        }
 
+        for (uint256 i = 0; i < placements.length; i++) {
+            _place(player, placements[i].cellID);
+        }
+
+        _reserve[player] -= cost;
         commitment.epoch = 0; // used
+        commitment.bond = 0;
+
+        emit CommitmentRevealed(player, epoch, hashRevealed, placements, cost);
     }
+
+    /// @dev Pure accumulation. Reads nothing that another player's reveal in
+    ///      this epoch could have written, so it commutes. See _reveal.
+    function _place(address player, uint64 cellID) internal {
+        Cell storage cell = _cells[cellID];
+
+        if (_stakeOnCellBy[cellID][player] == 0) {
+            cell.numClaimants += 1;
+        }
+        _stakeOnCellBy[cellID][player] += PLACEMENT_COST;
+        cell.totalStake += PLACEMENT_COST;
+
+        emit Placed(player, cellID, PLACEMENT_COST);
+    }
+
+    /// @notice Forfeit the bond of a player who committed and never revealed.
+    /// @dev This is the whole reason the reserve exists.
+    function _acknowledgeMissedReveal(address player) internal {
+        Commitment storage commitment = _commitments[player];
+
+        if (commitment.epoch == 0) {
+            revert NothingToReveal();
+        }
+
+        (uint64 epoch, ) = _epoch();
+
+        if (commitment.epoch == epoch) {
+            revert CanStillReveal(epoch);
+        }
+
+        uint256 forfeited = commitment.bond;
+        if (forfeited > _reserve[player]) {
+            forfeited = _reserve[player];
+        }
+        _reserve[player] -= forfeited;
+
+        commitment.epoch = 0;
+        commitment.bond = 0;
+
+        emit CommitmentVoid(player, epoch, forfeited);
+    }
+
+    //-------------------------------------------------------------------------
+    // MANUAL EPOCHS
+    //-------------------------------------------------------------------------
 
     function _getManualEpoch() internal view returns (ManualEpoch memory) {
         if (_manualEpoch.epoch == 0) {
@@ -124,8 +207,6 @@ abstract contract UsingGameInternal is
     }
 
     function _moveToNextEpoch() internal returns (ManualEpoch memory) {
-        // TODO add posibility to skip epoch even if turn are timed
-        // TODO add logic to present moving to next epoch if not all player who already in the game has done so
         if (!(COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0)) {
             revert NextPhaseNotAllowed();
         }
@@ -142,8 +223,6 @@ abstract contract UsingGameInternal is
             revert CommitPhaseIsSkipped();
         }
 
-        // TODO add posibility to skip epoch even if turn are timed
-        // TODO add logic to present moving to next epoch if not all player who already in the game has done so
         if (!(COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0)) {
             revert NextPhaseNotAllowed();
         }
@@ -157,29 +236,6 @@ abstract contract UsingGameInternal is
             _manualEpoch.epoch = currentManualEpoch.epoch + 1;
         }
         return _manualEpoch;
-    }
-
-    function _acknowledgeMissedReveal(uint256 avatarID) internal {
-        // TODO burn / stake ....
-        Commitment storage commitment = _commitments[avatarID];
-
-        if (commitment.epoch == 0) {
-            revert NothingToReveal();
-        }
-
-        (uint64 epoch, ) = _epoch();
-
-        if (commitment.epoch == epoch) {
-            revert CanStillReveal(epoch);
-        }
-
-        commitment.epoch = 0;
-
-        // TODO block nft control
-
-        // here we cannot know whether there were further move or even any moves
-        // we just burn all tokens in reserve
-        emit CommitmentVoid(avatarID, epoch);
     }
 
     //-------------------------------------------------------------------------
@@ -213,14 +269,12 @@ abstract contract UsingGameInternal is
 
     function _checkHash(
         bytes24 commitmentHash,
-        bytes memory actions,
+        Placement[] calldata placements,
         bytes32 secret
     ) internal pure {
-        // TODO remove
-        if (commitmentHash == bytes24(0)) {
-            return;
-        }
-        bytes24 computedHash = bytes24(keccak256(abi.encode(secret, actions)));
+        bytes24 computedHash = bytes24(
+            keccak256(abi.encode(secret, placements))
+        );
         if (commitmentHash != computedHash) {
             revert CommitmentHashNotMatching();
         }

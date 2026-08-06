@@ -1,63 +1,51 @@
-// SPDX-License-Identifier: AGPL-3.0
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 import "./UsingGameTypes.sol";
 
 interface UsingGameEvents is UsingGameTypes {
-    /// @notice An avatar has been deposited, ready to enter
-    /// @param avatarID the id of the NFT being deposited
-    /// @param owner the account authorized to get the avatar back
-    /// @param controller the account authorized to control the avatar in-game
-    event AvatarDeposited(
-        uint256 indexed avatarID,
-        address indexed owner,
-        address controller
+    /// @notice A player topped up the reserve they are willing to risk.
+    event ReserveDeposited(
+        address indexed player,
+        uint256 amountAdded,
+        uint256 newAmount
     );
 
-    /// @notice A player has commited to make a move and reveal it on the reveal phase
-    /// @param avatarID avatar whose commitment is made
-    /// @param epoch epoch number on which this commit belongs to
-    /// @param commitmentHash the hash of moves
+    /// @notice A player took tokens back out of their reserve.
+    event ReserveWithdrawn(
+        address indexed player,
+        uint256 amountRemoved,
+        uint256 newAmount
+    );
+
+    /// @notice A player committed to a set of placements for this epoch.
     event CommitmentMade(
-        uint256 indexed avatarID,
-        uint64 indexed epoch,
-        bytes24 commitmentHash
-    );
-
-    /// @notice A player has cancelled its current commitment (before it reached the reveal phase)
-    /// @param avatarID avatar whose commitment is cancelled
-    /// @param epoch epoch number on which this commit belongs to
-    event CommitmentCancelled(uint256 indexed avatarID, uint64 indexed epoch);
-
-    /// @notice A player has acknowledged its failure to reveal its previous commitment
-    /// @param avatarID the account that made the commitment
-    /// @param epoch epoch number on which this commit belongs to
-    event CommitmentVoid(uint256 indexed avatarID, uint64 indexed epoch);
-
-    /// @notice Player has revealed its previous commitment
-    /// @param avatarID avatar id whose action is commited
-    /// @param epoch epoch number on which this commit belongs to
-    /// @param commitmentHash the hash of the moves
-    /// @param actions the actions
-    event CommitmentRevealed(
-        uint256 indexed avatarID,
+        address indexed player,
         uint64 indexed epoch,
         bytes24 commitmentHash,
-        bytes actions
+        uint256 bond
     );
 
-    /// @notice a new epoch/phase has been manually triggered
-    /// @param epoch epoch of the new phase
-    /// @param commiting whether we are in the commiting phase or not
-    event NewPhase(uint64 indexed epoch, bool commiting);
+    /// @notice A player withdrew their commitment before the reveal phase.
+    event CommitmentCancelled(address indexed player, uint64 indexed epoch);
 
-    // DEBUG
-    event PreviousCommitmentNotRevealedEvent(
-        uint256 indexed avatarID,
-        uint64 epoch,
-        bytes24 commitmentHash
+    /// @notice A player revealed what they had committed to.
+    event CommitmentRevealed(
+        address indexed player,
+        uint64 indexed epoch,
+        bytes24 commitmentHash,
+        Placement[] placements,
+        uint256 cost
     );
 
-    // allow to easily inspect errors, instead of revert
-    event Error(bytes4 selector, bytes data);
+    /// @notice A player never revealed, and forfeited their bond for it.
+    event CommitmentVoid(
+        address indexed player,
+        uint64 indexed epoch,
+        uint256 forfeited
+    );
+
+    /// @notice A player took a share of a cell. Cells are shared, so this does
+    ///         not imply anyone lost it.
+    event Placed(address indexed player, uint64 indexed cellID, uint256 stake);
 }

@@ -1,5 +1,4 @@
-import {Abi_Avatars} from '../../generated/abis/Avatars.js';
-import {Abi_AvatarsSale} from '../../generated/abis/AvatarsSale.js';
+import {Abi_GameToken} from '../../generated/abis/GameToken.js';
 import {Abi_IGame} from '../../generated/abis/IGame.js';
 import {loadAndExecuteDeploymentsFromFiles} from '../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
@@ -12,14 +11,14 @@ export function setupFixtures(provider: EthereumProvider) {
 			});
 
 			const Game = env.get<Abi_IGame>('Game');
-			const Avatars = env.get<Abi_Avatars>('Avatars');
-			const AvatarsSale = env.get<Abi_AvatarsSale>('AvatarsSale');
+			const GameToken = env.get<Abi_GameToken>('GameToken');
 
 			const linkedData = Game.linkedData as {
 				startTime: string;
 				commitPhaseDuration: string;
 				revealPhaseDuration: string;
 				time: `0x${string}`;
+				placementCost: string;
 			};
 
 			let _timeOverride: {timestamp: number; whenMs: number} | undefined;
@@ -92,8 +91,8 @@ export function setupFixtures(provider: EthereumProvider) {
 			return {
 				env,
 				Game,
-				Avatars,
-				AvatarsSale,
+				GameToken,
+				linkedData,
 				getEpoch,
 				getTimestamp,
 				advanceToRevealPhase,

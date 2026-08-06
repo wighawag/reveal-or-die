@@ -11,17 +11,26 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     uint256 internal immutable COMMIT_PHASE_DURATION;
     /// @notice the duration of the reveal phase in seconds
     uint256 internal immutable REVEAL_PHASE_DURATION;
-    /// @notice the avatars NFT collection
-    IERC721 internal immutable AVATARS;
+    /// @notice the token players stake in order to place
+    IERC20 internal immutable TOKENS;
+    /// @notice how much one placement costs
+    uint256 internal immutable PLACEMENT_COST;
     /// @notice whether to skip commit phase and let player make their move in the reveal phase (trusted setup)
     bool internal immutable SKIP_COMMIT;
 
-    /// @notice the number of moves a hash represent, after that players make use of furtherMoves
-    uint8 internal constant MAX_NUM_MOVES_PER_HASH = 32;
+    /// @notice the number of placements a hash represents
+    uint8 internal constant MAX_NUM_PLACEMENTS_PER_HASH = 32;
 
-    mapping(uint256 => Player) internal _players;
+    /// @notice A player is nothing but their address here. There is no avatar,
+    ///         no token to own: your identity is your account and what you did.
+    ///         Games that want a controllable entity introduce one themselves.
+    mapping(address => uint256) internal _reserve;
 
-    mapping(uint256 => Commitment) internal _commitments;
+    mapping(address => Commitment) internal _commitments;
+
+    /// @notice The board. Accumulated, never contested: see _reveal.
+    mapping(uint64 => Cell) internal _cells;
+    mapping(uint64 => mapping(address => uint256)) internal _stakeOnCellBy;
 
     ManualEpoch internal _manualEpoch;
 
@@ -31,7 +40,8 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
         START_TIME = config.startTime;
         COMMIT_PHASE_DURATION = config.commitPhaseDuration;
         REVEAL_PHASE_DURATION = config.revealPhaseDuration;
-        AVATARS = config.avatars;
+        TOKENS = config.tokens;
+        PLACEMENT_COST = config.placementCost;
         // TODO allow to specify it separately
         SKIP_COMMIT = COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0;
     }
