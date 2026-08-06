@@ -43,6 +43,24 @@ the previous session. Leave them alone; ask before touching.
 previous history is preserved on the `old` branch. **Nothing is pushed**, and
 the eventual push is a force-push (agreed), keeping `old` as an archive.
 
+**Git tracking is deliberately hybrid, do not "fix" it blindly.**
+
+```
+branch.main.remote     = upstream          (jolly-roger)
+branch.main.merge      = refs/heads/variant/full
+branch.main.pushRemote = origin            (template-commit-reveal)
+```
+
+So `git push` goes to this repo's own origin, while `git status` compares
+against jolly-roger's `variant/full`. That makes `git status` say "your branch
+and 'upstream/variant/full' have diverged, ahead N and behind M", which reads
+like a problem and is not: **ahead** is our work, **behind** is upstream work
+not yet merged down. Merge it with `git merge upstream/variant/full`.
+
+Once the force-push to `origin/main` has happened, switching to
+`git branch -u origin/main main` is the tidier end state (that is how
+`conquest-v1` is set up), with upstream merged in explicitly.
+
 ```
 d34ad44  contracts on jolly-roger's variant/full
 29df48f  the seams, and the framework the four games agree on
