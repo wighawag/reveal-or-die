@@ -1,8 +1,12 @@
 {
-	"name": "jolly-roger-contracts",
+	"name": "template-commit-reveal-contracts",
 	"version": "0.0.0",
 	"type": "module",
 	"exports": {
+		".": {
+			"types": "./dist/js/index.d.ts",
+			"default": "./dist/js/index.js"
+		},
 		"./deploy/*": "./dist/deploy/*",
 		"./rocketh/*": "./dist/rocketh/*",
 		"./artifacts/*": "./dist/generated/artifacts/*",
@@ -17,6 +21,9 @@
 	],
 	"devDependencies": {
 		"@nomicfoundation/hardhat-keystore": "^3.0.8",
+		"@openzeppelin/contracts": "5.4.0",
+		"abitype": "^1.2.1",
+		"solidity-kit": "^0.5.7",
 		"@nomicfoundation/hardhat-network-helpers": "^3.0.7",
 		"@nomicfoundation/hardhat-node-test-runner": "^3.1.0",
 		"@nomicfoundation/hardhat-viem": "^3.0.6",
@@ -66,8 +73,8 @@
 		"fork:deploy": "ldenv pnpm @=HARDHAT_FORK=@@MODE hardhat --network fork deploy --report-gas-used @@",
 		"deploy:dev": "ldenv -d localhost pnpm :deploy:dev+export @@",
 		"deploy:watch": "wait-on ./generated && ldenv -m localhost pnpm as-soon -w generated -w deploy pnpm run deploy:dev @@MODE @@",
-		"test": "hardhat test",
-		"test:watch": "wait-on ./generated && as-soon -w generated -w test hardhat test --no-compile",
+	"test": "hardhat --network test test",
+	"test:watch": "wait-on ./generated && as-soon -w generated -w test hardhat --network test test --no-compile",
 		"typescript:watch": "as-soon -w js pnpm typescript",
 		"format:check": "prettier --check .",
 		"format": "prettier --write .",

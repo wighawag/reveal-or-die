@@ -71,5 +71,5 @@ export function resolveAppConfig(chain: AugmentedChainInfo): ResolvedAppConfig {
 export function operationScopeAddress(
 	deployments: TypedDeployments,
 ): `0x${string}` {
-	return deployments.contracts.GreetingsRegistry.address;
+	return deployments.contracts.Game.address;
 }
