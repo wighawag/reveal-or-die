@@ -50,5 +50,5 @@ that, and both are easy to break by accident.
   what they committed to can simply go quiet. The template makes this concrete
   with a token reserve bonded at commit time and forfeited by
   `acknowledgeMissedReveal`. A game may gate differently (custody of an NFT, for
-  instance); what the framework needs is only that *something* is lost by not
+  instance); what the framework needs is only that _something_ is lost by not
   revealing.
