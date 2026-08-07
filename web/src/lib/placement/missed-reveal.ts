@@ -50,16 +50,14 @@ export type MissedRevealStore = Readable<MissedRevealState> & {
 
 export type MissedRevealDeps = Pick<
 	Context,
-	| 'connection'
-	| 'gameExecutor'
-	| 'deployments'
-	| 'publicClient'
-	| 'gameIdentity'
+	'connection' | 'signerExecutor' | 'deployments' | 'publicClient'
 >;
 
 export function createMissedReveal(params: {
 	deps: MissedRevealDeps;
 	config: PlacementConfig;
+	/** The address that plays, and whose commitment this is. */
+	gameIdentity: Readable<`0x${string}` | undefined>;
 	/** Called once a forfeit settles, so the reserve can be re-read. */
 	onSettled?: () => void;
 }): MissedRevealStore {
@@ -74,7 +72,7 @@ export function createMissedReveal(params: {
 	}
 
 	async function check() {
-		const player = get(deps.gameIdentity);
+		const player = get(params.gameIdentity);
 		if (!player) {
 			set({step: 'Unknown'});
 			return;
@@ -124,11 +122,11 @@ export function createMissedReveal(params: {
 		if ($state.step !== 'Blocked' && $state.step !== 'Failed') return;
 		const {epoch, bond} = $state;
 
-		const player = get(deps.gameIdentity);
+		const player = get(params.gameIdentity);
 		if (!player) return;
 
 		await deps.connection.ensureConnected();
-		const executor = get(deps.gameExecutor);
+		const executor = get(deps.signerExecutor);
 		if (executor.status !== 'ready') return;
 
 		set({step: 'Acknowledging', epoch, bond});

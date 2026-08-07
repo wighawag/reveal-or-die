@@ -238,10 +238,10 @@ export function createHud(context: Context): Readable<HudModel> {
 				planningForNextRound: !playable && !needsSetup,
 				setup: needsSetup,
 				signerGasLabel:
-					context.gameIdentityAvailable && $signerBalance.step === 'Loaded'
-						? `${formatBalance($signerBalance.signer)} ETH`
+					context.hasLocalSigner && $signerBalance.step === 'Loaded'
+						? `${formatBalance($signerBalance.value)} ETH`
 						: undefined,
-				walletSigningNotice: context.gameIdentityAvailable
+				walletSigningNotice: context.hasLocalSigner
 					? undefined
 					: 'No hosted sign-in is configured, so every commit and reveal needs a wallet signature. Set PUBLIC_WALLET_HOST to play with a local signing key instead.',
 

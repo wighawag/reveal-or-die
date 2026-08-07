@@ -5,7 +5,6 @@ import {privateKeyToAccount} from 'viem/accounts';
 import {createAccountData} from '$lib/account/AccountData.js';
 import {establishRemoteConnection} from '$lib/core/connection';
 import {createBalanceStore} from '$lib/core/connection/balance';
-import {createSignerBalanceStore} from '$lib/core/connection/signerBalance';
 import {createGasFeeStore} from '$lib/core/connection/gasFee';
 import {createRpcHealthStore} from '$lib/core/connection/rpcHealth';
 import {createOfflineStore} from '$lib/core/connection/offline';
@@ -25,63 +24,70 @@ import {
 	PUBLIC_CHAIN_INFO_NODE_URL,
 	PUBLIC_USE_BURNER_WALLET,
 	PUBLIC_WALLET_HOST,
-	PUBLIC_EXECUTION_MODE,
+	PUBLIC_IMPERSONATE_ADDRESSES,
 } from '$env/static/public';
 import {burnerOverride} from '$lib';
 import {resolveBurnerWallet} from './burner.js';
-import {resolveConnectionMode} from '$lib/core/connection/mode.js';
+import {
+	resolveConnectionConfig,
+	TARGET_STEP,
+} from '$lib/core/connection/mode.js';
 import {resolveSignerRpc} from '$lib/core/connection/signer-rpc.js';
 import {hasConfiguredRpc} from '$lib/core/connection/rpc-config.js';
 import {
 	createNonceCacheStore,
 	inactiveNonceCacheStore,
 } from '$lib/core/connection/nonce-cache-store.js';
-import {createExecutor} from '$lib/core/connection/executor.js';
+import {
+	createExecutor,
+	memoiseSignerClient,
+	type ExecutorStore,
+} from '$lib/core/connection/executor.js';
 import {createAccountCannotSendStore} from '$lib/core/transaction/account-cannot-send-store.js';
 import {createErrorDetailsStore} from '$lib/core/transaction/error-details-store.js';
 import type {AugmentedChainInfo} from '$lib/core/connection/types.js';
 import {createBalanceCheckStore} from '$lib/core/transaction/balance-check-store.js';
 import {resolveAppConfig, operationScopeAddress} from './config.js';
 import {startTxObserverLoop} from '$lib/core/tx-observer';
-import {IMPERSONATE_ADDRESSES} from '$lib/dev-accounts.js';
+import {parseImpersonateAddresses} from '$lib/dev-accounts.js';
 
+/**
+ * Build the app context.
+ *
+ * Synchronous, and constructible off-browser: every service it composes idles
+ * when browser APIs are absent, so this also runs during SSR and prerendering.
+ * Nothing here starts IO; that belongs to `start()`, which the provider calls
+ * from `onMount`. Readiness is expressed as store state, never as an
+ * unresolved promise. See ADR-0002.
+ */
 /**
  * What the game half is built on.
  *
  * The core services that exist before any game does, and that a game needs in
- * order to read the chain and send transactions. Passing this explicitly (as
- * opposed to the whole `Context`) is what keeps the dependency one-way: the
- * game knows about the core, the core does not know about the game.
+ * order to read the chain and send transactions. Passed explicitly rather than
+ * the whole `Context`, so the dependency stays one-way: the game knows about
+ * the core, the core does not know about the game.
+ *
+ * Note there are TWO executors, and which one a game reaches for is a decision
+ * about who should be prompted. Moves go through `signerExecutor` and are
+ * silent; anything that moves the player's assets goes through
+ * `accountExecutor` and prompts, deliberately.
  */
 export type CoreServices = {
 	connection: Context['connection'];
 	publicClient: Context['publicClient'];
 	deployments: Context['deployments'];
-	/** The authenticated account: the wallet or the hosted sign-in identity. */
 	account: Context['account'];
-	/**
-	 * Sends transactions the way the APP is configured to, which for anything
-	 * that moves the player's money means from their wallet, with a prompt.
-	 */
-	executor: Context['executor'];
-	/**
-	 * Sends the GAME's transactions, always from the local signer. Use this for
-	 * commit and reveal; use `executor` for anything that spends the player's
-	 * funds. See the comment where it is built.
-	 */
-	gameExecutor: Context['executor'];
-	/**
-	 * The address the game plays as (the local signer), or undefined until the
-	 * player is signed in.
-	 */
-	gameIdentity: Readable<`0x${string}` | undefined>;
-	/**
-	 * Whether this deployment can ever produce a signer. False in a wallet-only
-	 * setup, where the game cannot be played and the UI should say so.
-	 */
-	gameIdentityAvailable: boolean;
-	/** Gas held by the signer that pays for moves (and by its owner). */
+	/** The authenticated account. Prompts. For anything that spends assets. */
+	accountExecutor: Context['accountExecutor'];
+	/** The local signer. Silent. For whatever the app does on the user's behalf. */
+	signerExecutor: Context['signerExecutor'];
+	/** Whether this app signs in, and so whether a signer exists at all. */
+	hasLocalSigner: boolean;
+	/** Gas held by the signer: what pays for moves. */
 	signerBalance: Context['signerBalance'];
+	/** Gas held by the authenticated account: what pays for assets. */
+	accountBalance: Context['accountBalance'];
 	balanceCheck: Context['balanceCheck'];
 	accountData: Context['accountData'];
 	txObserver: Context['txObserver'];
@@ -109,19 +115,6 @@ export type InjectedGame = {
 	start(): () => void;
 };
 
-/**
- * Build the app context.
- *
- * Synchronous, and constructible off-browser: every service it composes idles
- * when browser APIs are absent, so this also runs during SSR and prerendering.
- * Nothing here starts IO; that belongs to `start()`, which the provider calls
- * from `onMount`. Readiness is expressed as store state, never as an
- * unresolved promise. See ADR-0002.
- *
- * This is the CORE half: what jolly-roger provides, and what descendants merge
- * down from it. The game is injected through `createGame` so that this file can
- * be taken from upstream more or less unchanged. See `./game.ts`.
- */
 export function createCoreContext(params: {
 	createGame: (services: CoreServices) => InjectedGame;
 }): {
@@ -152,32 +145,29 @@ export function createCoreContext(params: {
 	if (burner.use && typeof window !== 'undefined') {
 		const {cleanup} = initBurnerWallet({
 			nodeURL: burner.nodeURL,
-			impersonateAddresses: [...IMPERSONATE_ADDRESSES],
+			impersonateAddresses: [
+				...parseImpersonateAddresses(PUBLIC_IMPERSONATE_ADDRESSES),
+			],
 		});
 		cleanupBurnerWallet = cleanup;
 	}
 
-	// Resolve the connection + execution mode from env. The one illegal
-	// combination (signer execution without hosted sign-in) is recorded as fatal
-	// here and surfaced by the init-error screen.
-	const modeResolution = resolveConnectionMode(
+	// How the app authenticates. `targetStep` is config (see core/connection/mode);
+	// only the hosted-mechanism host comes from env. Total, so nothing here can
+	// fail: there is no illegal combination left to reject.
+	const {targetStep, walletHost, walletOnly} = resolveConnectionConfig(
+		TARGET_STEP,
 		PUBLIC_WALLET_HOST,
-		PUBLIC_EXECUTION_MODE,
 	);
-	if (!modeResolution.ok) {
-		fatal.set(modeResolution.error);
-	}
-	// Env-derived, so identical on the server and in the browser: the error
-	// screen prerenders and hydrates without a mismatch. The fallback below is
-	// never actually used, since the layout renders the error instead of the app;
-	// it only lets construction finish.
-	const {walletHost, executionMode, targetStep} = modeResolution.ok
-		? modeResolution.mode
-		: {
-				walletHost: undefined,
-				executionMode: 'wallet' as const,
-				targetStep: 'WalletConnected' as const,
-			};
+
+	/**
+	 * Whether this app has a local signer at all.
+	 *
+	 * The one predicate everything downstream uses. Deliberately NOT "is
+	 * PUBLIC_WALLET_HOST set": a wallet-only sign-in has no host and still
+	 * derives a signer, so testing the host would get it wrong.
+	 */
+	const hasLocalSigner = targetStep === 'SignedIn';
 
 	// ----------------------------------------------------------------------------
 	// CONNECTION
@@ -188,14 +178,15 @@ export function createCoreContext(params: {
 		walletClient: rawWalletClient,
 		publicClient,
 		account,
-		// The local signer derived at sign-in. The game plays as this; see the
-		// game executor below.
 		signer,
+		payment,
 		deployments,
 		forceRpcFailure,
 	} = establishRemoteConnection({
 		nodeURL: PUBLIC_NODE_URL,
+		targetStep,
 		walletHost,
+		walletOnly,
 		// The RPC url handed to the WALLET, which is not necessarily the one the
 		// app uses. Without it the exported chain info carries an empty rpc list
 		// (rocketh does not bake a public endpoint into chain info), and a wallet
@@ -215,16 +206,16 @@ export function createCoreContext(params: {
 	// Resolve chain-specific configuration (finality, block time, intervals)
 	// from the chain's optional properties + defaults.
 	const chain = deployments.get().chain as AugmentedChainInfo;
-	const {finality, txObserverProcessInterval, maxMessages} =
+	const {finality, txObserverProcessInterval, maxMessages, credits} =
 		resolveAppConfig(chain);
 
-	// Signer mode broadcasts from a local signer and so needs a real node RPC
-	// (PUBLIC_NODE_URL or an rpcUrl configured on the chain). Wallet mode does
-	// not (the wallet provides the RPC). Signer-mode with no RPC is recorded as
-	// fatal and surfaced by the init-error screen; the resolved url also drives
-	// the signer client's transport below.
+	// A local signer broadcasts raw transactions. It prefers a real node RPC
+	// (PUBLIC_NODE_URL or an rpcUrl configured on the chain), and REQUIRES one
+	// under hosted sign-in, where the account may have no wallet to fall back to.
+	// Missing is recorded as fatal and surfaced by the init-error screen; the
+	// resolved url also drives the signer client's transport below.
 	const signerRpc = resolveSignerRpc(
-		executionMode,
+		{targetStep, walletOnly},
 		PUBLIC_NODE_URL,
 		chain.rpcUrls?.default?.http,
 		import.meta.env.DEV,
@@ -275,137 +266,79 @@ export function createCoreContext(params: {
 	const walletClient = trackerBuilder.using(rawWalletClient, publicClient);
 
 	// ----------------------------------------------------------------------------
-	// TRANSACTION EXECUTOR
+	// TRANSACTION EXECUTORS
 	// ----------------------------------------------------------------------------
-	// Mode-agnostic front for sending transactions (wallet account vs local
-	// signer). Call sites use this instead of the wallet client + account address.
 	//
-	// The signer-mode client is built HERE (not inside the executor) because this
-	// is where its concrete pieces live: the chain from deployments, the node RPC
-	// URL, and the same tracker config as `walletClient` (so signer-mode
-	// transactions get identical metadata/observation wiring). The executor only
-	// sees the finished tracked client, keeping it free of construction concerns.
-	const buildSignerClient = (privateKey: `0x${string}`) => {
+	// TWO of them, named for WHO SIGNS, and call sites pick by intent. There is no
+	// mode and no default: "which account is this transaction from" is a property
+	// of what the transaction DOES, not of how the app is configured.
+	//
+	// - `accountExecutor`: the account the user authenticated as. Prompts. Use it
+	//   for anything only the account may do, or that moves the user's own money
+	//   (getting an asset out of an app, say).
+	// - `signerExecutor`: the local signer, derived at sign-in. Silent, and free
+	//   of the user's attention. Use it for whatever the app does on the user's
+	//   behalf, which for a game is every move.
+	//
+	// Both always exist. The signer one simply never reaches `ready` when the app
+	// does not sign in, so a call site handles that the same way it already
+	// handles "not connected yet" - no optional stores, no branching on config.
+	//
+	// The signer client is built HERE (not inside the executor) because this is
+	// where its concrete pieces live: the chain from deployments, the node RPC
+	// URL, and the same tracker config as `walletClient` (so signer transactions
+	// get identical metadata/observation wiring). The executor only sees the
+	// finished tracked client, keeping it free of construction concerns.
+	//
+	// MEMOISED across both executors, and that matters for correctness rather
+	// than for cost: without it the two would hold DIFFERENT client objects for
+	// the same signer, and the tracking connector, which identifies clients by
+	// reference, would listen to only one of them. See memoiseSignerClient.
+	const buildSignerClient = memoiseSignerClient((privateKey) => {
 		const account = privateKeyToAccount(privateKey);
 		const raw = createWalletClient({
 			account,
 			chain: deployments.get().chain,
 			// Broadcast over the resolved node RPC (PUBLIC_NODE_URL or a chain
-			// rpcUrl). Signer mode guarantees one exists (see resolveSignerRpc
-			// above); the connection-provider fallback only applies to non-signer
-			// use where a signer client would not actually be built.
+			// rpcUrl) when there is one. Hosted sign-in guarantees it (see
+			// resolveSignerRpc above, which makes its absence fatal); under
+			// wallet-only sign-in every account has a wallet, so the connection
+			// provider is a real fallback rather than a hopeful one.
 			transport: signerRpcUrl
 				? http(signerRpcUrl)
 				: custom(connection.provider),
 		});
 		return {client: trackerBuilder.using(raw, publicClient), account};
-	};
+	});
 
-	const executor = createExecutor({
+	const accountExecutor = createExecutor({
 		connection,
 		walletClient,
-		executionMode,
+		sendFrom: 'account',
 		buildSignerClient,
 	});
 
-	// ----------------------------------------------------------------------------
-	// THE GAME'S EXECUTOR
-	// ----------------------------------------------------------------------------
-	//
-	// A SECOND executor, pinned to the local signer whatever `PUBLIC_EXECUTION_MODE`
-	// says. Game moves go through this one; everything else keeps using `executor`.
-	//
-	// A commit-reveal round is at least two transactions per epoch, forever. Sent
-	// from the wallet that means a MetaMask prompt for every commit AND every
-	// reveal, which is unusable for a game and actively dangerous here: a reveal
-	// the player does not approve in time costs them their stake. Worse, an
-	// account authenticated by email or social sign-in has NO wallet provider at
-	// all, so under wallet execution it cannot send anything and simply cannot
-	// play.
-	//
-	// The local signer solves both. It is derived from the signed-in account and
-	// the origin, so it is the same key on every device the player signs in from,
-	// and it can sign without prompting. What it must NOT be used for is spending
-	// the player's money: buying in and topping up the stake stay on `executor`,
-	// so value leaves the wallet the player controls, with a prompt, deliberately.
 	const signerExecutor = createExecutor({
 		connection,
 		walletClient,
-		executionMode: 'signer',
+		sendFrom: 'signer',
 		buildSignerClient,
 	});
-
-	/**
-	 * Whether this deployment has a local signer at all.
-	 *
-	 * A signer only exists under hosted sign-in (`PUBLIC_WALLET_HOST`). Without
-	 * it the connection never reaches `SignedIn`, so there is no key to play
-	 * with and the game falls back to the wallet: correct, but it means a
-	 * signature prompt for every commit and every reveal, and no play at all for
-	 * an email/social account. Surfaced so the UI can say that plainly instead of
-	 * failing one move at a time.
-	 *
-	 * Chosen per DEPLOYMENT rather than per moment. Picking whichever executor
-	 * happens to be ready would quietly send a move through the wallet while a
-	 * sign-in was still in flight, which is the exact prompt this avoids.
-	 */
-	const hasLocalSigner = targetStep === 'SignedIn';
-
-	const gameExecutor = hasLocalSigner ? signerExecutor : executor;
-
-	/** The address the game plays as. */
-	const gameIdentity = hasLocalSigner
-		? derived(signer, ($signer) => $signer?.address)
-		: account;
-	const gameIdentityAvailable = hasLocalSigner;
-
-	/**
-	 * Gas held by the local signer, alongside its owner's.
-	 *
-	 * The signer pays for every move, and it starts empty: it is a fresh key, not
-	 * the player's funded wallet. If it runs dry the round simply stops working,
-	 * so the balance has to be visible up front rather than discovered when a
-	 * reveal fails and takes the stake with it.
-	 *
-	 * `createSignerBalanceStore` ships in `$lib/core` as an unwired building
-	 * block ("for smart-account / session-key setups where the signer is distinct
-	 * from the owner, and a UI wants to show both balances"). That is exactly
-	 * this, so it is wired here.
-	 */
-	const signerBalance = createSignerBalanceStore({publicClient, signer});
 
 	const accountCannotSend = createAccountCannotSendStore();
 	const errorDetails = createErrorDetailsStore();
 
-	// The address that actually pays for transactions: the wallet/owner in wallet
-	// mode, the local signer in signer mode. Balance checks and the top-bar
-	// balance follow this (so the shown/gating balance matches the sender).
-	const executorAddress = derived(executor, ($executor) =>
-		$executor.status === 'ready' ? $executor.address : undefined,
-	);
+	// The address each executor sends from, or undefined until it is ready. The
+	// matching balance follows it, so a shown or gating balance always belongs to
+	// the account that would actually pay.
+	const addressOf = (executor: ExecutorStore) =>
+		derived(executor, ($executor) =>
+			$executor.status === 'ready' ? $executor.address : undefined,
+		);
 
 	// ----------------------------------------------------------------------------
-	// BALANCE AND COSTS
-	// ----------------------------------------------------------------------------
-	//
-	// Built here, ahead of the game, because the game's transactions go through
-	// `balanceCheck` and so it has to exist before `createGame` is called.
 
-	// Spending balance: the address that pays for transactions (executor).
-	const balance = createBalanceStore({
-		publicClient,
-		account: executorAddress,
-	});
-
-	// Owner balance: the authenticated account (wallet/owner). In signer mode it
-	// is a distinct account (whose funds can top up the signer), so it gets its
-	// own poller. In wallet mode owner and spender are the same account, so it IS
-	// the same store instance: consumers can subscribe to both without causing a
-	// second poll for the same address.
-	const ownerBalance =
-		executionMode === 'signer'
-			? createBalanceStore({publicClient, account})
-			: balance;
+	const config = {maxMessages};
 
 	const gasFee = createGasFeeStore({
 		publicClient: publicClient,
@@ -414,11 +347,8 @@ export function createCoreContext(params: {
 
 	const balanceCheck = createBalanceCheckStore({
 		publicClient,
-		balance,
 		gasFee,
 	});
-
-	// ----------------------------------------------------------------------------
 
 	const accountData = createAccountData({
 		accountStore: account,
@@ -440,9 +370,13 @@ export function createCoreContext(params: {
 
 	const tabLeader = createTabLeaderService();
 
+	// Both executors' clients feed Account Data, so a transaction is recorded
+	// whichever key signed it. Operations are keyed by the AUTHENTICATED account,
+	// not by the sender, so the signer's moves and the account's transactions
+	// belong to the same player and land in one list.
 	const trackedWalletConnector = createTrackedWalletConnector({
 		walletClient,
-		executor,
+		executors: [accountExecutor, signerExecutor],
 		accountData,
 	});
 
@@ -456,26 +390,50 @@ export function createCoreContext(params: {
 	});
 
 	// ----------------------------------------------------------------------------
+	// BALANCE AND COSTS
+	// ----------------------------------------------------------------------------
+
+	// One balance per executor, named the same way. A call site that named the
+	// executor it sends from names the matching balance, so the two can never
+	// drift apart the way a single "the balance" did.
+	//
+	// Both are plain pollers over one address, and both are inert until something
+	// subscribes: an app that never shows the signer's gas never fetches it, and
+	// a deployment with no signer never has an address to fetch.
+	const accountBalance = createBalanceStore({
+		publicClient,
+		account: addressOf(accountExecutor),
+	});
+
+	// The signer's gas. Not the same thing as "what the app spends": the signer
+	// pays for what the app does on the user's behalf, and it starts empty, so
+	// this is what the credits UI reads to tell the user they cannot move yet.
+	const signerBalance = createBalanceStore({
+		publicClient,
+		account: addressOf(signerExecutor),
+	});
+
+	// ----------------------------------------------------------------------------
 	// THE GAME
 	// ----------------------------------------------------------------------------
 	//
-	// Injected rather than imported, so this file stays the part a descendant
-	// merges down from jolly-roger untouched. It is built HERE, part-way through,
-	// rather than before or after: the game needs the connection and the balance
-	// check that already exist above, and the RPC-health store and the refresh
-	// action below need the game's chain reads. Construction order is the only
-	// thing that resolves that, so it is made explicit instead of being worked
+	// Injected rather than imported, so this file stays the half that is merged
+	// down from jolly-roger. It is built HERE, part-way through, rather than
+	// before or after: the game needs the connection, the executors and the
+	// balance check that already exist above, while the RPC-health store and the
+	// refresh action below need the game's chain reads. Construction order is the
+	// only thing that resolves that, so it is made explicit instead of worked
 	// around with a placeholder store or a mutable hole.
 	const services: CoreServices = {
 		connection,
 		publicClient,
 		deployments,
 		account,
-		executor,
-		gameExecutor,
-		gameIdentity,
-		gameIdentityAvailable,
+		accountExecutor,
+		signerExecutor,
+		hasLocalSigner,
 		signerBalance,
+		accountBalance,
 		balanceCheck,
 		accountData,
 		txObserver,
@@ -496,7 +454,7 @@ export function createCoreContext(params: {
 	// user Retry) means the RPC is up and clears the banner, without waiting for
 	// the slow gas poller to retry.
 	const rpcHealth = createRpcHealthStore({
-		inputs: [balance, gasFee, gameContext.onchainState],
+		inputs: [accountBalance, gasFee, gameContext.onchainState],
 	});
 
 	// Wallet nonce-cache detection. Only meaningful when the app has its OWN
@@ -524,8 +482,10 @@ export function createCoreContext(params: {
 	const refreshChainData = () => {
 		void gameContext.onchainState.update();
 		void gasFee.update();
-		void balance.update();
-		if (ownerBalance !== balance) void ownerBalance.update();
+		void accountBalance.update();
+		// No-op when there is no signer (the poller's gate refuses the fetch), so
+		// this stays safe in an app that does not sign in.
+		void signerBalance.update();
 	};
 	const offline = createOfflineStore();
 
@@ -539,8 +499,10 @@ export function createCoreContext(params: {
 	const context: Context = {
 		fatal: {subscribe: fatal.subscribe},
 		gasFee,
-		balance,
-		ownerBalance,
+		accountBalance,
+		signerBalance,
+		credits,
+		payment,
 		rpcHealth,
 		nonceCache,
 		refreshChainData,
@@ -550,12 +512,9 @@ export function createCoreContext(params: {
 		offline,
 		connection,
 		walletClient,
-		executor,
-		gameExecutor,
-		gameIdentity,
-		gameIdentityAvailable,
-		signerBalance,
-		executionMode,
+		accountExecutor,
+		signerExecutor,
+		hasLocalSigner,
 		accountCannotSend,
 		errorDetails,
 		publicClient,
@@ -589,7 +548,7 @@ export function createCoreContext(params: {
 			if (burnerFatal) fatal.set(burnerFatal);
 
 			// we trigger it so it is always availabe
-			const unsubscribeFromBalance = balance.subscribe(() => {});
+			const unsubscribeFromBalance = accountBalance.subscribe(() => {});
 			// we trigger it so it is always availabe
 			const unsubscribeFromGasFee = gasFee.subscribe(() => {});
 

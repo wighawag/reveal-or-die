@@ -53,14 +53,14 @@ export function buildPlacementCommitment(params: {
 /**
  * What the adapter needs.
  *
- * `gameExecutor`, NOT `executor`: commit and reveal are signed by the local
+ * `signerExecutor`, NOT `accountExecutor`: commit and reveal are signed by the local
  * signer so the player is never prompted mid-round, and so an account with no
  * wallet provider (email/social sign-in) can play at all. See where the game
  * executor is built in `context/core.ts`.
  */
 export type CommitRevealDeps = Pick<
 	Context,
-	'connection' | 'gameExecutor' | 'deployments' | 'publicClient'
+	'connection' | 'signerExecutor' | 'deployments' | 'publicClient'
 >;
 
 /**
@@ -126,9 +126,9 @@ export function createPlacementCommitReveal(params: {
 	const {deps, config} = params;
 
 	async function ready() {
-		const {connection, gameExecutor, deployments} = deps;
+		const {connection, signerExecutor, deployments} = deps;
 		await connection.ensureConnected();
-		const $executor = get(gameExecutor);
+		const $executor = get(signerExecutor);
 		if ($executor.status === 'cannot-send') {
 			throw new Error('This account cannot send transactions in this mode.');
 		}

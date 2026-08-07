@@ -25,7 +25,7 @@ export type ReserveStore = Readable<ReserveState> & {
 /**
  * What the reserve needs.
  *
- * `executor`, NOT `gameExecutor`: staking moves the player's real money, so it
+ * `accountExecutor`, NOT `signerExecutor`: staking moves the player's real money, so it
  * is paid from the wallet they control, with a prompt, deliberately. The
  * reserve is CREDITED to `gameIdentity` (the local signer), which is the
  * address that will then commit and reveal without prompting. The contract's
@@ -34,17 +34,25 @@ export type ReserveStore = Readable<ReserveState> & {
 export type ReserveDeps = Pick<
 	Context,
 	| 'connection'
-	| 'executor'
+	| 'accountExecutor'
 	| 'deployments'
 	| 'balanceCheck'
 	| 'publicClient'
 	| 'account'
-	| 'gameIdentity'
+	// The payer's gas, so the balance check measures the account that actually
+	// pays. See EnsureCanAffordOptions.
+	| 'accountBalance'
 >;
 
 export function createReserve(params: {
 	deps: ReserveDeps;
 	config: PlacementConfig;
+	/**
+	 * The address that PLAYS, and so the one whose reserve this is. Passed in
+	 * rather than read off the context: which address a game plays as is the
+	 * game's own decision, not something the core knows about.
+	 */
+	gameIdentity: Readable<`0x${string}` | undefined>;
 }): ReserveStore {
 	const {deps} = params;
 	const state = writable<ReserveState>({step: 'Unloaded'});
@@ -53,7 +61,7 @@ export function createReserve(params: {
 		// The reserve belongs to the address that PLAYS; the tokens belong to the
 		// address that PAYS. They are different on purpose, so read each from the
 		// right one.
-		const player = get(deps.gameIdentity);
+		const player = get(params.gameIdentity);
 		const payer = get(deps.account);
 		if (!player || !payer) {
 			state.set({step: 'Unloaded'});
@@ -103,7 +111,7 @@ export function createReserve(params: {
 
 	async function ready() {
 		await deps.connection.ensureConnected();
-		const $executor = get(deps.executor);
+		const $executor = get(deps.accountExecutor);
 		if ($executor.status === 'cannot-send') {
 			throw new Error('This account cannot send transactions in this mode.');
 		}
@@ -125,7 +133,7 @@ export function createReserve(params: {
 		const {executor, deployments} = await ready();
 		// The wallet pays; the signer is credited.
 		const payer = executor.address;
-		const player = get(deps.gameIdentity);
+		const player = get(params.gameIdentity);
 		if (!player) {
 			throw new Error(
 				'Sign in first, so the game has a key to play your moves with.',
@@ -142,15 +150,18 @@ export function createReserve(params: {
 		if (balance < amount) {
 			await sendAndWait(
 				executor,
-				await deps.balanceCheck.ensureCanAfford({
-					contract: {
-						address: deployments.contracts.GameToken.address,
-						abi: deployments.contracts.GameToken.abi,
-						functionName: 'mint',
-						args: [payer, amount - balance],
-						account: executor.account,
+				await deps.balanceCheck.ensureCanAfford(
+					{
+						contract: {
+							address: deployments.contracts.GameToken.address,
+							abi: deployments.contracts.GameToken.abi,
+							functionName: 'mint',
+							args: [payer, amount - balance],
+							account: executor.account,
+						},
 					},
-				}),
+					{balance: deps.accountBalance, sender: payer},
+				),
 				'Minting tokens',
 			);
 		}
@@ -165,30 +176,36 @@ export function createReserve(params: {
 		if (allowance < amount) {
 			await sendAndWait(
 				executor,
-				await deps.balanceCheck.ensureCanAfford({
-					contract: {
-						address: deployments.contracts.GameToken.address,
-						abi: deployments.contracts.GameToken.abi,
-						functionName: 'approve',
-						args: [deployments.contracts.Game.address, amount],
-						account: executor.account,
+				await deps.balanceCheck.ensureCanAfford(
+					{
+						contract: {
+							address: deployments.contracts.GameToken.address,
+							abi: deployments.contracts.GameToken.abi,
+							functionName: 'approve',
+							args: [deployments.contracts.Game.address, amount],
+							account: executor.account,
+						},
 					},
-				}),
+					{balance: deps.accountBalance, sender: payer},
+				),
 				'Approving the game to hold your stake',
 			);
 		}
 
 		await sendAndWait(
 			executor,
-			await deps.balanceCheck.ensureCanAfford({
-				contract: {
-					address: deployments.contracts.Game.address,
-					abi: deployments.contracts.Game.abi,
-					functionName: 'addToReserve',
-					args: [player, amount],
-					account: executor.account,
+			await deps.balanceCheck.ensureCanAfford(
+				{
+					contract: {
+						address: deployments.contracts.Game.address,
+						abi: deployments.contracts.Game.abi,
+						functionName: 'addToReserve',
+						args: [player, amount],
+						account: executor.account,
+					},
 				},
-			}),
+				{balance: deps.accountBalance, sender: payer},
+			),
 			'Adding to your reserve',
 		);
 
@@ -198,17 +215,21 @@ export function createReserve(params: {
 
 	async function withdraw(amount: bigint) {
 		const {executor, deployments} = await ready();
+		const payer = executor.address;
 		await sendAndWait(
 			executor,
-			await deps.balanceCheck.ensureCanAfford({
-				contract: {
-					address: deployments.contracts.Game.address,
-					abi: deployments.contracts.Game.abi,
-					functionName: 'withdrawFromReserve',
-					args: [amount],
-					account: executor.account,
+			await deps.balanceCheck.ensureCanAfford(
+				{
+					contract: {
+						address: deployments.contracts.Game.address,
+						abi: deployments.contracts.Game.abi,
+						functionName: 'withdrawFromReserve',
+						args: [amount],
+						account: executor.account,
+					},
 				},
-			}),
+				{balance: deps.accountBalance, sender: payer},
+			),
 			'Withdrawing from your reserve',
 		);
 		await update();

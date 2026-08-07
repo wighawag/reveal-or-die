@@ -24,14 +24,9 @@ function fakeDeps(options: {
 	readFails?: boolean;
 }) {
 	const writes: string[] = [];
-	// The address the game PLAYS as: the local signer, not the wallet. See
-	// `context/core.ts`.
 	const deps = {
-		gameIdentity: writable(
-			'account' in options ? options.account : PLAYER,
-		) as unknown as never,
 		connection: {ensureConnected: async () => {}} as never,
-		gameExecutor: writable({
+		signerExecutor: writable({
 			status: 'ready',
 			address: PLAYER,
 			account: PLAYER,
@@ -65,18 +60,22 @@ function fakeDeps(options: {
 			},
 		} as never,
 	};
-	return {deps, writes};
+	// The address the game PLAYS as: the local signer, not the wallet.
+	const gameIdentity = writable(
+		'account' in options ? options.account : PLAYER,
+	) as unknown as never;
+	return {deps, gameIdentity, writes};
 }
 
 const config = {placementCost: 10n ** 18n} as never;
 
 describe('a commitment that was never revealed', () => {
 	it('is reported, with what it cost, when it is from a past epoch', async () => {
-		const {deps} = fakeDeps({
+		const {deps, gameIdentity} = fakeDeps({
 			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
-		const store = createMissedReveal({deps, config});
+		const store = createMissedReveal({deps, config, gameIdentity});
 		await store.check();
 
 		expect(store.value).toEqual({
@@ -88,11 +87,11 @@ describe('a commitment that was never revealed', () => {
 	});
 
 	it('is NOT settled without the player asking', async () => {
-		const {deps, writes} = fakeDeps({
+		const {deps, gameIdentity, writes} = fakeDeps({
 			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
-		const store = createMissedReveal({deps, config});
+		const store = createMissedReveal({deps, config, gameIdentity});
 		await store.check();
 
 		// Acknowledging forfeits the bond. Merely noticing must never spend it:
@@ -102,12 +101,12 @@ describe('a commitment that was never revealed', () => {
 	});
 
 	it('forfeits the bond only when acknowledged, and then unblocks play', async () => {
-		const {deps, writes} = fakeDeps({
+		const {deps, gameIdentity, writes} = fakeDeps({
 			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
 		const onSettled = vi.fn();
-		const store = createMissedReveal({deps, config, onSettled});
+		const store = createMissedReveal({deps, config, gameIdentity, onSettled});
 		await store.check();
 
 		await store.acknowledge();
@@ -120,11 +119,11 @@ describe('a commitment that was never revealed', () => {
 	});
 
 	it('leaves a commitment for the CURRENT epoch alone', async () => {
-		const {deps, writes} = fakeDeps({
+		const {deps, gameIdentity, writes} = fakeDeps({
 			commitment: {epoch: 12n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
-		const store = createMissedReveal({deps, config});
+		const store = createMissedReveal({deps, config, gameIdentity});
 		await store.check();
 
 		// It can still be revealed. Acknowledging it would revert with
@@ -135,22 +134,22 @@ describe('a commitment that was never revealed', () => {
 	});
 
 	it('reports nothing when there is no commitment at all', async () => {
-		const {deps} = fakeDeps({
+		const {deps, gameIdentity} = fakeDeps({
 			commitment: {epoch: 0n, bond: 0n},
 			currentEpoch: 12n,
 		});
-		const store = createMissedReveal({deps, config});
+		const store = createMissedReveal({deps, config, gameIdentity});
 		await store.check();
 		expect(store.value.step).toBe('Clear');
 	});
 
 	it('does not claim a stake was lost because a read failed', async () => {
-		const {deps} = fakeDeps({
+		const {deps, gameIdentity} = fakeDeps({
 			commitment: {epoch: 0n, bond: 0n},
 			currentEpoch: 12n,
 			readFails: true,
 		});
-		const store = createMissedReveal({deps, config});
+		const store = createMissedReveal({deps, config, gameIdentity});
 		await store.check();
 
 		// Telling someone they have forfeited a stake is not something to do on
@@ -159,12 +158,12 @@ describe('a commitment that was never revealed', () => {
 	});
 
 	it('keeps the notice up when acknowledging fails, so it can be retried', async () => {
-		const {deps} = fakeDeps({
+		const {deps, gameIdentity} = fakeDeps({
 			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 			writeFails: true,
 		});
-		const store = createMissedReveal({deps, config});
+		const store = createMissedReveal({deps, config, gameIdentity});
 		await store.check();
 		await store.acknowledge();
 

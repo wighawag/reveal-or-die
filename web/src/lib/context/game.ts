@@ -140,6 +140,22 @@ export type GameContext = {
 };
 
 export function createGameContext(core: CoreServices): GameContext {
+	/**
+	 * The address the game plays as: the local signer.
+	 *
+	 * Moves are constant and must not prompt, and an account authenticated by
+	 * email or social sign-in has no wallet provider to prompt with, so the
+	 * signer is the only sender that can work for both. Undefined until the
+	 * player signs in, which the setup gate below turns into an instruction
+	 * rather than a broken board.
+	 *
+	 * Derived here rather than read off the context because WHICH address a game
+	 * plays as is the game's own decision; the core just offers both senders.
+	 */
+	const gameIdentity = derived(core.signerExecutor, ($executor) =>
+		$executor.status === 'ready' ? $executor.address : undefined,
+	);
+
 	// `.get()` rather than `get(store)`: deployments are fixed for the life of
 	// the app, and the game's readers need them synchronously at construction.
 	const deployments = core.deployments.get();
@@ -173,7 +189,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		fetchGate: core.chainFetchGate,
 	});
 
-	const reserve = createReserve({deps: core, config});
+	const reserve = createReserve({deps: core, config, gameIdentity});
 
 	/**
 	 * Storage that follows the connected player.
@@ -191,7 +207,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	function forCurrentPlayer(): RoundStorage<Placement> {
 		// Keyed by the address that PLAYS (the signer), which is what the
 		// contract's commitment is keyed by.
-		const player = get(core.gameIdentity);
+		const player = get(gameIdentity);
 		if (!player) return noRoundStorage;
 		return createRoundStorage({
 			key: roundStorageKey({
@@ -205,6 +221,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	const missedReveal = createMissedReveal({
 		deps: core,
 		config,
+		gameIdentity,
 		// The forfeit comes out of the reserve, so the number on screen changes.
 		onSettled: () => void reserve.update(),
 	});
@@ -230,7 +247,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		storage,
 		// The game plays as the local signer, not as the wallet: see the game
 		// executor in `context/core.ts`.
-		identity: core.gameIdentity,
+		identity: gameIdentity,
 		onSettled: async () => {
 			// A settled round changes both the board and the reserve. Awaited by the
 			// round before it reports itself revealed, so the confirmed placements
@@ -269,7 +286,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * Gas is shown in the HUD as information; it is not a gate.
 	 */
 	const setup = derived(
-		[core.gameIdentity, reserve],
+		[gameIdentity, reserve],
 		([$identity, $reserve]): SetupNeeded | undefined => {
 			if (!$identity) return {step: 'sign-in'};
 			if ($reserve.step === 'Loaded' && $reserve.amount === 0n) {
@@ -295,7 +312,7 @@ export function createGameContext(core: CoreServices): GameContext {
 
 		void reserve.update();
 		void missedReveal.check();
-		const unsubscribeAccount = core.gameIdentity.subscribe(() => {
+		const unsubscribeAccount = gameIdentity.subscribe(() => {
 			void reserve.update();
 			// Whether a commitment is outstanding is a fact about the ACCOUNT, not
 			// about this browser: it has to be re-read when the account changes, and
