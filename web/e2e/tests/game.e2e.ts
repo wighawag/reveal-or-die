@@ -130,6 +130,39 @@ describe('Commit-reveal round', () => {
 		test.slow();
 		const page = connectedPage;
 
+		// The move is signed by the SIGNER, not by the account the user
+		// authenticated as. That split is the whole reason the game is playable:
+		// a round is two transactions every epoch, so sending them from the
+		// wallet would prompt twice a round forever, and an account
+		// authenticated by email has no wallet provider to prompt with at all.
+		const senders = await page.evaluate(() => {
+			const context = (globalThis as unknown as {context: any}).context;
+			const read = <T>(store: {
+				subscribe: (run: (v: T) => void) => unknown;
+			}) => {
+				let value!: T;
+				const stop = store.subscribe((v: T) => (value = v)) as
+					(() => void) | {unsubscribe(): void};
+				if (typeof stop === 'function') stop();
+				else stop.unsubscribe();
+				return value;
+			};
+			const signer = read<any>(context.signerExecutor);
+			return {
+				account: read<string | undefined>(context.account),
+				signer: signer.status === 'ready' ? signer.address : undefined,
+				hasLocalSigner: context.hasLocalSigner,
+			};
+		});
+		expect(senders.hasLocalSigner, 'the app signs in, so a signer exists').toBe(
+			true,
+		);
+		expect(senders.signer, 'the signer should be ready').toBeTruthy();
+		expect(
+			senders.signer?.toLowerCase(),
+			'the game must play as the signer, not as the authenticated account',
+		).not.toBe(senders.account?.toLowerCase());
+
 		// Settle anything left unrevealed by an earlier run.
 		//
 		// The e2e chain is shared and reused, and a commitment that was never
