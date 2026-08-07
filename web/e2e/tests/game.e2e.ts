@@ -59,6 +59,22 @@ async function roundStep(page: import('@playwright/test').Page) {
 	});
 }
 
+/**
+ * Put something at stake, whichever affordance is currently on screen.
+ *
+ * With an empty reserve the HUD shows a "Deposit to play" gate INSTEAD of the
+ * planning controls; once there is a reserve the same action is a secondary
+ * "Add stake" button.
+ */
+async function stake(page: import('@playwright/test').Page) {
+	const deposit = page.getByRole('button', {name: /deposit to play/i});
+	if (await deposit.isVisible({timeout: 5_000}).catch(() => false)) {
+		await deposit.click();
+		return;
+	}
+	await page.getByRole('button', {name: /add stake/i}).click();
+}
+
 /** Where the round clock currently is. */
 async function currentPhase(page: import('@playwright/test').Page) {
 	return page.evaluate(() => {
@@ -141,7 +157,10 @@ describe('Commit-reveal round', () => {
 		// account may already hold a reserve from an earlier run, and asserting
 		// non-zero would pass without the top-up having done anything.
 		const reserveBefore = BigInt((await roundStep(page)).reserve ?? '0');
-		await page.getByRole('button', {name: /add stake/i}).click();
+		// The label depends on whether there is anything staked yet: with an empty
+		// reserve the HUD replaces the planning controls with a deposit prompt,
+		// because planning a turn that cannot be committed only fails later.
+		await stake(page);
 		await expect
 			.poll(
 				async () =>
@@ -312,8 +331,8 @@ describe('A missed reveal', () => {
 		connectWallet,
 		fundWallets,
 	}) => {
-		// Two browser sessions and a whole epoch of waiting.
-		test.setTimeout(300_000);
+		// A committed round, then a whole epoch of waiting for it to lapse.
+		test.setTimeout(400_000);
 		await fundWallets();
 
 		// --- commit, then walk away before the reveal ----------------------
@@ -334,7 +353,10 @@ describe('A missed reveal', () => {
 			await expect(acknowledge).toBeHidden({timeout: 60_000});
 		}
 
-		await page.getByRole('button', {name: /add stake/i}).click();
+		// The label depends on whether there is anything staked yet: with an empty
+		// reserve the HUD replaces the planning controls with a deposit prompt,
+		// because planning a turn that cannot be committed only fails later.
+		await stake(page);
 		await expect
 			.poll(async () => (await roundStep(page)).reserve !== '0', {
 				message: 'a reserve to bond from',
@@ -374,22 +396,32 @@ describe('A missed reveal', () => {
 			})
 			.toBe('Committed');
 
-		// The tab goes away. Nothing is left that could reveal.
-		await first.close();
-
-		// --- a fresh session, with nothing remembered locally --------------
-		const second = await browser.newContext({
-			baseURL,
-			storageState: {cookies: [], origins: []},
+		// Lose everything this browser knew about the round, without losing WHO
+		// the player is.
+		//
+		// The claim under test is that the app learns about a missed reveal from
+		// the CHAIN, so the round's own record is deleted and the page reloaded.
+		// It deliberately does not open a fresh browser context: the burner wallet
+		// generates its accounts per browser, and signing in derives the signer
+		// from those, so a clean context is a different player altogether and would
+		// prove nothing.
+		await page.evaluate(() => {
+			for (const key of Object.keys(localStorage)) {
+				if (key.startsWith('__placement_round__')) localStorage.removeItem(key);
+			}
 		});
-		const later = await second.newPage();
-		await connectFrom(later, connectWallet);
+
+		await page.reload();
+		await expect(page.locator('canvas')).toBeVisible({timeout: 30_000});
+		const later = page;
 
 		const notice = later.getByText(/you missed the reveal for epoch/i);
+		// Nothing is owed until the epoch turns over, and the round rechecks the
+		// chain when it does. Allow more than one full epoch.
 		await expect(
 			notice,
 			'the app should say a reveal was missed, from the chain alone',
-		).toBeVisible({timeout: 120_000});
+		).toBeVisible({timeout: 180_000});
 
 		// It has to say what it cost, not merely that something went wrong.
 		await expect(later.getByText(/is forfeit/i)).toBeVisible();
@@ -411,6 +443,6 @@ describe('A missed reveal', () => {
 			timeout: 120_000,
 		});
 
-		await second.close();
+		await first.close();
 	});
 });
