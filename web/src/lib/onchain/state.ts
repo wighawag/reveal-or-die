@@ -69,6 +69,26 @@ function scopeKey(scope: FetchScope): string {
 	return `${scope.epoch}:${scope.zones.join(',')}`;
 }
 
+/**
+ * How long to keep waiting for the node to reach the epoch we asked for.
+ *
+ * At an epoch boundary the client's clock crosses over before the node has
+ * mined a block on the other side, so a read for the new epoch legitimately
+ * comes back as "not yet". That is normal, not a fault: letting it reach the
+ * polling store as an error would start exponential backoff (10s, 20s, 40s...)
+ * that nothing cancels until the scope changes, and feed the RPC-health banner
+ * a false outage. The player would see a blank board every epoch until they
+ * happened to pan. Conquest hit exactly this; the budget scales with block time
+ * so a slow chain gets proportionally longer.
+ */
+function nodeCatchupBudgetMs(averageBlockTime: number): number {
+	return Math.max(2_000, averageBlockTime * 2_000);
+}
+
+const NODE_CATCHUP_RETRY_MS = 200;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const readableTrue: Readable<boolean> = {
 	subscribe(run) {
 		run(true);
@@ -145,30 +165,39 @@ export function createPollingOnchainState<TState>(params: {
 		async (currentScope) => {
 			if (!currentScope) return emptyState();
 
-			// The contract answers over a block range; ask for roughly two epochs'
-			// worth, doubled, so late blocks cannot hide an event.
-			const toBlock = Number(await publicClient.getBlockNumber());
-			const span = Math.floor(
-				(4 * epochDuration) / currentScope.averageBlockTime,
-			);
-			const fromBlock = Math.max(0, toBlock - span);
+			const deadline =
+				Date.now() + nodeCatchupBudgetMs(currentScope.averageBlockTime);
 
-			const result = await read({
-				zones: currentScope.zones,
-				fromBlock,
-				toBlock,
-				expectedEpoch: currentScope.epoch,
-			});
-
-			if (!result) {
-				// Superseded: the epoch moved on while the read was in flight. A new
-				// scope is already queued, so leave the value alone.
-				throw new Error(
-					`read superseded, epoch moved past ${currentScope.epoch}`,
+			for (;;) {
+				// The contract answers over a block range; ask for roughly two epochs'
+				// worth, doubled, so late blocks cannot hide an event. Re-read per
+				// attempt, since the point of retrying is that the chain moves on.
+				const toBlock = Number(await publicClient.getBlockNumber());
+				const span = Math.floor(
+					(4 * epochDuration) / currentScope.averageBlockTime,
 				);
-			}
+				const fromBlock = Math.max(0, toBlock - span);
 
-			return result;
+				const result = await read({
+					zones: currentScope.zones,
+					fromBlock,
+					toBlock,
+					expectedEpoch: currentScope.epoch,
+				});
+
+				if (result) return result;
+
+				// The node has not reached this epoch yet. Wait it out briefly rather
+				// than reporting a failure (see nodeCatchupBudgetMs); if it persists
+				// past the budget then something really is wrong and the error is
+				// allowed through to the health banner and the backoff.
+				if (Date.now() >= deadline) {
+					throw new Error(
+						`node did not reach epoch ${currentScope.epoch} in time`,
+					);
+				}
+				await delay(NODE_CATCHUP_RETRY_MS);
+			}
 		},
 		{
 			fetchInterval: params.config?.fetchInterval ?? 5_000,

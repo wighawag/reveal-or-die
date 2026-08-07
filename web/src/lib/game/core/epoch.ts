@@ -318,3 +318,21 @@ export function createThreePhase(
 export function currentEpochOf(store: EpochInfoStore): number {
 	return get(store).currentEpoch;
 }
+
+/**
+ * Chain time, in seconds, at which the reveal phase of an epoch opens.
+ *
+ * The inverse of the epoch formula. It exists because a game that schedules its
+ * reveal with an outside service has to say WHEN, at commit time, before that
+ * moment has arrived. Only meaningful for a timed chain; a manually advanced
+ * one moves when someone pushes it, so there is nothing to predict.
+ */
+export function revealPhaseStartTime(
+	config: EpochConfig,
+	epoch: number,
+): number {
+	const epochDuration = config.commitPhaseDuration + config.revealPhaseDuration;
+	return (
+		config.startTime + (epoch - 2) * epochDuration + config.commitPhaseDuration
+	);
+}
