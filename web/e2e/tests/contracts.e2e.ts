@@ -11,13 +11,11 @@ describe('Contracts Page', () => {
 		await expect(selector).toBeVisible({timeout: 5000});
 	});
 
-	test('should display GreetingsRegistry contract by default', async ({
-		page,
-	}) => {
+	test('should display the Game contract by default', async ({page}) => {
 		await page.goto('/contracts');
 
-		// Should show the GreetingsRegistry contract (as button or heading)
-		await expect(page.getByText('GreetingsRegistry').first()).toBeVisible({
+		// Should show the Game contract (as button or heading)
+		await expect(page.getByText('Game').first()).toBeVisible({
 			timeout: 5000,
 		});
 	});
@@ -53,13 +51,11 @@ describe('Contracts Page', () => {
 			page.getByRole('heading', {name: 'View Functions'}),
 		).toBeVisible({timeout: 5000});
 
-		// Should list the getLastMessages or messages function
-		await expect(
-			page
-				.getByText('getLastMessages')
-				.first()
-				.or(page.getByText('messages').first()),
-		).toBeVisible({timeout: 5000});
+		// Should list the game's own view functions. One specific function, not an
+		// `.or()` of two: the union matches both cards and trips strict mode.
+		await expect(page.getByText('getEpoch').first()).toBeVisible({
+			timeout: 5000,
+		});
 	});
 
 	test('should display write functions in Write tab', async ({page}) => {
@@ -70,8 +66,8 @@ describe('Contracts Page', () => {
 		await expect(writeTab).toBeVisible({timeout: 5000});
 		await writeTab.click();
 
-		// Should show the setMessage function
-		await expect(page.getByText('setMessage').first()).toBeVisible({
+		// Should show a state-changing function of the game
+		await expect(page.getByText('addToReserve').first()).toBeVisible({
 			timeout: 5000,
 		});
 	});
@@ -84,18 +80,10 @@ describe('Contracts Page', () => {
 		await expect(readTab).toBeVisible({timeout: 5000});
 		await readTab.click();
 
-		// Find the getLastMessages function card and expand it or click call
+		// `getEpoch` takes no arguments, so it can be called with nothing filled in
 		const functionCard = page.locator('[class*="card"]').filter({
-			hasText: 'getLastMessages',
+			hasText: 'getEpoch',
 		});
-
-		// If there's a limit input, fill it
-		const limitInput = functionCard
-			.locator('input[type="text"], input[type="number"]')
-			.first();
-		if (await limitInput.isVisible({timeout: 500}).catch(() => false)) {
-			await limitInput.fill('10');
-		}
 
 		// Click the call/query button
 		const callButton = functionCard.getByRole('button', {
@@ -134,9 +122,9 @@ describe('Contracts Page', () => {
 });
 
 describe('Contracts Page - Write Functions', () => {
-	// Write from the SECOND burner account: the GreetingsRegistry keeps one
-	// message per account and the demo suite (running in a parallel worker)
-	// writes from the first account. Distinct accounts = no cross-file clobber.
+	// Write from the SECOND burner account. The game keys state by player
+	// address, and the game suite (running in a parallel worker) plays from the
+	// first account, so distinct accounts keep the two files from interfering.
 	test.use({walletAccountIndex: 1});
 
 	test('should trigger wallet connection when calling write function', async ({
@@ -149,23 +137,24 @@ describe('Contracts Page - Write Functions', () => {
 		await expect(writeTab).toBeVisible({timeout: 10000});
 		await writeTab.click();
 
-		// Wait for setMessage text to appear
-		const setMessageText = page.getByText('setMessage nonpayable');
-		await expect(setMessageText).toBeVisible({timeout: 10000});
+		// Wait for the write function to appear
+		const writeFunctionText = page.getByText('addToReserve nonpayable');
+		await expect(writeFunctionText).toBeVisible({timeout: 10000});
 
 		// Find the parent section containing the function
 		const functionSection = page
 			.locator('[class*="card"], [class*="function"]')
 			.filter({
-				has: setMessageText,
+				has: writeFunctionText,
 			})
 			.first();
 
-		// Fill in the message input (placeholder "Enter text...")
-		const messageInput = functionSection
-			.getByPlaceholder('Enter text...')
+		// Zero is a deliberately harmless amount: this test is about the connect
+		// flow, and a real top-up would need a token allowance first.
+		const amountInput = functionSection
+			.getByPlaceholder('Enter number or 0x...')
 			.first();
-		await messageInput.fill('Test message from contracts page');
+		await amountInput.fill('0');
 
 		// Click the Execute button (or Connect + Execute if wallet not connected)
 		const executeButton = functionSection.getByRole('button', {
@@ -210,7 +199,7 @@ describe('Contracts Page - Write Functions', () => {
 
 		const page = connectedPage;
 
-		// Navigate to contracts page (connectedPage starts at /demo)
+		// Navigate to contracts page (connectedPage starts at /play)
 		await page.goto('/contracts');
 
 		// Wait for page to load
@@ -237,24 +226,24 @@ describe('Contracts Page - Write Functions', () => {
 		await expect(writeTab).toBeVisible({timeout: 10000});
 		await writeTab.click();
 
-		// Wait for setMessage text to appear
-		const setMessageText = page.getByText('setMessage nonpayable');
-		await expect(setMessageText).toBeVisible({timeout: 10000});
+		// Wait for the write function to appear
+		const writeFunctionText = page.getByText('addToReserve nonpayable');
+		await expect(writeFunctionText).toBeVisible({timeout: 10000});
 
 		// Find the parent section containing the function
 		const functionSection = page
 			.locator('[class*="card"], [class*="function"]')
 			.filter({
-				has: setMessageText,
+				has: writeFunctionText,
 			})
 			.first();
 
-		// Fill in a message
-		const uniqueMessage = `Contract test ${Date.now()}`;
-		const messageInput = functionSection
-			.getByPlaceholder('Enter text...')
+		// Zero again: what is under test is that a write reaches the chain from
+		// this page and settles, not what the game does with it.
+		const amountInput = functionSection
+			.getByPlaceholder('Enter number or 0x...')
 			.first();
-		await messageInput.fill(uniqueMessage);
+		await amountInput.fill('0');
 
 		// Click the Execute button (wallet already connected)
 		const executeButton = functionSection.getByRole('button', {
@@ -268,21 +257,8 @@ describe('Contracts Page - Write Functions', () => {
 		// and returns quickly when none do.
 		await connectWallet(page);
 
-		// Wait for transaction
+		// The write reached the chain and every in-flight operation settled.
 		await waitForTransaction(page);
-
-		// Should show success or the message should be visible on demo page
-		await page.goto('/demo');
-
-		// Wait for demo page to load
-		await expect(page.getByPlaceholder('Enter your greeting...')).toBeVisible({
-			timeout: 10000,
-		});
-
-		// Check for the message (might have prefix from contract)
-		await expect(page.getByText(uniqueMessage)).toBeVisible({
-			timeout: 30000,
-		});
 	});
 });
 

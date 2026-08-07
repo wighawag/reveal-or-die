@@ -62,11 +62,11 @@ export interface WalletOptions {
 	 * Which burner account (index into IMPERSONATE_ADDRESSES) the connect flow
 	 * picks in the account-picker dialog.
 	 *
-	 * All e2e tests share ONE chain and the GreetingsRegistry keeps ONE message
-	 * per account, so two test files writing from the same account clobber each
-	 * other's message mid-test (files run in parallel workers). Give a file that
-	 * writes messages its own account with `test.use({walletAccountIndex: 1})`
-	 * so its writes cannot race the demo suite's (which uses the default 0).
+	 * All e2e tests share ONE chain, and the game keys a commitment by player
+	 * address: one open commitment per account per epoch. Two files committing
+	 * from the same account (files run in parallel workers) would fight over it,
+	 * so a file that commits takes its own account with
+	 * `test.use({walletAccountIndex: 1})`.
 	 */
 	walletAccountIndex: number;
 }
@@ -94,13 +94,6 @@ export interface WalletFixtures {
 	 * Waits for a transaction to be confirmed.
 	 */
 	waitForTransaction: (page: Page) => Promise<void>;
-
-	/**
-	 * Submit a greeting and wait until it is visible and settled on-chain.
-	 * Preferred over open-coding fill/click/waitForTransaction: it fails at the
-	 * step that actually broke instead of at a later assertion.
-	 */
-	submitGreeting: (page: Page, message: string) => Promise<void>;
 
 	/**
 	 * Ensures the test wallet addresses have ETH on the Hardhat node.
@@ -288,8 +281,6 @@ async function handleInsufficientFundsModal(page: Page): Promise<void> {
 	);
 }
 
-const MESSAGE_ROW = '[data-testid="message-row"]';
-const MESSAGE_PENDING = '[data-testid="message-pending"]';
 // The app's own count of operations that have not reached a final state. Not
 // demo-specific, so a suite for any feature can wait on it.
 const PENDING_OPERATIONS = '[data-testid="pending-operations"]';
@@ -311,43 +302,6 @@ async function waitForTransactionComplete(page: Page): Promise<void> {
 	await expect(
 		page.locator(PENDING_OPERATIONS),
 		'all in-flight operations should have settled',
-	).toHaveCount(0, {timeout: 60_000});
-}
-
-/**
- * Submit a greeting and wait until it is on-chain and settled.
- *
- * Tests previously open-coded fill -> click -> waitForTransaction and then
- * asserted the text separately. Each step could silently no-op, so the failure
- * always landed on the final assertion regardless of which step actually broke.
- * Doing it in one place means the error names the step that failed.
- */
-async function submitGreeting(page: Page, message: string): Promise<void> {
-	const input = page.getByPlaceholder('Enter your greeting...');
-	await expect(input, 'greeting input should be ready').toBeEnabled({
-		timeout: 30_000,
-	});
-	await input.fill(message);
-
-	const sendButton = page.getByRole('button', {name: /send/i});
-	await expect(
-		sendButton,
-		'send should be enabled once input has text',
-	).toBeEnabled({timeout: 30_000});
-	await sendButton.click();
-
-	// A write can surface a funding prompt before it reaches the chain.
-	await handleInsufficientFundsModal(page);
-
-	// The row appears optimistically with a pending spinner, then settles.
-	const row = page.locator(MESSAGE_ROW).filter({hasText: message});
-	await expect(
-		row,
-		`greeting "${message}" should appear in the list`,
-	).toBeVisible({timeout: 60_000});
-	await expect(
-		row.locator(MESSAGE_PENDING),
-		`greeting "${message}" should settle on-chain`,
 	).toHaveCount(0, {timeout: 60_000});
 }
 
@@ -409,12 +363,13 @@ export const test = base.extend<WalletFixtures & WalletOptions>({
 		// This ensures the wallet has ETH when the app auto-connects
 		await fundWallets();
 
-		// Navigate to demo page
-		await page.goto('/demo');
+		// Navigate to the game
+		await page.goto('/play');
 
-		// Wait for app to initialize
-		const input = page.getByPlaceholder('Enter your greeting...');
-		await expect(input).toBeVisible({timeout: 30000});
+		// Wait for the app to initialise. The canvas is the game's surface, and
+		// it only mounts in the browser (pixi needs a real WebGL context).
+		const canvas = page.locator('canvas');
+		await expect(canvas).toBeVisible({timeout: 30000});
 
 		// Ask the app whether it is connected, rather than inferring it from the
 		// navbar balance: the balance span is empty while loading and hidden below
@@ -424,13 +379,12 @@ export const test = base.extend<WalletFixtures & WalletOptions>({
 		if (!(await isWalletConnected(page))) {
 			// Connect through the navbar's dedicated Connect affordance.
 			//
-			// This used to fill the input and `click({force: true})` the Send button.
-			// Two problems: `force` skips actionability, so while the app was still
-			// initialising and Send was disabled the click was a silent no-op - no
-			// dialog opened, the connect flow never started, and the fixture handed
-			// back an unconnected page. It also wrote a junk "fixture-connection-test"
-			// greeting to the chain on every single test purely as a side effect of
-			// connecting, costing a transaction and polluting the message list.
+			// This used to provoke the connect flow by driving a feature of the page
+			// and force-clicking its submit button. Two problems: `force` skips
+			// actionability, so while the app was still initialising the click was a
+			// silent no-op - no dialog opened, the connect flow never started, and
+			// the fixture handed back an unconnected page. It also sent a junk
+			// transaction on every single test purely as a side effect of connecting.
 			const connectButton = page
 				.getByRole('button', {name: /^connect$/i})
 				.first();
@@ -446,9 +400,6 @@ export const test = base.extend<WalletFixtures & WalletOptions>({
 
 		// Never hand a test a page that is not actually connected.
 		await expectWalletConnected(page);
-
-		// The input must be interactive before the test starts driving it.
-		await expect(input).toBeEnabled({timeout: 30_000});
 
 		await use(page);
 	},
@@ -467,13 +418,6 @@ export const test = base.extend<WalletFixtures & WalletOptions>({
 	 */
 	waitForTransaction: async ({}, use) => {
 		await use(waitForTransactionComplete);
-	},
-
-	/**
-	 * Provides the atomic submit-and-settle helper.
-	 */
-	submitGreeting: async ({}, use) => {
-		await use(submitGreeting);
 	},
 });
 

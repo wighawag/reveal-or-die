@@ -9,35 +9,32 @@ describe('Home Page', () => {
 		await expect(icon).toBeVisible();
 	});
 
-	test('should have a link to the demo page', async ({page}) => {
+	test('should have a link to the game', async ({page}) => {
 		await page.goto('/');
 
-		// Find the "Check The Demo" button
-		const demoButton = page.getByRole('link', {name: /check the demo/i});
-		await expect(demoButton).toBeVisible();
-		await expect(demoButton).toHaveAttribute('href', /\/demo/);
+		const playButton = page.getByRole('link', {name: /^play$/i}).first();
+		await expect(playButton).toBeVisible();
+		await expect(playButton).toHaveAttribute('href', /\/play/);
 	});
 });
 
 describe('Home Page - Navigation', () => {
-	test('should navigate to demo page and back', async ({page}) => {
+	test('should navigate to the game and back', async ({page}) => {
 		await page.goto('/');
 
-		// Wait for the page to be fully loaded
-		const demoLink = page.getByRole('link', {name: /check the demo/i});
-		await expect(demoLink).toBeVisible({timeout: 10000});
+		const playLink = page.getByRole('link', {name: /^play$/i}).first();
+		await expect(playLink).toBeVisible({timeout: 10000});
 
-		// Go to demo. A click during SvelteKit hydration can be swallowed (the
+		// Go to the game. A click during SvelteKit hydration can be swallowed (the
 		// router installs its handler mid-flight), so retry until the URL changes.
 		await expect(async () => {
-			await demoLink.click();
-			await page.waitForURL(/demo/, {timeout: 3000});
+			await playLink.click();
+			await page.waitForURL(/play/, {timeout: 3000});
 		}).toPass({timeout: 15000});
 
-		// Verify we're on demo page by checking for the heading
-		await expect(
-			page.getByRole('heading', {name: /greetings registry/i}),
-		).toBeVisible({timeout: 10000});
+		// The canvas is the game: it only mounts in the browser, so its presence
+		// also says hydration got as far as running the page's own code.
+		await expect(page.locator('canvas')).toBeVisible({timeout: 15000});
 
 		// Navigate directly back to home using goto
 		await page.goto('/');
