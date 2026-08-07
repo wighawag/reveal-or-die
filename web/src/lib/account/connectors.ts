@@ -124,9 +124,13 @@ export function createTransactionObserverConnector(params: {
 }
 
 /// Listen for tx observer events and refresh onchain state when transactions are included
-export function createOnchainStateRefreshConnector(params: {
+///
+/// Generic over the game's state shape: the connector only ever calls
+/// `update()`, so it works for any implementation of the state seam (a poller,
+/// or an indexer).
+export function createOnchainStateRefreshConnector<TState>(params: {
 	txObserver: TransactionObserver;
-	onchainState: OnchainStateStore;
+	onchainState: OnchainStateStore<TState>;
 }) {
 	const {txObserver, onchainState} = params;
 

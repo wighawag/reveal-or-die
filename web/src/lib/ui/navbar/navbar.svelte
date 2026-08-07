@@ -123,12 +123,12 @@
 				Home
 			</a>
 			<a
-				href={route('/demo/')}
-				class="rounded px-2 py-1 text-sm transition-colors {isActive('/demo')
+				href={route('/play/')}
+				class="rounded px-2 py-1 text-sm transition-colors {isActive('/play')
 					? 'bg-primary/20 font-semibold text-primary'
 					: 'text-muted-foreground hover:text-foreground hover:underline'}"
 			>
-				Demo
+				Play
 			</a>
 		</span>
 		<div class="flex items-center space-x-2">

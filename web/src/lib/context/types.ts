@@ -1,6 +1,7 @@
 import type {Account, CustomTransport} from 'viem';
 import type {Readable} from 'svelte/store';
 import type {BalanceStore} from '$lib/core/connection/balance';
+import type {SignerBalanceStore} from '$lib/core/connection/signerBalance';
 import type {GasFeeStore} from '$lib/core/connection/gasFee';
 import type {RpcHealthStore} from '$lib/core/connection/rpcHealth';
 import type {NonceCacheStore} from '$lib/core/connection/nonce-cache-store';
@@ -21,6 +22,9 @@ import type {
 } from '$lib/account/AccountData';
 import type {OnchainStateStore} from '$lib/onchain/state';
 import type {ViewStateStore} from '$lib/view';
+import type {Game, Render} from './game';
+import type {BoardState} from '$lib/placement/state';
+import type {BoardView} from '$lib/placement/view';
 import type {ClockStore} from '$lib/core/clock';
 import type {TransactionObserver} from '@etherkit/tx-observer';
 import type {BalanceCheckStore} from '$lib/core/transaction/balance-check-store';
@@ -112,6 +116,36 @@ export type Context = {
 	 * cannot send under the configured execution mode.
 	 */
 	executor: ExecutorStore;
+	/**
+	 * Sends the GAME's transactions, always from the local signer, whatever
+	 * `executionMode` says.
+	 *
+	 * A commit-reveal round is at least two transactions every epoch. Sent from
+	 * the wallet that is a prompt per commit and per reveal, which is unusable
+	 * for a game and costs the player their stake when a reveal prompt is missed;
+	 * and an email/social account has no wallet provider at all, so it could not
+	 * play. Use this for moves, and `executor` for anything that spends money.
+	 */
+	gameExecutor: ExecutorStore;
+	/**
+	 * The address the game plays as: the local signer. Undefined until sign-in,
+	 * and always undefined in a wallet-only deployment.
+	 */
+	gameIdentity: Readable<`0x${string}` | undefined>;
+	/**
+	 * Whether this deployment can produce a signer at all. False without hosted
+	 * sign-in, where the game cannot be played and the UI should say so rather
+	 * than failing one move at a time.
+	 */
+	gameIdentityAvailable: boolean;
+	/**
+	 * Gas held by the local signer, and by its owner.
+	 *
+	 * The signer pays for every game move and starts empty, so this is what the
+	 * UI watches to tell the player their play key needs topping up - before a
+	 * move fails, rather than after.
+	 */
+	signerBalance: SignerBalanceStore;
 	/** Configured execution mode ('wallet' or 'signer'). */
 	executionMode: ExecutionMode;
 	/** Notice shown when the connected account cannot send in the current mode. */
@@ -122,8 +156,17 @@ export type Context = {
 	account: AccountStore;
 	deployments: DeploymentsStore;
 	accountData: MultiAccountDataStore;
-	onchainState: OnchainStateStore;
-	viewState: ViewStateStore;
+	/**
+	 * The game's chain state. Typed as the template game's board here; a
+	 * descendant points these two at its own shapes, which is the only change
+	 * this file needs.
+	 */
+	onchainState: OnchainStateStore<BoardState & {epoch: number}>;
+	viewState: ViewStateStore<BoardView>;
+	/** The commit-reveal game: epochs, the round, what is at stake. */
+	game: Game;
+	/** The render surface and the camera that scopes what is loaded. */
+	render: Render;
 	clock: Clock;
 	txObserver: TransactionObserver;
 	txObserverDebug: TxObserverDebugStore;
