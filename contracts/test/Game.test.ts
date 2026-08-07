@@ -73,7 +73,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'addToReserve',
-			args: [parseEther('10')],
+			args: [player, parseEther('10')],
 		});
 
 		expect(
@@ -162,7 +162,7 @@ describe('Game', function () {
 				await env.execute(Game, {
 					account: player,
 					functionName: 'addToReserve',
-					args: [parseEther('10')],
+					args: [player, parseEther('10')],
 				});
 			}
 
@@ -260,7 +260,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'addToReserve',
-			args: [parseEther('10')],
+			args: [player, parseEther('10')],
 		});
 
 		const placements: Placement[] = [{cellID: cellAt(1, 1)}];
@@ -288,6 +288,86 @@ describe('Game', function () {
 		expect(
 			await env.read(Game, {functionName: 'getReserve', args: [player]}),
 		).toEqual(parseEther('6'));
+	});
+
+	it('lets one address pay the stake and another play with it', async function () {
+		// The split the whole client architecture depends on: a player's moves are
+		// signed by a local key that holds no funds, while the stake is paid from
+		// the wallet that does. Without this, a wallet prompt would be required for
+		// every commit and every reveal, and an email/social account (which has no
+		// wallet provider at all) could not play.
+		const {
+			env,
+			Game,
+			GameToken,
+			unnamedAccounts,
+			advanceToEpoch,
+			advanceToRevealPhase,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
+
+		const payer = unnamedAccounts[0]; // the wallet, holds the money
+		const player = unnamedAccounts[1]; // the signing key, holds nothing
+
+		const {epoch: startEpoch} = getEpoch(await getTimestamp());
+		await advanceToEpoch(startEpoch + 2, true);
+
+		await env.execute(GameToken, {
+			account: payer,
+			functionName: 'mint',
+			args: [payer, parseEther('100')],
+		});
+		await env.execute(GameToken, {
+			account: payer,
+			functionName: 'approve',
+			args: [Game.address, parseEther('100')],
+		});
+
+		// The payer stakes ON BEHALF OF the player.
+		await env.execute(Game, {
+			account: payer,
+			functionName: 'addToReserve',
+			args: [player, parseEther('10')],
+		});
+
+		expect(
+			await env.read(Game, {functionName: 'getReserve', args: [player]}),
+		).toEqual(parseEther('10'));
+		expect(
+			await env.read(Game, {functionName: 'getReserve', args: [payer]}),
+		).toEqual(0n);
+
+		// And the player, who never held a token, can now play on it.
+		const placements: Placement[] = [{cellID: cellAt(5, 5)}];
+		await env.execute(Game, {
+			account: player,
+			functionName: 'makeCommitment',
+			args: [
+				commitmentHash(placements, SECRET_A),
+				parseEther('1'),
+				zeroAddress,
+			],
+		});
+
+		const {epoch} = getEpoch(await getTimestamp());
+		await advanceToRevealPhase(epoch, true);
+		await env.execute(Game, {
+			account: player,
+			functionName: 'reveal',
+			args: [player, placements, SECRET_A, zeroAddress],
+		});
+
+		const cell = (await env.read(Game, {
+			functionName: 'getCell',
+			args: [cellAt(5, 5)],
+		})) as {totalStake: bigint; numClaimants: number};
+		expect(cell.totalStake).toEqual(parseEther('1'));
+
+		// Paid for out of the reserve the payer funded.
+		expect(
+			await env.read(Game, {functionName: 'getReserve', args: [player]}),
+		).toEqual(parseEther('9'));
 	});
 
 	it('lists placed cells in a zone', async function () {
@@ -319,7 +399,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'addToReserve',
-			args: [parseEther('10')],
+			args: [player, parseEther('10')],
 		});
 
 		// Two cells inside zone 0 (which spans -8..7 on both axes).

@@ -71,15 +71,32 @@ export const config = {
 				price: parseEther('0.00000001'),
 			},
 		},
+		/**
+		 * Phase durations.
+		 *
+		 * The reveal phase is the one to be careful with, and it used to be 3-4
+		 * seconds. That is not survivable: a client has to NOTICE the phase turned
+		 * over (the chain-synced clock ticks once a second), estimate gas, sign,
+		 * broadcast, and then be MINED, all inside the window - and the contract
+		 * judges the attempt by the timestamp of the block it lands in, not by when
+		 * it was sent. Measured against a local node, a reveal fired the instant the
+		 * phase opened still landed about 5 seconds later and reverted with
+		 * `InCommitmentPhase`, forfeiting the bond.
+		 *
+		 * A missed reveal costs the player their stake, so this cannot be tuned
+		 * optimistically. Size the reveal phase to comfortably exceed one block time
+		 * plus a client round trip; ten seconds is generous on a local chain and is
+		 * the floor to think from on a real one.
+		 */
 		Game: {
 			localhost: {
-				commitPhaseDuration: 40n,
-				revealPhaseDuration: 3n,
+				commitPhaseDuration: 30n,
+				revealPhaseDuration: 10n,
 				numMoves: 10n,
 			},
 			default: {
-				commitPhaseDuration: 40n,
-				revealPhaseDuration: 4n,
+				commitPhaseDuration: 30n,
+				revealPhaseDuration: 10n,
 				numMoves: 10n,
 			},
 		},

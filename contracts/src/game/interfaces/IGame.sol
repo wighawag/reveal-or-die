@@ -6,8 +6,12 @@ import "./UsingGameEvents.sol";
 import "./UsingGameErrors.sol";
 
 interface IGameCommit is UsingGameTypes {
-    /// @notice Top up the reserve you are willing to risk.
-    function addToReserve(uint256 amount) external;
+    /// @notice Top up the reserve a player is willing to risk.
+    /// @dev Takes `player` rather than crediting msg.sender, so that the stake
+    ///      can be paid from the wallet holding the funds while the game is
+    ///      played by a local signing key that holds none. Anyone may top up
+    ///      anyone; only the owner can withdraw.
+    function addToReserve(address player, uint256 amount) external;
 
     /// @notice Take tokens back out. What is bonded to an open commitment stays.
     function withdrawFromReserve(uint256 amount) external;

@@ -8,9 +8,18 @@ contract GameCommit is IGameCommit, UsingGameInternal {
     constructor(Config memory config) UsingGameInternal(config) {}
 
     /// @inheritdoc IGameCommit
-    function addToReserve(uint256 amount) external {
+    function addToReserve(address player, uint256 amount) external {
         if (amount > 0) {
-            _addToReserve(msg.sender, amount);
+            // Paid by msg.sender, CREDITED to `player`. These are deliberately
+            // allowed to differ: a player's moves are signed by a local key that
+            // never holds funds, while the stake is paid from the wallet that
+            // does. Without this split the wallet would have to sign every commit
+            // and reveal, and an email/social account (which has no wallet at
+            // all) could not play.
+            //
+            // Safe to leave open: topping up someone else's reserve is a gift,
+            // and the reserve can only ever be withdrawn by its owner.
+            _addToReserve(player, amount);
             TOKENS.transferFrom(msg.sender, address(this), amount);
         }
     }
