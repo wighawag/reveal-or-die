@@ -81,6 +81,15 @@ export type RoundState<TAction> =
 			epoch: number;
 			during: 'commit' | 'reveal';
 			message: string;
+			/**
+			 * What actually failed, not just how it reads.
+			 *
+			 * Carried so a game can tell one failure from another and offer the
+			 * matching remedy - a signer with no gas can be topped up and the move
+			 * retried, a reverted commitment cannot. Classifying by matching on
+			 * `message` would work until someone reworded it.
+			 */
+			error: unknown;
 			actions: readonly TAction[];
 	  };
 
@@ -290,6 +299,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 				epoch,
 				during: 'commit',
 				message: messageOf(error),
+				error,
 				actions,
 			});
 		}
@@ -337,6 +347,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 				epoch: pending.epoch,
 				during: 'reveal',
 				message: messageOf(error),
+				error,
 				actions: pending.actions,
 			});
 		}

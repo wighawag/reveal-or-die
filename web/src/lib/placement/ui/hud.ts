@@ -14,6 +14,7 @@ import type {RoundState} from '$lib/game/core/round';
 import type {Placement} from '../commit-reveal';
 import type {ReserveState} from '../reserve';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
+import {isInsufficientFunds} from '../errors';
 import type {SetupNeeded} from '$lib/context/game';
 
 export type HudModel = {
@@ -65,6 +66,12 @@ export type HudModel = {
 	canCommit: boolean;
 	canReveal: boolean;
 	canClear: boolean;
+	/**
+	 * Set when the move failed because the key that signs moves has no gas.
+	 * The one failure the player can fix, so it is named and given a button
+	 * rather than left as a transaction error.
+	 */
+	outOfGas?: {detail: string};
 
 	/**
 	 * Set when an unrevealed commitment is blocking play. Holds what was lost and
@@ -107,6 +114,15 @@ export function describeRound(state: RoundState<Placement>): {
 				tone: 'bad',
 			};
 		case 'Error':
+			if (isInsufficientFunds(state.error)) {
+				return {
+					label:
+						state.during === 'commit'
+							? 'Your moves could not be sent: no gas left to play with.'
+							: 'Your reveal could not be sent: no gas left to play with.',
+					tone: 'bad',
+				};
+			}
 			return {
 				label:
 					state.during === 'commit'
@@ -255,12 +271,25 @@ export function createHud(context: Context): Readable<HudModel> {
 				// round commits by itself if the player leaves it too late. An
 				// unrevealed commitment blocks it entirely: the contract would reject
 				// it, so offering the button would only spend gas to be told no.
+				// A failed commit can be tried again while the phase is open: the
+				// plan is still here and nothing was spent.
 				canCommit:
-					!blocked && $round.step === 'Planning' && $count > 0 && playable,
+					!blocked &&
+					($round.step === 'Planning' ||
+						($round.step === 'Error' && $round.during === 'commit')) &&
+					$count > 0 &&
+					playable,
 				// Offered as a fallback only. The round reveals on its own, because a
 				// missed reveal forfeits the bond and the window can be seconds long.
 				canReveal: $round.step === 'Error' && $round.during === 'reveal',
 				canClear: $round.step === 'Planning' && $count > 0,
+				outOfGas:
+					$round.step === 'Error' && isInsufficientFunds($round.error)
+						? {
+								detail:
+									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this round carries on by itself.',
+							}
+						: undefined,
 			};
 		},
 	);

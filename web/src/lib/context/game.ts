@@ -62,6 +62,7 @@ import {
 	roundStorageKey,
 } from '$lib/placement/storage';
 import {createPlanning, type PlanningStore} from '$lib/placement/planning';
+import {isInsufficientFunds} from '$lib/placement/errors';
 import {createReserve, type ReserveStore} from '$lib/placement/reserve';
 import {
 	blocksCommitting,
@@ -325,6 +326,30 @@ export function createGameContext(core: CoreServices): GameContext {
 			if ($round.step === 'Missed') void missedReveal.check();
 		});
 
+		// Carry on once the gas arrives.
+		//
+		// A move that failed for want of gas is the one failure the player can
+		// fix, and the fix happens elsewhere (the top-up flow, reachable from the
+		// HUD and the top bar). Watching the SIGNER'S BALANCE rather than the flow
+		// keeps the two decoupled: whatever put gas in the account - the flow, a
+		// faucet, a transfer by hand - the round resumes.
+		//
+		// It matters most for a reveal, where the window is short and the stake is
+		// already committed: asking the player to notice the failure, top up, and
+		// then also remember to press retry is three chances to lose their bond.
+		let gasSeen: bigint | undefined;
+		const unsubscribeGas = core.signerBalance.subscribe(($balance) => {
+			if ($balance.step !== 'Loaded') return;
+			const previous = gasSeen;
+			gasSeen = $balance.value;
+			if (previous === undefined || $balance.value <= previous) return;
+
+			const $round = round.value;
+			if ($round.step !== 'Error' || !isInsufficientFunds($round.error)) return;
+			if ($round.during === 'reveal') void round.reveal();
+			else void round.commit();
+		});
+
 		// Re-check when the epoch turns over.
 		//
 		// Whether a commitment counts as MISSED is a question about the current
@@ -347,6 +372,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			unsubscribeAccount();
 			unsubscribeRound();
 			unsubscribeEpoch();
+			unsubscribeGas();
 		};
 	}
 

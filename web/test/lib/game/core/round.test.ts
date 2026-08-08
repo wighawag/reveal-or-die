@@ -451,6 +451,29 @@ describe('the commit-reveal round', () => {
 		stop();
 	});
 
+	it('carries the cause of a failure, not just its wording', async () => {
+		// The game classifies failures to decide what to offer: a signer with no
+		// gas can be topped up and the move retried, a reverted commitment cannot.
+		// Matching on the message would work until someone reworded it.
+		const {epochInfo} = fakeEpochs(0);
+		const storage = fakeStorage<Action>();
+		const cause = new Error('insufficient funds for gas * price + value');
+		const {adapter} = fakeAdapter({
+			commit: async () => {
+				throw cause;
+			},
+		});
+		const round = createRound({epochInfo, adapter, storage, identity});
+		const stop = round.start();
+
+		round.plan([{cellID: 1n}]);
+		await round.commit();
+
+		expect(round.value).toMatchObject({step: 'Error', during: 'commit'});
+		expect((round.value as {error: unknown}).error).toBe(cause);
+		stop();
+	});
+
 	it('does nothing without a player', async () => {
 		const {epochInfo} = fakeEpochs(0);
 		const storage = fakeStorage<Action>();

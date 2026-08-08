@@ -12,6 +12,7 @@ import {encodeAbiParameters, keccak256, zeroAddress, type Account} from 'viem';
 import type {Context} from '$lib/context/types';
 import type {CommitRevealAdapter} from '$lib/game/core/seams';
 import {costOfPlacements, type PlacementConfig} from './config';
+import {isInsufficientFunds, SignerOutOfFundsError} from './errors';
 
 /** One placement, matching the contract's `Placement` struct. */
 export type Placement = {cellID: bigint};
@@ -101,7 +102,16 @@ async function send(
 	request: unknown,
 	what: string,
 ): Promise<`0x${string}`> {
-	const hash = await executor.client.writeContract(request as never);
+	let hash: `0x${string}`;
+	try {
+		hash = await executor.client.writeContract(request as never);
+	} catch (error) {
+		// The signer has run out of gas. Named as its own type so the UI can
+		// offer the remedy (topping it up) instead of a dead end, and so the
+		// round can carry on once the money lands. See ./errors.
+		if (isInsufficientFunds(error)) throw new SignerOutOfFundsError(error);
+		throw error;
+	}
 	const receipt = await deps.publicClient.waitForTransactionReceipt({hash});
 	if (receipt.status === 'reverted') {
 		throw new Error(`${what} was rejected by the contract`);

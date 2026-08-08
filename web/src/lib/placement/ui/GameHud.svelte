@@ -19,6 +19,9 @@
 	const planning = game.planning;
 	const reserve = game.reserve;
 	const missedReveal = game.missedReveal;
+	// One shared flow, built in the context, so the account panel and a blocked
+	// move cannot open two top-ups at once.
+	const topUp = context.topUp;
 
 	/** What the "Add stake" button tops the reserve up by. */
 	const TOP_UP = parseEther('10');
@@ -122,6 +125,22 @@
 			{/if}
 		{:else}
 			<p class="text-sm {toneClass[$hud.roundTone]}">{$hud.roundLabel}</p>
+
+			{#if $hud.outOfGas}
+				<!--
+					The one failure with a remedy. The round retries itself once the
+					gas arrives, so this offers the top-up and says so, rather than
+					asking the player to also remember to press something after.
+				-->
+				<div
+					class="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2"
+				>
+					<p class="text-xs text-muted-foreground">{$hud.outOfGas.detail}</p>
+					<Button size="sm" class="mt-2" onclick={() => topUp.start()}>
+						Top up and carry on
+					</Button>
+				</div>
+			{/if}
 
 			<dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
 				<dt class="text-muted-foreground">Planned</dt>
