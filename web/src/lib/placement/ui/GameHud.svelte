@@ -130,10 +130,6 @@
 				<dd>{$hud.costLabel}</dd>
 				<dt class="text-muted-foreground">Reserve</dt>
 				<dd>{$hud.reserveLabel}</dd>
-				{#if $hud.signerGasLabel}
-					<dt class="text-muted-foreground">Play key gas</dt>
-					<dd>{$hud.signerGasLabel}</dd>
-				{/if}
 			</dl>
 
 			{#if $hud.warning}

@@ -25,7 +25,11 @@ import {
 	PUBLIC_USE_BURNER_WALLET,
 	PUBLIC_WALLET_HOST,
 	PUBLIC_IMPERSONATE_ADDRESSES,
+	PUBLIC_FAUCET_LINK,
+	PUBLIC_FAUCET_API,
 } from '$env/static/public';
+import {hasFaucet} from '$lib/core/ui/faucet/index.js';
+import {createTopUpFlow} from '$lib/ui/credits/top-up-flow.js';
 import {burnerOverride} from '$lib';
 import {resolveBurnerWallet} from './burner.js';
 import {
@@ -489,6 +493,34 @@ export function createCoreContext(params: {
 	};
 	const offline = createOfflineStore();
 
+	// Built here rather than in the component that shows it, because the account
+	// panel and the insufficient-funds modal must drive the SAME flow: the modal
+	// opens it for a transaction that is already blocked, and the panel opens it
+	// on its own, and a second instance would let both run at once.
+	//
+	// For this template that second driver matters more than it does upstream:
+	// the signer pays for every commit and every reveal, so it is the account
+	// that runs dry, and it is the one a faucet aimed at the user's wallet can
+	// never fix.
+	const topUp = createTopUpFlow(
+		{
+			connection,
+			payment,
+			signerBalance,
+			credits,
+			deployments,
+			accountExecutor,
+			accountBalance,
+			publicClient,
+			balanceCheck,
+		},
+		{
+			faucetApi: PUBLIC_FAUCET_API,
+			faucetLink: PUBLIC_FAUCET_LINK,
+			hasFaucet,
+		},
+	);
+
 	// Debug store for tx-observer processing stats
 	const txObserverDebug = writable<TxObserverDebugState>({
 		processCount: 0,
@@ -525,6 +557,7 @@ export function createCoreContext(params: {
 		txObserver,
 		txObserverDebug: {subscribe: txObserverDebug.subscribe},
 		balanceCheck,
+		topUp,
 		// The game half, spread in so call sites see one context.
 		onchainState: gameContext.onchainState,
 		viewState: gameContext.viewState,

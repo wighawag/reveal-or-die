@@ -53,8 +53,6 @@ export type HudModel = {
 	 * the failure only arrives when the round is already closing.
 	 */
 	setup?: {headline: string; detail: string; action?: 'stake'};
-	/** Gas held by the key that signs moves, when there is a distinct one. */
-	signerGasLabel?: string;
 
 	plannedCount: number;
 	costLabel: string;
@@ -193,7 +191,6 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.epochInfo,
 			game.missedReveal,
 			game.setup,
-			context.signerBalance,
 		],
 		([
 			$phase,
@@ -204,7 +201,6 @@ export function createHud(context: Context): Readable<HudModel> {
 			$epoch,
 			$missedReveal,
 			$setup,
-			$signerBalance,
 		]): HudModel => {
 			const round = describeRound($round);
 			const reserve = $reserve as ReserveState;
@@ -237,10 +233,6 @@ export function createHud(context: Context): Readable<HudModel> {
 				// saying to someone who cannot play at all yet.
 				planningForNextRound: !playable && !needsSetup,
 				setup: needsSetup,
-				signerGasLabel:
-					context.hasLocalSigner && $signerBalance.step === 'Loaded'
-						? `${formatBalance($signerBalance.value)} ETH`
-						: undefined,
 				walletSigningNotice: context.hasLocalSigner
 					? undefined
 					: 'No hosted sign-in is configured, so every commit and reveal needs a wallet signature. Set PUBLIC_WALLET_HOST to play with a local signing key instead.',
