@@ -12,7 +12,8 @@ import {encodeAbiParameters, keccak256, zeroAddress, type Account} from 'viem';
 import type {Context} from '$lib/context/types';
 import type {CommitRevealAdapter} from '$lib/game/core/seams';
 import {costOfPlacements, type PlacementConfig} from './config';
-import {isInsufficientFunds, SignerOutOfFundsError} from './errors';
+import {isInsufficientFundsFailure} from '$lib/core/transaction';
+import {SignerOutOfFundsError} from './errors';
 
 /** One placement, matching the contract's `Placement` struct. */
 export type Placement = {cellID: bigint};
@@ -106,10 +107,17 @@ async function send(
 	try {
 		hash = await executor.client.writeContract(request as never);
 	} catch (error) {
-		// The signer has run out of gas. Named as its own type so the UI can
-		// offer the remedy (topping it up) instead of a dead end, and so the
-		// round can carry on once the money lands. See ./errors.
-		if (isInsufficientFunds(error)) throw new SignerOutOfFundsError(error);
+		// THE boundary. This is the only place in the game that sees a raw node
+		// error, so it is the only place that classifies one: everything
+		// downstream asks `instanceof SignerOutOfFundsError` instead of running
+		// upstream's classifier again over an error this app already named.
+		//
+		// Named as its own type so the UI can offer the remedy (topping the
+		// SIGNER up) instead of a dead end, and so the round can carry on once
+		// the money lands. See ./errors.
+		if (isInsufficientFundsFailure(error)) {
+			throw new SignerOutOfFundsError(error);
+		}
 		throw error;
 	}
 	const receipt = await deps.publicClient.waitForTransactionReceipt({hash});

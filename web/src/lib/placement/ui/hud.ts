@@ -14,7 +14,7 @@ import type {RoundState} from '$lib/game/core/round';
 import type {Placement} from '../commit-reveal';
 import type {ReserveState} from '../reserve';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
-import {isInsufficientFunds} from '../errors';
+import {SignerOutOfFundsError} from '../errors';
 import type {SetupNeeded} from '$lib/context/game';
 
 export type HudModel = {
@@ -114,8 +114,22 @@ export function describeRound(state: RoundState<Placement>): {
 				tone: 'bad',
 			};
 		case 'Error':
-			if (isInsufficientFunds(state.error)) {
+			// The type, not upstream's classifier: by the time an error reaches the
+			// round it has been through `send()` in ../commit-reveal, which is where
+			// the node's wording is read. Asking again here would re-derive an
+			// answer the app already committed to, and could disagree with it.
+			if (state.error instanceof SignerOutOfFundsError) {
 				return {
+					// NOT `INSUFFICIENT_FUNDS_SUMMARY`, though the barrel now exports it
+					// and it says the same thing about the same failure. Upstream's
+					// sentence is "this account does not have enough funds", which is
+					// exactly right for a transaction the player initiated from their
+					// wallet and wrong here: the account is a signer they were never
+					// told about, so "this account" reads as their wallet, which is
+					// probably funded. They would go looking at a balance that is fine.
+					// The remedy is to top up the SIGNER, so the message has to point at
+					// it ("gas left to play with", spelled out in `outOfGas` below).
+					// Upstream names the failure; the game names whose it is.
 					label:
 						state.during === 'commit'
 							? 'Your moves could not be sent: no gas left to play with.'
@@ -284,7 +298,8 @@ export function createHud(context: Context): Readable<HudModel> {
 				canReveal: $round.step === 'Error' && $round.during === 'reveal',
 				canClear: $round.step === 'Planning' && $count > 0,
 				outOfGas:
-					$round.step === 'Error' && isInsufficientFunds($round.error)
+					$round.step === 'Error' &&
+					$round.error instanceof SignerOutOfFundsError
 						? {
 								detail:
 									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this round carries on by itself.',

@@ -1,4 +1,11 @@
 import {test, expect, describe} from '../fixtures/test';
+import {
+	clearAnyMissedReveal,
+	planOnCanvas,
+	roundStep,
+	stake,
+	stakeOnCell,
+} from '../fixtures/game';
 
 /**
  * The commit-reveal round, end to end against a real chain.
@@ -11,106 +18,6 @@ import {test, expect, describe} from '../fixtures/test';
  * The helpers read state out of the app rather than off the screen, so an
  * assertion fails on what the game believes rather than on how it rendered.
  */
-
-/** Read the round out of the app, rather than inferring it from pixels. */
-async function roundStep(page: import('@playwright/test').Page) {
-	return page.evaluate(() => {
-		const read = <T>(store: {subscribe: (run: (v: T) => void) => unknown}) => {
-			let value!: T;
-			const unsubscribe = read_unsub(store, (v: T) => (value = v));
-			unsubscribe();
-			return value;
-		};
-		function read_unsub<T>(
-			store: {subscribe: (run: (v: T) => void) => unknown},
-			run: (v: T) => void,
-		) {
-			const result = store.subscribe(run) as
-				(() => void) | {unsubscribe(): void};
-			return typeof result === 'function' ? result : () => result.unsubscribe();
-		}
-		const context = (globalThis as unknown as {context: any}).context;
-		const round = read<any>(context.game.round);
-		const view = read<any>(context.viewState);
-		const reserve = read<any>(context.game.reserve);
-
-		// The cell this round is about, and what the board says about it. Every
-		// bigint leaves as a string: bigint cannot cross the evaluate boundary.
-		const cellID =
-			'actions' in round && round.actions.length > 0
-				? round.actions[0].cellID
-				: undefined;
-		const cell =
-			view.step === 'Loaded' && cellID !== undefined
-				? view.cells.get(cellID)
-				: undefined;
-
-		return {
-			step: round.step as string,
-			message: round.message as string | undefined,
-			reserve:
-				reserve.step === 'Loaded' ? reserve.amount.toString() : undefined,
-			cellID: cellID === undefined ? undefined : cellID.toString(),
-			planned:
-				view.step === 'Loaded'
-					? [...view.cells.values()].filter((c: any) => c.planned).length
-					: -1,
-		};
-	});
-}
-
-/**
- * Put something at stake, whichever affordance is currently on screen.
- *
- * With an empty reserve the HUD shows a "Deposit to play" gate INSTEAD of the
- * planning controls; once there is a reserve the same action is a secondary
- * "Add stake" button.
- */
-async function stake(page: import('@playwright/test').Page) {
-	const deposit = page.getByRole('button', {name: /deposit to play/i});
-	if (await deposit.isVisible({timeout: 5_000}).catch(() => false)) {
-		await deposit.click();
-		return;
-	}
-	await page.getByRole('button', {name: /add stake/i}).click();
-}
-
-/** Where the round clock currently is. */
-async function currentPhase(page: import('@playwright/test').Page) {
-	return page.evaluate(() => {
-		const context = (globalThis as unknown as {context: any}).context;
-		let phase: any;
-		const unsubscribe = context.game.threePhase.subscribe(
-			(p: any) => (phase = p),
-		);
-		if (typeof unsubscribe === 'function') unsubscribe();
-		return {phase: phase.phase as string, timeLeft: phase.timeLeft as number};
-	});
-}
-
-/**
- * The confirmed stake on one cell, as the board reports it.
- *
- * Assertions are made against the CHANGE in this rather than against an
- * absolute figure: the e2e chain is shared and reused, so the cell may
- * already carry stake from an earlier run. Total stake rather than the
- * claimant count for the same reason - a second placement by an account that
- * already holds a share of the cell adds stake without adding a claimant.
- */
-async function stakeOnCell(
-	page: import('@playwright/test').Page,
-	cellID: string,
-) {
-	return page.evaluate((id: string) => {
-		const context = (globalThis as unknown as {context: any}).context;
-		let view: any;
-		const unsubscribe = context.viewState.subscribe((v: any) => (view = v));
-		if (typeof unsubscribe === 'function') unsubscribe();
-		if (view.step !== 'Loaded') return '0';
-		const cell = view.cells.get(BigInt(id));
-		return cell ? cell.totalStake.toString() : '0';
-	}, cellID);
-}
 
 /**
  * A placement is planned locally, committed as a hash, and only becomes part of
@@ -163,21 +70,7 @@ describe('Commit-reveal round', () => {
 			'the game must play as the signer, not as the authenticated account',
 		).not.toBe(senders.account?.toLowerCase());
 
-		// Settle anything left unrevealed by an earlier run.
-		//
-		// The e2e chain is shared and reused, and a commitment that was never
-		// revealed blocks every later one. It is NOT cleared automatically -
-		// acknowledging forfeits the bond, so the player has to ask for it - which
-		// means the test has to ask for it too, exactly as a person would.
-		const acknowledge = page.getByRole('button', {
-			name: /acknowledge missed reveal/i,
-		});
-		if (await acknowledge.isVisible({timeout: 5_000}).catch(() => false)) {
-			await acknowledge.click();
-			await expect(acknowledge, 'acknowledging should unblock play').toBeHidden(
-				{timeout: 60_000},
-			);
-		}
+		await clearAnyMissedReveal(page);
 
 		// Something must be at stake, or there is no reason to reveal. The
 		// template gates on a token reserve bonded at commit time.
@@ -205,50 +98,9 @@ describe('Commit-reveal round', () => {
 			)
 			.toBe(true);
 
-		// Wait for a play phase with room left in it.
-		//
-		// A plan made in the wrong part of the cycle is not a bug, it just expires:
-		// the round drops an uncommitted plan when the epoch turns over (nothing was
-		// at stake). Funding the reserve above takes a few transactions, so by this
-		// point the cycle could be anywhere.
-		await expect
-			.poll(
-				async () => {
-					const phase = await currentPhase(page);
-					return phase.phase === 'play' && phase.timeLeft > 8;
-				},
-				{
-					message: 'a play phase with time to spare',
-					timeout: 120_000,
-				},
-			)
-			.toBe(true);
-
-		// Let any dialog finish animating away before aiming at the canvas.
-		// A connect dialog on its way out still covers the middle of the screen for
-		// a couple of hundred milliseconds, and a click that lands on it is
-		// swallowed silently - the round simply never becomes Planning, which reads
-		// like the canvas ignoring input. A person is never fast enough to hit this;
-		// a test is.
-		await expect(page.locator('[role="dialog"]')).toHaveCount(0, {
-			timeout: 15_000,
-		});
-
-		// Click a cell. The canvas maps the click to a world coordinate itself.
-		const canvas = page.locator('canvas');
-		const box = await canvas.boundingBox();
-		if (!box) throw new Error('the canvas has no layout box');
-		await page.mouse.click(
-			box.x + box.width / 2 + 40,
-			box.y + box.height / 2 + 30,
-		);
-
-		await expect
-			.poll(async () => (await roundStep(page)).step, {
-				message: 'clicking a cell should plan a placement',
-				timeout: 15_000,
-			})
-			.toBe('Planning');
+		// Plan a placement by clicking the canvas. Offset from the middle so the
+		// two suites in this file aim at different cells.
+		await planOnCanvas(page, {x: 40, y: 30});
 
 		const planned = await roundStep(page);
 		expect(
@@ -378,13 +230,7 @@ describe('A missed reveal', () => {
 
 		// Clear anything an earlier run left behind, so this test creates the
 		// state it is about rather than inheriting it.
-		const acknowledge = page.getByRole('button', {
-			name: /acknowledge missed reveal/i,
-		});
-		if (await acknowledge.isVisible({timeout: 5_000}).catch(() => false)) {
-			await acknowledge.click();
-			await expect(acknowledge).toBeHidden({timeout: 60_000});
-		}
+		await clearAnyMissedReveal(page);
 
 		// The label depends on whether there is anything staked yet: with an empty
 		// reserve the HUD replaces the planning controls with a deposit prompt,
@@ -397,28 +243,7 @@ describe('A missed reveal', () => {
 			})
 			.toBe(true);
 
-		await expect
-			.poll(
-				async () => {
-					const phase = await currentPhase(page);
-					return phase.phase === 'play' && phase.timeLeft > 8;
-				},
-				{message: 'a play phase with time to spare', timeout: 120_000},
-			)
-			.toBe(true);
-
-		await expect(page.locator('[role="dialog"]')).toHaveCount(0, {
-			timeout: 15_000,
-		});
-		const box = await page.locator('canvas').boundingBox();
-		if (!box) throw new Error('the canvas has no layout box');
-		await page.mouse.click(
-			box.x + box.width / 2 + 70,
-			box.y + box.height / 2 + 50,
-		);
-		await expect
-			.poll(async () => (await roundStep(page)).step, {timeout: 15_000})
-			.toBe('Planning');
+		await planOnCanvas(page, {x: 70, y: 50});
 
 		const commit = page.getByRole('button', {name: /commit now/i});
 		if (await commit.isEnabled().catch(() => false)) await commit.click();

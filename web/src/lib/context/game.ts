@@ -62,7 +62,7 @@ import {
 	roundStorageKey,
 } from '$lib/placement/storage';
 import {createPlanning, type PlanningStore} from '$lib/placement/planning';
-import {isInsufficientFunds} from '$lib/placement/errors';
+import {SignerOutOfFundsError} from '$lib/placement/errors';
 import {createReserve, type ReserveStore} from '$lib/placement/reserve';
 import {
 	blocksCommitting,
@@ -139,6 +139,62 @@ export type GameContext = {
 	/** Begin the game's own IO. Returns the teardown. */
 	start(): () => void;
 };
+
+/**
+ * Carry on once the gas arrives.
+ *
+ * A move that failed for want of gas is the one failure the player can fix, and
+ * the fix happens elsewhere (the top-up flow, reachable from the HUD and the
+ * top bar). Watching the SIGNER'S BALANCE rather than the flow keeps the two
+ * decoupled: whatever put gas in the account - the flow, a faucet, a transfer
+ * by hand - the round resumes.
+ *
+ * It matters most for a reveal, where the window is short and the stake is
+ * already committed: asking the player to notice the failure, top up, and then
+ * also remember to press retry is three chances to lose their bond.
+ *
+ * Its own function, taking only the two stores it reads, because it is the one
+ * piece of wiring here that SPENDS the player's gas without being asked. That
+ * deserves tests, and tests of it should not require standing up an app
+ * context. Exported for the tests and used only just below.
+ */
+export function resumeWhenGasArrives(params: {
+	round: Pick<
+		RoundStore<`0x${string}`, Placement>,
+		'subscribe' | 'value' | 'commit' | 'reveal'
+	>;
+	signerBalance: Readable<{step: string; value?: bigint}>;
+}): () => void {
+	const {round, signerBalance} = params;
+	let gasSeen: bigint | undefined;
+
+	return signerBalance.subscribe(($balance) => {
+		if ($balance.step !== 'Loaded' || $balance.value === undefined) return;
+		const previous = gasSeen;
+		gasSeen = $balance.value;
+		// Only a RISE, and never the first reading. The first reading is just this
+		// browser learning what the balance already was, which fixes nothing, and a
+		// balance that fell is the failed move's own gas being spent elsewhere.
+		if (previous === undefined || $balance.value <= previous) return;
+
+		const $round = round.value;
+		// The type the game constructed at its own boundary, not a fresh look at
+		// the node's wording. This decides whether to SPEND the player's gas
+		// unprompted, so it must resume only for the failure the arriving money
+		// actually fixes: any other error is still an error once the balance rises,
+		// and retrying it just burns the top-up.
+		if (
+			$round.step !== 'Error' ||
+			!($round.error instanceof SignerOutOfFundsError)
+		) {
+			return;
+		}
+		// Which one is not a detail: revealing when a commit failed would send a
+		// reveal for a commitment that was never made.
+		if ($round.during === 'reveal') void round.reveal();
+		else void round.commit();
+	});
+}
 
 export function createGameContext(core: CoreServices): GameContext {
 	/**
@@ -326,28 +382,9 @@ export function createGameContext(core: CoreServices): GameContext {
 			if ($round.step === 'Missed') void missedReveal.check();
 		});
 
-		// Carry on once the gas arrives.
-		//
-		// A move that failed for want of gas is the one failure the player can
-		// fix, and the fix happens elsewhere (the top-up flow, reachable from the
-		// HUD and the top bar). Watching the SIGNER'S BALANCE rather than the flow
-		// keeps the two decoupled: whatever put gas in the account - the flow, a
-		// faucet, a transfer by hand - the round resumes.
-		//
-		// It matters most for a reveal, where the window is short and the stake is
-		// already committed: asking the player to notice the failure, top up, and
-		// then also remember to press retry is three chances to lose their bond.
-		let gasSeen: bigint | undefined;
-		const unsubscribeGas = core.signerBalance.subscribe(($balance) => {
-			if ($balance.step !== 'Loaded') return;
-			const previous = gasSeen;
-			gasSeen = $balance.value;
-			if (previous === undefined || $balance.value <= previous) return;
-
-			const $round = round.value;
-			if ($round.step !== 'Error' || !isInsufficientFunds($round.error)) return;
-			if ($round.during === 'reveal') void round.reveal();
-			else void round.commit();
+		const unsubscribeGas = resumeWhenGasArrives({
+			round,
+			signerBalance: core.signerBalance,
 		});
 
 		// Re-check when the epoch turns over.

@@ -110,6 +110,47 @@ async function fundAppSenders(page: Page): Promise<void> {
 		.not.toBe('0');
 }
 
+/**
+ * Take every last wei off the signer, and wait until the app has SEEN it.
+ *
+ * The failure the whole top-up remedy exists for, reproduced the way it happens
+ * in life: the signer is a fresh key holding only what someone put in it, and a
+ * round spends from it twice an epoch forever. Waiting for the app to observe
+ * the drop matters as much as the drop itself - the balance store polls, and a
+ * test that moved on immediately would be reasoning about a stale number.
+ */
+export async function drainSignerGas(page: Page): Promise<void> {
+	const {signer} = await appSenderAddresses(page);
+	if (!signer) throw new Error('no signer to drain: is the app signed in?');
+	await fundAddressViaHardhat(signer, '0');
+	await expect
+		.poll(async () => (await appBalances(page)).signer, {
+			timeout: 30_000,
+			message: 'app should observe the drained signer balance',
+		})
+		.toBe('0');
+}
+
+/**
+ * Put gas back, WITHOUT telling the app to do anything about it.
+ *
+ * Deliberately an external transfer rather than a click on the top-up button:
+ * the app is supposed to resume from the balance rising, whatever caused it (a
+ * faucet, a transfer by hand, someone else paying), and a test that pressed the
+ * app's own button would prove only that the button works.
+ */
+export async function refillSignerGas(page: Page): Promise<void> {
+	const {signer} = await appSenderAddresses(page);
+	if (!signer) throw new Error('no signer to refill: is the app signed in?');
+	await fundAddressViaHardhat(signer, '100');
+	await expect
+		.poll(async () => (await appBalances(page)).signer ?? '0', {
+			timeout: 30_000,
+			message: 'app should observe the refilled signer balance',
+		})
+		.not.toBe('0');
+}
+
 /** Balances as the APP currently sees them, as decimal strings. */
 async function appBalances(
 	page: Page,

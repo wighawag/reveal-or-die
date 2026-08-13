@@ -64,6 +64,20 @@ and 'upstream/variant/full' have diverged, ahead N and behind M", which reads
 like a problem and is not: **ahead** is our work, **behind** is upstream work
 not yet merged down. Merge it with `git merge upstream/variant/full`.
 
+**Fetch before concluding a commit is missing.** The last merge began with "the
+upstream commits are unpushed, this is blocked": they were pushed, and only this
+repo's cached remote refs were stale. `git ls-remote upstream` answers it without
+changing anything.
+
+**The conflict is wherever this repo DELETED something upstream still edits.**
+The recurring one is the demo route: `web/src/routes/demo/` went with the demo
+in `d34ad44`, and upstream keeps developing it, so every merge that touches it
+arrives as `CONFLICT (modify/delete)`. Keep the deletion, and delete any test
+upstream added alongside it (`web/test/routes/demo/`), or the suite imports a
+route that is not there. Earlier merges conflicted in `context/index.ts`
+instead, for the opposite reason (upstream editing a monolithic `createContext`
+this repo has split); expect either shape.
+
 Once the force-push to `origin/main` has happened, switching to
 `git branch -u origin/main main` is the tidier end state (that is how
 `conquest-v1` is set up), with upstream merged in explicitly.
@@ -77,12 +91,14 @@ b9309b7  docs: hand off the template work to a fresh context
 (merge)  upstream/variant/full merged down
 ```
 
-All green as of the latest session, and nothing since the merge is committed yet:
+All green. 16 commits are committed and unpushed; on top of them sits an UNCOMMITTED merge of `upstream/variant/full` (12e8df3) plus the classifier retirement, left uncommitted deliberately. These are the numbers to reconcile against after a merge, rather than accepting whatever comes out: a suite that silently stops being collected looks exactly like a clean run.
 
-- `pnpm contracts:test` -> 5 passing
-- `pnpm web:check` -> 0 errors (it used to fail; the demo is gone)
-- `pnpm --filter ./web vitest run` -> 431 passing in 46 files
-- `E2E_RPC_PORT=8555 pnpm test:e2e` -> 18 passing, run three times back to back
+- `pnpm contracts:test` -> 6 passing
+- `pnpm web:check` -> 0 errors
+- `pnpm --filter ./web test:unit --run` -> 591 passing in 55 files
+- `pnpm test:e2e` -> 19 passing. Pass the ports explicitly, e.g. `cd web && E2E_RPC_PORT=8631 E2E_PORT=4631 pnpm test:e2e`. Bare `pnpm test` chains into e2e against port 8545, which is usually the user's own dev chain.
+
+The e2e run happens in a throwaway git worktree, and it carries the WORKING TREE across (uncommitted diff plus untracked files), so it tests what you are looking at rather than the last commit. For a fast loop on one test, `test.only` restricts the whole run to it (`forbidOnly` is CI-only), taking a full run from ~4.5 minutes to ~1.5.
 
 ## Environment gotchas
 
@@ -207,7 +223,19 @@ A commit-reveal round is at least two transactions every epoch, forever. Sent fr
 - Game moves do NOT go through `balanceCheck.ensureCanAfford`. That is the app's user-facing spending check: it opens a modal for the whole call ("Preparing Transaction" while estimating, then insufficient-funds) and it checks the WALLET's balance. Over a game board, on every commit and reveal, against the wrong address.
 - The signer needs gas of its own. `createSignerBalanceStore` already existed in `$lib/core` as an explicitly unwired building block for exactly this; it is now wired, and the HUD shows "Play key gas".
 
-**Still to do:** the signer path cannot be exercised locally (no hosted sign-in service is configured anywhere, so every local run takes the wallet-only fallback). It is typed, wired and unit-covered but unproven against a real `SignedIn` connection. Also, showing the signer balance in the TOP BAR belongs upstream in jolly-roger rather than here, so every descendant gets it rather than this template diverging `lib/core`.
+**Moves are not gated on `balanceCheck.ensureCanAfford`, deliberately, and this is a live tension with upstream.** That helper is the app's pre-flight check for user-initiated spending: it opens a modal for the whole call ("Preparing Transaction" while estimating, then insufficient funds), and it is `step !== 'idle'` that opens it, so the estimating phase alone is enough. A round is two transactions every epoch, so gating on it puts a modal over the board on every commit and every reveal, which is the interruption the signer exists to remove. Upstream recommends the opposite ("let ensureCanAfford's promise be the gate") and that is right for a purchase and wrong for a move. This repo therefore catches the shortfall AFTER the fact and offers the top-up flow as the remedy, resuming when the signer's balance rises. If upstream ever stops opening the modal for the estimating phase, revisit: the pre-flight version is otherwise better, because it catches the shortfall before a reveal is spent rather than after.
+
+**Recognising the shortfall is now upstream's job, and the game only names whose it is.** `isInsufficientFundsFailure` (jolly-roger `$lib/core/transaction`) classifies; `SignerOutOfFundsError` in `web/src/lib/placement/errors.ts` is the game's own type and all that is left of the local stopgap. Classification happens ONCE, in `send()` in `placement/commit-reveal.ts`, the only place that sees a raw node error and the funnel every write goes through; the HUD and the auto-resume ask `instanceof SignerOutOfFundsError`, because by then they are asking about an error the app itself constructed. One import of upstream's classifier in the whole game.
+
+The HUD keeps its own wording rather than the exported `INSUFFICIENT_FUNDS_SUMMARY`, deliberately and with a comment saying so. Upstream's sentence is "this account does not have enough funds", which is right for a purchase from the player's wallet and wrong here: the account is a signer they were never told about, so "this account" reads as the wallet, which is probably funded. Upstream names the failure; the game has to name WHOSE it is, because that is what makes the remedy a top-up of the signer.
+
+Those three call sites had NO tests, which the migration exposed rather than caused: two deliberate mutations (the boundary classifying a contract revert as out-of-gas, the auto-resume firing on any error) both passed a full green suite. They are covered now, in `test/lib/placement/commit-reveal.test.ts`, `test/lib/placement/hud.test.ts` and `test/lib/context/resume-on-gas.test.ts`, and each was confirmed by re-running the mutation. Getting the boundary wrong is not a cosmetic bug: it offers a player a top-up that cannot fix a revert, or spends gas that has only just arrived on a move that will fail again the same way. "Carry on once the gas arrives" is now `resumeWhenGasArrives` in `context/game.ts`, extracted purely so the one piece of wiring that spends the player's gas unprompted can be tested without standing up an app context.
+
+**The whole remedy is now covered in a browser too**, by `web/e2e/tests/out-of-gas.e2e.ts`: it stakes, takes every wei off the signer with `hardhat_setBalance`, fails a real commit, and asserts the three things in the order they matter - the failure is NAMED as gas, the top-up is offered next to it unprompted, and gas arriving resumes the round all the way to `Revealed`. The refill is an external transfer rather than a press of the app's own top-up button, deliberately: the round watches the signer's BALANCE, not the flow, so a faucet or a transfer by hand has to work too, and pressing the button would only prove the button works. It runs to `Revealed` rather than stopping at `Committed` because the reveal is a second transaction from the same signer, so a remedy that only got as far as the commit would still cost the player their bond. Checked for teeth: unwiring `resumeWhenGasArrives` fails it at the resume, and removing the wrap at the boundary fails it at the naming.
+
+What that test does NOT cover is the wrong direction, a contract revert being offered a top-up that cannot fix it. That needs a move which reverts on chain rather than being refused by the node, and it is pinned by unit tests instead.
+
+**Still to do:** the HOSTED sign-in path cannot be exercised locally, because no hosted sign-in service is configured anywhere, so every local run takes the wallet-only fallback. Narrower than it first looks, and this was overstated here before: a wallet-only sign-in still DERIVES a signer (`hasLocalSigner` is `targetStep === 'SignedIn'`, not "is there a wallet host"), so e2e does run the whole signer path for real, including draining it and topping it back up. What remains unproven is an account authenticated by email or social sign-in, which is the case with no wallet provider at all. Also, showing the signer balance in the TOP BAR belongs upstream in jolly-roger rather than here, so every descendant gets it rather than this template diverging `lib/core`.
 
 ## What is left
 
@@ -217,6 +245,8 @@ A commit-reveal round is at least two transactions every epoch, forever. Sent fr
 4. **Reassess stratagems** once three ports are done.
 5. **Make `getCellsInZones` scale.** See the findings below: it is O(256 x zones) regardless of how much is on the board, and the client batches around it. The contract-side fix is to track a zone's occupied cells so a read costs what the zone holds.
 6. **`mine` is not drawn.** Which share of a cell belongs to you is deliberately not shown: the contract answers it only per cell (`getStakeOnCell`), and a client-side tally of "what I revealed this session" is wrong after a reload. Worth doing properly (a multicall over visible cells, with the player folded into the fetch scope) since a shared-cell game rather wants it.
+7. **The credits `chains` block in `contracts/rocketh/config.ts` is still commented out.** The template now has a real per-move cost (a commit plus a reveal), so it can be filled in with measured gas rather than left as documentation. Until it is, the in-app balance shows native currency rather than a move count.
+8. **The mint/approve/stake sequence is still three silent transactions.** A stepper (shadcn has one) was asked for and never built. `addToReserve(player, amount)` already lets the wallet pay and the signer be credited, so the plumbing is right and only the presentation is missing.
 
 ## What building the game found
 
@@ -267,6 +297,13 @@ All five were read against the seams (catacombs, stratagems, reveal-or-die, bomb
 
   **Revealing is never taken away from the player.** `reveal()` is always callable whatever `autoReveal` says, and every one of these contracts takes the identity as an argument instead of using `msg.sender`, so a third party can always reveal too. Scheduling is an addition, never a replacement.
 - **`createRound` gained `makeSecret`.** reveal-or-die, bomber-world and stratagems all DERIVE the secret from a signature over `Commit:<chainId>:<contract>:<epoch>` rather than randomising it. That is strictly better against the failure that costs money here: a random secret exists only in storage, so losing storage forfeits the stake, while a derived one can be recomputed on another device from a key the player still holds.
+
+### Corrections to the record
+
+Kept because both were asserted confidently and both are wrong, and the wrong versions are the kind that get copied forward.
+
+- **The local classifier did NOT misfire on an ERC20 shortfall.** Kept now that the classifier is gone, because the wrong version is the kind that gets copied forward into the next repo that writes one. It was justified upstream by saying `/exceeds the balance/i` matches OpenZeppelin's "ERC20: transfer amount exceeds balance". Measured: it does not. OZ v4 says "exceeds balance" with no "the", OZ v5 uses a custom error, and this repo's `GameToken` is solidity-kit anyway and raises `NotEnoughTokens` / `NotAuthorizedAllowance`, which matched none of the patterns. That pattern was dead weight, not an active bug, and it did not survive the move: upstream's `PATTERNS` never had it. The REAL reason to move was different and has now been acted on: running a prose classifier over contract reverts can false-positive on any `require` string containing wording like "insufficient funds", and upstream excludes reverts by TYPE and by text before reading any prose. That is the difference the game's own tests now pin, since the template's contract raises custom errors, which viem renders with the author's string and no "reverted" anywhere near it.
+- **A missed reveal does not always mean a forfeited bond.** Stated here originally as though a burnt deposit were the only shape. conquest and catacombs intend to dock levels from a character the player paid for, which degrades their position instead. The framework only requires that not revealing costs something.
 
 ### Known not to fit yet, in rough priority order
 
