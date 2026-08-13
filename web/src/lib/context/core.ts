@@ -91,6 +91,11 @@ export type CoreServices = {
 	signerExecutor: Context['signerExecutor'];
 	/** Whether this app signs in, and so whether a signer exists at all. */
 	hasLocalSigner: boolean;
+	/**
+	 * Whether the signer may act for the account. A game gates on this: a move
+	 * sent by an unauthorised signer reverts with `NotDelegate`.
+	 */
+	delegation: Context['delegation'];
 	/** Gas held by the signer: what pays for moves. */
 	signerBalance: Context['signerBalance'];
 	/** Gas held by the authenticated account: what pays for assets. */
@@ -463,6 +468,7 @@ export function createCoreContext(params: {
 		accountExecutor,
 		signerExecutor,
 		hasLocalSigner,
+		delegation,
 		signerBalance,
 		accountBalance,
 		balanceCheck,

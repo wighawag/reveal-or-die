@@ -81,11 +81,16 @@ describe('Game', function () {
 		).toEqual(parseEther('10'));
 
 		// Commit.
+		//
+		// The FIRST zeroAddress is `player`: commit as whoever is calling. The
+		// last is `payee`, which is unrelated. A real client passes the account
+		// here and sends from its delegate; see the delegation tests below.
 		const placements: Placement[] = [{cellID: cellAt(3, 4)}];
 		await env.execute(Game, {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
+				zeroAddress,
 				commitmentHash(placements, SECRET_A),
 				parseEther('5'),
 				zeroAddress,
@@ -175,6 +180,7 @@ describe('Game', function () {
 				account: playerA,
 				functionName: 'makeCommitment',
 				args: [
+					zeroAddress,
 					commitmentHash(placementsA, SECRET_A),
 					parseEther('5'),
 					zeroAddress,
@@ -184,6 +190,7 @@ describe('Game', function () {
 				account: playerB,
 				functionName: 'makeCommitment',
 				args: [
+					zeroAddress,
 					commitmentHash(placementsB, SECRET_B),
 					parseEther('5'),
 					zeroAddress,
@@ -268,6 +275,7 @@ describe('Game', function () {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
+				zeroAddress,
 				commitmentHash(placements, SECRET_A),
 				parseEther('4'),
 				zeroAddress,
@@ -344,6 +352,7 @@ describe('Game', function () {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
+				zeroAddress,
 				commitmentHash(placements, SECRET_A),
 				parseEther('1'),
 				zeroAddress,
@@ -411,6 +420,7 @@ describe('Game', function () {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
+				zeroAddress,
 				commitmentHash(placements, SECRET_A),
 				parseEther('5'),
 				zeroAddress,
@@ -436,5 +446,194 @@ describe('Game', function () {
 		expect(cells.length).toEqual(2);
 		const ids = cells.map((c) => c.cellID).sort();
 		expect(ids).toEqual([cellAt(0, 0), cellAt(2, -3)].sort());
+	});
+});
+
+/**
+ * Playing without holding the stake.
+ *
+ * A player's moves are sent by a key their browser generated, which they never
+ * see and which holds nothing. That key must be able to COMMIT, because a
+ * wallet prompt twice an epoch is not a game, and it must not be able to take
+ * the money, because it is one cleared site away from being gone and anything
+ * that gets hold of it has whatever authority it was given.
+ *
+ * So the account is the player and the key merely acts for it. These tests pin
+ * both halves: what the delegate may do, and what it may not.
+ */
+describe('Game delegation', function () {
+	/** Stake `amount` for `player`, paid by `player`. */
+	async function stake(
+		env: any,
+		Game: any,
+		GameToken: any,
+		player: `0x${string}`,
+		amount: bigint,
+	) {
+		await env.execute(GameToken, {
+			account: player,
+			functionName: 'mint',
+			args: [player, amount],
+		});
+		await env.execute(GameToken, {
+			account: player,
+			functionName: 'approve',
+			args: [Game.address, amount],
+		});
+		await env.execute(Game, {
+			account: player,
+			functionName: 'addToReserve',
+			args: [player, amount],
+		});
+	}
+
+	it('lets an authorised key commit for the account, bonding the ACCOUNT reserve', async function () {
+		const {env, Game, GameToken, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const account = unnamedAccounts[0];
+		// Stands in for the browser's local signer: it holds no tokens and has no
+		// reserve of its own, which is the whole point.
+		const signer = unnamedAccounts[1];
+		const {epoch: startEpoch} = getEpoch(await getTimestamp());
+		await advanceToEpoch(startEpoch + 2, true);
+
+		await stake(env, Game, GameToken, account, parseEther('10'));
+
+		await env.execute(Game, {
+			account,
+			functionName: 'registerDelegate',
+			args: [signer, zeroAddress],
+		});
+		expect(
+			(
+				(await env.read(Game, {
+					functionName: 'delegateOf',
+					args: [account],
+				})) as string
+			).toLowerCase(),
+		).toEqual(signer.toLowerCase());
+
+		const placements: Placement[] = [{cellID: cellAt(5, 6)}];
+		await env.execute(Game, {
+			// SENT BY the signer, FOR the account.
+			account: signer,
+			functionName: 'makeCommitment',
+			args: [
+				account,
+				commitmentHash(placements, SECRET_A),
+				parseEther('1'),
+				zeroAddress,
+			],
+		});
+
+		// The commitment is the ACCOUNT'S, not the sender's. If it were filed
+		// under the signer, losing the browser would lose the round, and the bond
+		// would have come from a reserve the signer does not have.
+		const commitment = (await env.read(Game, {
+			functionName: 'getCommitment',
+			args: [account],
+		})) as {hash: `0x${string}`; bond: bigint};
+		expect(commitment.bond).toEqual(parseEther('1'));
+
+		const signerCommitment = (await env.read(Game, {
+			functionName: 'getCommitment',
+			args: [signer],
+		})) as {hash: `0x${string}`; bond: bigint};
+		expect(signerCommitment.bond).toEqual(0n);
+	});
+
+	it('refuses a key the account never authorised', async function () {
+		const {env, Game, GameToken, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const account = unnamedAccounts[0];
+		const stranger = unnamedAccounts[2];
+		const {epoch: startEpoch} = getEpoch(await getTimestamp());
+		await advanceToEpoch(startEpoch + 2, true);
+
+		await stake(env, Game, GameToken, account, parseEther('10'));
+
+		// Without the check this succeeds, and that is the theft: a stranger bonds
+		// someone else's reserve to a commitment only they know the secret for, so
+		// it can never be revealed and the bond is simply lost.
+		await expect(
+			env.execute(Game, {
+				account: stranger,
+				functionName: 'makeCommitment',
+				args: [
+					account,
+					commitmentHash([{cellID: cellAt(1, 1)}], SECRET_A),
+					parseEther('1'),
+					zeroAddress,
+				],
+			}),
+		).toBeRejected();
+
+		const commitment = (await env.read(Game, {
+			functionName: 'getCommitment',
+			args: [account],
+		})) as {bond: bigint};
+		expect(commitment.bond).toEqual(0n);
+	});
+
+	it('never lets the delegate withdraw the stake', async function () {
+		// The line that makes a disposable key safe to hold. It may SPEND the
+		// reserve on playing, which is what it is for, and it may not take it out.
+		// `withdrawFromReserve` has no player argument at all, so the delegate can
+		// only ever withdraw its OWN reserve, which is empty.
+		const {env, Game, GameToken, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const account = unnamedAccounts[0];
+		const signer = unnamedAccounts[1];
+		const {epoch: startEpoch} = getEpoch(await getTimestamp());
+		await advanceToEpoch(startEpoch + 2, true);
+
+		await stake(env, Game, GameToken, account, parseEther('10'));
+		await env.execute(Game, {
+			account,
+			functionName: 'registerDelegate',
+			args: [signer, zeroAddress],
+		});
+
+		await expect(
+			env.execute(Game, {
+				account: signer,
+				functionName: 'withdrawFromReserve',
+				args: [parseEther('10')],
+			}),
+		).toBeRejected();
+
+		expect(
+			await env.read(Game, {functionName: 'getReserve', args: [account]}),
+		).toEqual(parseEther('10'));
+	});
+
+	it('routes every delegation selector on the proxy', async function () {
+		// The router is where this breaks in practice: a route missing from the
+		// deploy script, or two routes claiming one selector. Either way the
+		// failure is a call that reverts with "function selector was not
+		// recognized", which reads to a user as a broken wallet rather than as a
+		// missing feature. Reading through the proxy is the only check that covers
+		// the wiring as well as the code.
+		const {env, Game, unnamedAccounts} = await networkHelpers.loadFixture(deployAll);
+		const account = unnamedAccounts[0];
+
+		expect(
+			await env.read(Game, {functionName: 'delegateOf', args: [account]}),
+		).toEqual(zeroAddress);
+		expect(
+			await env.read(Game, {
+				functionName: 'delegationWithdrawn',
+				args: [account, account],
+			}),
+		).toEqual(false);
+		expect(
+			typeof (await env.read(Game, {
+				functionName: 'delegationMessage',
+				args: ['example.com', account],
+			})),
+		).toEqual('string');
 	});
 });

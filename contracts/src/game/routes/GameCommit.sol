@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "../internal/UsingGameInternal.sol";
 import "../interfaces/IGame.sol";
+import {Delegation} from "../../core/Delegation.sol";
 
 contract GameCommit is IGameCommit, UsingGameInternal {
     constructor(Config memory config) UsingGameInternal(config) {}
@@ -34,11 +35,12 @@ contract GameCommit is IGameCommit, UsingGameInternal {
 
     /// @inheritdoc IGameCommit
     function makeCommitment(
+        address player,
         bytes24 commitmentHash,
         uint256 bond,
         address payable payee
     ) external payable {
-        _makeCommitment(msg.sender, commitmentHash, bond);
+        _makeCommitment(_accountFor(player), commitmentHash, bond);
 
         // extra steps for which we do not intend to track via events
         if (payee != address(0) && msg.value != 0) {
@@ -47,7 +49,23 @@ contract GameCommit is IGameCommit, UsingGameInternal {
     }
 
     /// @inheritdoc IGameCommit
-    function cancelCommitment() external {
-        _cancelCommitment(msg.sender);
+    function cancelCommitment(address player) external {
+        _cancelCommitment(_accountFor(player));
+    }
+
+    /// @notice Whose move this is, having checked the caller may make it.
+    /// @dev The LIBRARY rather than {UsingDelegation}, deliberately. Inheriting
+    ///      that contract would bring its seven external functions along, and a
+    ///      router maps each selector to exactly one route - they belong to
+    ///      {GameDelegation}, so having them here too would be a collision at
+    ///      deploy time. The library reads no `msg.sender` of its own, which is
+    ///      what makes it usable this way.
+    ///
+    ///      Reverts with `NotDelegate` when the caller is not authorised, which
+    ///      is a better failure than the alternative: without the check a
+    ///      stranger could bond someone else's reserve to a commitment only
+    ///      they can reveal, and the reserve owner would lose it.
+    function _accountFor(address player) internal view returns (address) {
+        return Delegation.requireAccountFor(msg.sender, player);
     }
 }

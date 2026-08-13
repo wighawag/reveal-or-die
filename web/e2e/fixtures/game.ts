@@ -112,6 +112,32 @@ export async function stakeOnCell(page: Page, cellID: string): Promise<string> {
 }
 
 /**
+ * Let this browser play for the account, if the board is asking.
+ *
+ * A fresh browser's signer is nobody's delegate, so `makeCommitment` would
+ * revert with `NotDelegate`. The board asks for this before it will accept a
+ * plan, so a test has to answer it exactly as a player does: press the button
+ * and complete the flow, which registers the signer and funds its gas in one
+ * transaction.
+ *
+ * Conditional because the e2e chain is shared and reused: a browser whose
+ * account is already authorised is not asked again, and demanding the prompt
+ * would fail on the second run for no reason.
+ */
+export async function authoriseToPlay(
+	page: Page,
+	authoriseBrowser: (page: Page, options?: {via?: string}) => Promise<unknown>,
+): Promise<void> {
+	const button = page.getByRole('button', {name: /authorise and carry on/i});
+	if (!(await button.isVisible({timeout: 10_000}).catch(() => false))) return;
+	await button.click();
+	await authoriseBrowser(page);
+	await expect(button, 'authorising should let the board move on').toBeHidden({
+		timeout: 60_000,
+	});
+}
+
+/**
  * Settle anything an earlier run left unrevealed, exactly as a person would.
  *
  * The e2e chain is shared and reused, and an unrevealed commitment blocks every

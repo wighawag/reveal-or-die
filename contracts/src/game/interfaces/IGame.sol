@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.0;
 
+import "../../core/IDelegation.sol";
+
 import "./UsingGameTypes.sol";
 import "./UsingGameEvents.sol";
 import "./UsingGameErrors.sol";
@@ -14,19 +16,36 @@ interface IGameCommit is UsingGameTypes {
     function addToReserve(address player, uint256 amount) external;
 
     /// @notice Take tokens back out. What is bonded to an open commitment stays.
+    /// @dev Deliberately NOT delegable, and the only account-facing function
+    ///      here that is not. A delegate is a key held in one browser so that
+    ///      moves need no prompt; letting it take the stake OUT would hand
+    ///      whatever got hold of that key the player's money. It may spend the
+    ///      reserve on playing, which is what it is for, and it may never
+    ///      withdraw it. Sent by the owner, so it prompts, which is right for
+    ///      the one action that moves money to a person.
     function withdrawFromReserve(uint256 amount) external;
 
     /// @notice Commit to placements for this epoch, bonding part of the reserve.
-    /// @dev No player argument: you commit as yourself. Reveal takes one, so a
-    ///      third party can reveal on your behalf.
+    /// @param player The account the commitment is FOR. Pass the zero address
+    ///        to play as the caller. Anything else must be an account that has
+    ///        authorised the caller as its delegate, which is how a local
+    ///        signer commits for the player without holding their stake.
+    /// @dev Authority and identity are separate here, and only the FIRST is
+    ///      checked: the caller must be allowed to act for `player`. Compare
+    ///      {reveal}, which checks nothing, because a reveal is validated by
+    ///      the commitment hash rather than by who submits it.
     function makeCommitment(
+        address player,
         bytes24 commitmentHash,
         uint256 bond,
         address payable payee
     ) external payable;
 
     /// @notice Withdraw a commitment before the reveal phase begins.
-    function cancelCommitment() external;
+    /// @param player The account whose commitment it is; zero for the caller.
+    ///        Delegable for the same reason committing is: the browser that
+    ///        made it is the one that knows it should go.
+    function cancelCommitment(address player) external;
 }
 
 interface IGameReveal is UsingGameTypes {
@@ -84,4 +103,4 @@ interface IGameGetters is UsingGameTypes {
     ) external view returns (CellAt[] memory cells, uint64 epoch);
 }
 
-interface IGame is IGameCommit, IGameReveal, IGameGetters {}
+interface IGame is IGameCommit, IGameReveal, IGameGetters, IDelegation {}

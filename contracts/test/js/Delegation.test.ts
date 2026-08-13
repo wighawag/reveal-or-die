@@ -61,11 +61,11 @@ describe('Delegation', function () {
 
 	describe('message encoding', function () {
 		it('should build the exact same text as @etherplay/connect-core', async function () {
-			const {env, GreetingsRegistry} =
+			const {env, Game} =
 				await networkHelpers.loadFixture(deployAll);
 			const delegate = privateKeyToAccount(generatePrivateKey()).address;
 
-			const onchain = await env.read(GreetingsRegistry, {
+			const onchain = await env.read(Game, {
 				functionName: 'delegationMessage',
 				args: [ORIGIN, delegate],
 			});
@@ -74,7 +74,7 @@ describe('Delegation', function () {
 		});
 
 		it('should render the delegate lowercase, whichever casing it is given', async function () {
-			const {env, GreetingsRegistry} =
+			const {env, Game} =
 				await networkHelpers.loadFixture(deployAll);
 			// viem hands out EIP-55 checksummed addresses, so this is the casing
 			// the library actually receives. Both sides have to lowercase it.
@@ -82,7 +82,7 @@ describe('Delegation', function () {
 			const lowercased = checksummed.toLowerCase() as `0x${string}`;
 			expect(checksummed).not.toEqual(lowercased);
 
-			const onchain = await env.read(GreetingsRegistry, {
+			const onchain = await env.read(Game, {
 				functionName: 'delegationMessage',
 				args: [ORIGIN, checksummed],
 			});
@@ -94,7 +94,7 @@ describe('Delegation', function () {
 
 	describe('registerDelegateViaSignature', function () {
 		it('should accept a signature made by the library, submitted by someone else', async function () {
-			const {env, GreetingsRegistry, unnamedAccounts} =
+			const {env, Game, unnamedAccounts} =
 				await networkHelpers.loadFixture(deployAll);
 
 			// The owner: a key that signs and never sends. It holds nothing, and
@@ -107,13 +107,13 @@ describe('Delegation', function () {
 				message: originDelegationMessage(ORIGIN, delegate.address),
 			});
 
-			await env.execute(GreetingsRegistry, {
+			await env.execute(Game, {
 				functionName: 'registerDelegateViaSignature',
 				args: [owner.address, ORIGIN, delegate.address, signature],
 				account: payer,
 			});
 
-			const registered = await env.read(GreetingsRegistry, {
+			const registered = await env.read(Game, {
 				functionName: 'delegateOf',
 				args: [owner.address],
 			});
@@ -121,7 +121,7 @@ describe('Delegation', function () {
 		});
 
 		it('should fund the delegate out of the submitted value', async function () {
-			const {env, GreetingsRegistry, unnamedAccounts} =
+			const {env, Game, unnamedAccounts} =
 				await networkHelpers.loadFixture(deployAll);
 
 			const owner = privateKeyToAccount(generatePrivateKey());
@@ -133,7 +133,7 @@ describe('Delegation', function () {
 				message: originDelegationMessage(ORIGIN, delegate.address),
 			});
 
-			await env.execute(GreetingsRegistry, {
+			await env.execute(Game, {
 				functionName: 'registerDelegateViaSignature',
 				args: [owner.address, ORIGIN, delegate.address, signature],
 				account: payer,
@@ -148,20 +148,46 @@ describe('Delegation', function () {
 			expect(await balanceOf(owner.address)).toEqual(0n);
 		});
 
-		it('should let the delegate greet as the owner', async function () {
-			const {env, GreetingsRegistry, unnamedAccounts} =
+		it('should let the delegate play as the owner, on the owner\'s stake', async function () {
+			// The whole production path in one test: the owner SIGNS and never
+			// sends, somebody else submits the registration and funds the delegate
+			// in the same transaction, and the delegate then plays - bonding a
+			// reserve that belongs to the owner and that the delegate could never
+			// withdraw.
+			const {env, Game, GameToken, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
 				await networkHelpers.loadFixture(deployAll);
-			const prefix = GreetingsRegistry.linkedData!.prefix;
 
 			const owner = privateKeyToAccount(generatePrivateKey());
 			const delegate = privateKeyToAccount(generatePrivateKey());
 			const payer = unnamedAccounts[0];
 
+			const {epoch: startEpoch} = getEpoch(await getTimestamp());
+			await advanceToEpoch(startEpoch + 2, true);
+
+			// The stake is the OWNER'S, bought with the payer's tokens. This is the
+			// same asymmetry as the funding above: the account that holds the money
+			// and the account that plays are not the same account.
+			await env.execute(GameToken, {
+				account: payer,
+				functionName: 'mint',
+				args: [payer, 10n ** 19n],
+			});
+			await env.execute(GameToken, {
+				account: payer,
+				functionName: 'approve',
+				args: [Game.address, 10n ** 19n],
+			});
+			await env.execute(Game, {
+				account: payer,
+				functionName: 'addToReserve',
+				args: [owner.address, 10n ** 19n],
+			});
+
 			const signature = await owner.signMessage({
 				message: originDelegationMessage(ORIGIN, delegate.address),
 			});
 
-			await env.execute(GreetingsRegistry, {
+			await env.execute(Game, {
 				functionName: 'registerDelegateViaSignature',
 				args: [owner.address, ORIGIN, delegate.address, signature],
 				account: payer,
@@ -170,29 +196,34 @@ describe('Delegation', function () {
 
 			const delegateClient = await clientFor(delegate);
 			await delegateClient.writeContract({
-				address: GreetingsRegistry.address,
-				abi: GreetingsRegistry.abi,
-				functionName: 'setMessageFor',
-				args: [owner.address, 'hello from the app'],
+				address: Game.address,
+				abi: Game.abi,
+				functionName: 'makeCommitment',
+				args: [
+					owner.address,
+					'0x0000000000000000000000000000000000000000000000aa' as `0x${string}`,
+					10n ** 18n,
+					'0x0000000000000000000000000000000000000000' as `0x${string}`,
+				],
 			});
 
-			// Attributed to the owner, and the key that signed the transaction
+			// Filed under the owner, and the key that signed the transaction
 			// appears nowhere.
-			const ownerMessage = await env.read(GreetingsRegistry, {
-				functionName: 'messages',
+			const ownerCommitment = (await env.read(Game, {
+				functionName: 'getCommitment',
 				args: [owner.address],
-			});
-			const delegateMessage = await env.read(GreetingsRegistry, {
-				functionName: 'messages',
+			})) as {bond: bigint};
+			const delegateCommitment = (await env.read(Game, {
+				functionName: 'getCommitment',
 				args: [delegate.address],
-			});
+			})) as {bond: bigint};
 
-			expect(ownerMessage).toEqual(`${prefix}hello from the app`);
-			expect(delegateMessage).toEqual('');
+			expect(ownerCommitment.bond).toEqual(10n ** 18n);
+			expect(delegateCommitment.bond).toEqual(0n);
 		});
 
 		it('should reject a signature for a different origin', async function () {
-			const {env, GreetingsRegistry, unnamedAccounts} =
+			const {env, Game, unnamedAccounts} =
 				await networkHelpers.loadFixture(deployAll);
 
 			const owner = privateKeyToAccount(generatePrivateKey());
@@ -206,7 +237,7 @@ describe('Delegation', function () {
 			});
 
 			await expect(
-				env.execute(GreetingsRegistry, {
+				env.execute(Game, {
 					functionName: 'registerDelegateViaSignature',
 					args: [owner.address, ORIGIN, delegate.address, signature],
 					account: unnamedAccounts[0],

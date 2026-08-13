@@ -6,6 +6,7 @@ import {
 	refillSignerGas,
 } from '../fixtures/test';
 import {
+	authoriseToPlay,
 	clearAnyMissedReveal,
 	planOnCanvas,
 	roundStep,
@@ -41,11 +42,13 @@ describe('A move that runs out of gas', () => {
 
 	test('is named, offers the remedy, and resumes when the gas lands', async ({
 		connectedPage,
+		authoriseBrowser,
 	}) => {
 		// A failed commit, a top-up, then a full round to prove nothing was lost.
 		test.slow();
 		const page = connectedPage;
 
+		await authoriseToPlay(page, authoriseBrowser);
 		await clearAnyMissedReveal(page);
 
 		// Stake first, while there is still gas to do it with. This is the wallet's

@@ -53,7 +53,7 @@ export type HudModel = {
 	 * staked invites them to lay out a whole turn that cannot be committed, and
 	 * the failure only arrives when the round is already closing.
 	 */
-	setup?: {headline: string; detail: string; action?: 'stake'};
+	setup?: {headline: string; detail: string; action?: 'stake' | 'authorise'};
 
 	plannedCount: number;
 	costLabel: string;
@@ -197,6 +197,17 @@ export function describeSetup(
 				headline: 'Sign in to play',
 				detail:
 					'Signing in gives the game a key of its own, so your moves are sent without a wallet prompt every round.',
+			};
+		case 'authorise':
+			return {
+				headline: 'Let this browser play for you',
+				// Says what it does AND what it does not do, because "authorise" is
+				// the word every drainer uses. What is being granted is narrow and
+				// the contract enforces it: the key can commit and reveal, and it
+				// cannot withdraw the reserve, which only this account can do.
+				detail:
+					'Your moves are signed here by a key this browser made, so no round needs a wallet prompt. Authorising lets it play as you and pays it some gas. It can never take your stake out, and you can withdraw the permission at any time.',
+				action: 'authorise',
 			};
 		case 'stake':
 			return {

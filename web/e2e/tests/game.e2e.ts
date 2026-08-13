@@ -1,5 +1,6 @@
 import {test, expect, describe} from '../fixtures/test';
 import {
+	authoriseToPlay,
 	clearAnyMissedReveal,
 	planOnCanvas,
 	roundStep,
@@ -32,16 +33,20 @@ describe('Commit-reveal round', () => {
 
 	test('plans a placement, commits it, and reveals it onto the board', async ({
 		connectedPage,
+		authoriseBrowser,
 	}) => {
 		// A full round has to wait out a commit phase and a reveal phase.
 		test.slow();
 		const page = connectedPage;
 
-		// The move is signed by the SIGNER, not by the account the user
-		// authenticated as. That split is the whole reason the game is playable:
-		// a round is two transactions every epoch, so sending them from the
-		// wallet would prompt twice a round forever, and an account
-		// authenticated by email has no wallet provider to prompt with at all.
+		// WHO OWNS and WHO SENDS are different addresses, and that is the whole
+		// design. A round is two transactions every epoch, so sending them from
+		// the wallet would prompt twice a round forever, and an account
+		// authenticated by email has no wallet provider to prompt with at all -
+		// hence the signer. But the signer is a key this browser made, holding
+		// nothing and losable with the site data, so it must not be the player:
+		// the ACCOUNT owns the reserve and the cells, and the signer merely acts
+		// for it, authorised on chain.
 		const senders = await page.evaluate(() => {
 			const context = (globalThis as unknown as {context: any}).context;
 			const read = <T>(store: {
@@ -58,6 +63,7 @@ describe('Commit-reveal round', () => {
 			return {
 				account: read<string | undefined>(context.account),
 				signer: signer.status === 'ready' ? signer.address : undefined,
+				identity: read<string | undefined>(context.game.identity),
 				hasLocalSigner: context.hasLocalSigner,
 			};
 		});
@@ -67,8 +73,20 @@ describe('Commit-reveal round', () => {
 		expect(senders.signer, 'the signer should be ready').toBeTruthy();
 		expect(
 			senders.signer?.toLowerCase(),
-			'the game must play as the signer, not as the authenticated account',
+			'the sender must not be the account, or there is nothing to prove',
 		).not.toBe(senders.account?.toLowerCase());
+		// The claim that matters, and the one this template got wrong: the game's
+		// identity is the ACCOUNT. If it were the signer, clearing site data would
+		// destroy the player along with their staked reserve, unrecoverably.
+		expect(
+			senders.identity?.toLowerCase(),
+			'the game must play as the account, not as the key that signs',
+		).toBe(senders.account?.toLowerCase());
+
+		// Let this browser play as the account. The signer SENDS the moves; the
+		// account OWNS the reserve and the cells, and a signer that is not its
+		// registered delegate cannot commit at all.
+		await authoriseToPlay(page, authoriseBrowser);
 
 		await clearAnyMissedReveal(page);
 
@@ -215,6 +233,7 @@ describe('A missed reveal', () => {
 		baseURL,
 		connectWallet,
 		fundWallets,
+		authoriseBrowser,
 	}) => {
 		// A committed round, then a whole epoch of waiting for it to lapse.
 		test.setTimeout(400_000);
@@ -227,6 +246,8 @@ describe('A missed reveal', () => {
 		});
 		const page = await first.newPage();
 		await connectFrom(page, connectWallet);
+
+		await authoriseToPlay(page, authoriseBrowser);
 
 		// Clear anything an earlier run left behind, so this test creates the
 		// state it is about rather than inheriting it.

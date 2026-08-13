@@ -161,7 +161,7 @@ export function createPlacementCommitReveal(params: {
 	return {
 		buildCommitment: buildPlacementCommitment,
 
-		async commit({hash, actions}) {
+		async commit({identity, hash, actions}) {
 			await params.beforeCommit?.();
 			const {executor, deployments} = await ready();
 
@@ -180,7 +180,14 @@ export function createPlacementCommitReveal(params: {
 						address: deployments.contracts.Game.address,
 						abi: deployments.contracts.Game.abi,
 						functionName: 'makeCommitment',
-						args: [hash, bond, zeroAddress],
+						// `identity` is the ACCOUNT; the executor sending this is the
+						// signer acting for it. The contract checks the pair, so a
+						// signer that has not been authorised (or has been revoked)
+						// reverts here rather than quietly bonding its own empty
+						// reserve. The commitment, the bond and the cells it wins all
+						// belong to the account, so losing this browser costs a key and
+						// nothing else.
+						args: [identity, hash, bond, zeroAddress],
 						account: executor.account,
 						chain: null,
 					},

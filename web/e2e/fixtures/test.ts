@@ -215,6 +215,33 @@ export interface WalletFixtures {
 	 * Call this before tests that need funded wallets.
 	 */
 	fundWallets: () => Promise<void>;
+
+	/**
+	 * Complete the flow that authorises this browser to play in the account's
+	 * name (and funds the signer in the same transaction), if the app is asking
+	 * for it. Returns whether it was asking.
+	 */
+	authoriseBrowser: (
+		page: Page,
+		options?: AuthoriseOptions,
+	) => Promise<AuthorisationOutcome>;
+
+	/** The addresses the connected wallet holds, which the burner generates. */
+	walletAccounts: (page: Page) => Promise<string[]>;
+
+	/** Fund every account the connected wallet holds, so any of them can pay. */
+	fundWalletAccounts: (page: Page) => Promise<void>;
+
+	/** The authorisation flow's own state, including the route it took. */
+	topUpState: (page: Page) => Promise<{
+		phase?: string;
+		route?: string;
+		registering?: boolean;
+		payer?: string;
+	}>;
+
+	/** Whether the chain says this browser's signer may act for the account. */
+	isDelegateRegistered: (page: Page) => Promise<boolean>;
 }
 
 // The app's authoritative connection signal (see navbar.svelte). Reading the
@@ -458,6 +485,272 @@ async function waitForTransactionComplete(page: Page): Promise<void> {
 	).toHaveCount(0, {timeout: 60_000});
 }
 
+// ---------------------------------------------------------------------------
+// AUTHORISING THIS BROWSER TO PLAY FOR THE ACCOUNT
+//
+// Ported from upstream rather than reinvented: what is driven here is the
+// shared top-up flow, which registers the delegate AND funds it in one
+// transaction, so these steps are the app's and not the demo's.
+//
+// A game needs this where the demo needed it for a greeting: a fresh browser's
+// signer is nobody's delegate, so `makeCommitment` reverts with `NotDelegate`.
+// The board asks for it up front (see the setup gate) rather than letting a
+// player plan a turn that cannot be committed.
+// ---------------------------------------------------------------------------
+
+const PAYMENT_METHODS = '[data-testid="payment-methods"]';
+const CONFIRM_TOP_UP = '[data-testid="confirm-top-up"]';
+/**
+ * Every account the connected wallet holds.
+ *
+ * Needed by the tests that pay with a DIFFERENT account than the one signed in:
+ * the burner generates its accounts per browser context, so their addresses
+ * cannot be known in advance, and an unfunded payer cannot pay.
+ */
+async function walletAccounts(page: Page): Promise<string[]> {
+	return page.evaluate(() => {
+		const read = (store: any) => {
+			let value: any;
+			store.subscribe((v: any) => (value = v))();
+			return value;
+		};
+		const context = (globalThis as any).context;
+		if (!context) return [];
+		return read(context.connection)?.wallet?.accounts ?? [];
+	});
+}
+
+/** The delegation flow's own state, which names the route it actually took. */
+async function topUpState(page: Page): Promise<{
+	phase?: string;
+	route?: string;
+	registering?: boolean;
+	payer?: string;
+}> {
+	return page.evaluate(() => {
+		const read = (store: any) => {
+			let value: any;
+			store.subscribe((v: any) => (value = v))();
+			return value;
+		};
+		const context = (globalThis as any).context;
+		if (!context) return {};
+		const state = read(context.topUp) ?? {};
+		return {
+			phase: state.phase,
+			route: state.route,
+			registering: state.registering,
+			payer: state.payer,
+		};
+	});
+}
+
+/** Whether the chain says this browser's signer may act for the account. */
+async function isDelegateRegistered(page: Page): Promise<boolean> {
+	return page.evaluate(() => {
+		const read = (store: any) => {
+			let value: any;
+			store.subscribe((v: any) => (value = v))();
+			return value;
+		};
+		const context = (globalThis as any).context;
+		if (!context) return false;
+		const delegation = read(context.delegation);
+		const signer = read(context.signerExecutor)?.address;
+		if (!signer || delegation?.step !== 'Loaded') return false;
+		return delegation.delegate.toLowerCase() === signer.toLowerCase();
+	});
+}
+
+// The explanation of what is being signed, which rides ON the confirm step: it
+// belongs immediately before the wallet opens, and that is where the button is.
+const DELEGATION_CONSENT = '[data-testid="delegation-consent"]';
+// The yes/no question the app asks before going on. Used here for the one that
+// brings an interrupted action back once whatever blocked it is dealt with, so
+// the greeting the user typed is the greeting that goes out. Not tied to any
+// feature: anything can raise it (see core/ui/confirm).
+const CONFIRMATION = '[data-testid="confirmation-confirm"]';
+
+/**
+ * Walk the payment connection's own connect flow.
+ *
+ * Its own, and NOT `connectWalletDevMode`: that one stops as soon as the APP
+ * connection reports connected, which it already is by the time anything is
+ * being paid for. This one runs until the flow has a payer and an amount, or
+ * until it says nothing can be sent.
+ */
+export async function connectPaymentWallet(
+	page: Page,
+	accountIndex = 1,
+): Promise<void> {
+	const deadline = Date.now() + 45_000;
+
+	while (Date.now() < deadline) {
+		// Done: the flow is showing what this payer will send.
+		const ready = await page
+			.locator(CONFIRM_TOP_UP)
+			.isVisible()
+			.catch(() => false);
+		if (ready) return;
+
+		// The top-up modal is itself a dialog, so every open one is inspected and
+		// only the connect-flow steps are acted on.
+		const dialogs = page.locator('[role="dialog"]');
+		const count = await dialogs.count().catch(() => 0);
+		let acted = false;
+
+		for (let i = 0; i < count; i++) {
+			const dialog = dialogs.nth(i);
+			const text =
+				(await dialog.textContent({timeout: 2000}).catch(() => null)) ?? '';
+
+			if (/wallets? available, choose one/i.test(text)) {
+				await dialog
+					.locator('.overflow-y-auto > button', {hasText: 'Burner Wallet'})
+					.first()
+					.click();
+				acted = true;
+				break;
+			}
+
+			if (/accounts available, choose one/i.test(text)) {
+				await pickSignableAccount(dialog, accountIndex);
+				acted = true;
+				break;
+			}
+
+			const connectEntry = dialog
+				.getByRole('button', {name: /connect .*wallet/i})
+				.first();
+			if (await connectEntry.isVisible().catch(() => false)) {
+				await connectEntry.click();
+				acted = true;
+				break;
+			}
+		}
+
+		if (!acted) await page.waitForTimeout(250);
+	}
+
+	throw new Error('the payment connection never produced a payer');
+}
+
+export type AuthoriseOptions = {
+	/** Which payment method to take. Defaults to the account itself. */
+	via?: 'account' | 'wallet';
+	/** Which wallet account pays, for the `wallet` method. */
+	accountIndex?: number;
+	/**
+	 * Whether to accept the offer to carry on with whatever was interrupted.
+	 * Defaults to true; a test that wants to inspect that step sets it false.
+	 */
+	resume?: boolean;
+};
+
+export type AuthorisationOutcome = {
+	/** Whether the app was asking for the authorisation at all. */
+	offered: boolean;
+	/** How the authorisation was proven, read before it was submitted. */
+	route?: string;
+	/** Whether the explanation was shown BEFORE any signature was requested. */
+	explained: boolean;
+	/** Who paid for it. */
+	payer?: string;
+	/**
+	 * Whether the app offered to carry on with the action that was interrupted,
+	 * rather than dropping it and making the user ask again.
+	 */
+	resumed?: boolean;
+};
+
+/**
+ * Complete the authorisation flow if the app opened it, and report what it did.
+ *
+ * The app refuses to send a greeting until this browser's signer is a
+ * registered delegate of the account, and answers a send with this flow rather
+ * than with a `NotDelegate` revert. So this is the e2e counterpart of that
+ * state: it is absent once the account has authorised the browser, and every
+ * fresh browser context meets it exactly once.
+ *
+ * The route is read from the flow BEFORE confirming, because the flow closes on
+ * success and a closed flow remembers nothing - which is right for the app and
+ * useless for a test that wants to know which of the two paths ran.
+ */
+async function authoriseBrowser(
+	page: Page,
+	options: AuthoriseOptions = {},
+): Promise<AuthorisationOutcome> {
+	// Either the chooser, or - when only one way to pay is available - the step
+	// it would have led to. A list of one is not a choice, so the flow skips it.
+	const chooser = page.locator(PAYMENT_METHODS);
+	const opened = await chooser
+		.or(page.locator(CONFIRM_TOP_UP))
+		.first()
+		.waitFor({state: 'visible', timeout: 15_000})
+		.then(() => true)
+		.catch(() => false);
+	if (!opened) return {offered: false, explained: false};
+
+	const via = options.via ?? 'account';
+	if (await chooser.isVisible().catch(() => false)) {
+		const method = page.locator(`[data-testid="pay-with-${via}"]`);
+		await expect(method, `paying with "${via}" should be on offer`).toBeEnabled(
+			{
+				timeout: 10_000,
+			},
+		);
+		await method.click();
+
+		if (via === 'wallet') {
+			await connectPaymentWallet(page, options.accountIndex ?? 1);
+		}
+	}
+
+	const confirm = page.locator(CONFIRM_TOP_UP);
+	await expect(confirm, 'the flow should offer an amount to send').toBeEnabled({
+		timeout: 30_000,
+	});
+
+	const before = await topUpState(page);
+
+	// The live-signature route explains what is about to be signed, on this step,
+	// so it is read immediately before the button that opens the wallet. The
+	// direct route shows a transaction instead, which is its own confirmation,
+	// and the pre-signed route has nothing to prompt.
+	const explained = await page
+		.locator(DELEGATION_CONSENT)
+		.isVisible()
+		.catch(() => false);
+
+	await confirm.click();
+
+	// The modal closes only once the registration is IN a block: the whole point
+	// is that nothing can be sent until it is.
+	await expect(
+		page.locator(CONFIRM_TOP_UP),
+		'the authorisation should complete and close the flow',
+	).toHaveCount(0, {timeout: 60_000});
+
+	// Whatever was interrupted is offered back, named. Optional because this
+	// helper is also used to authorise a browser with nothing waiting on it.
+	const resumed = await page
+		.locator(CONFIRMATION)
+		.waitFor({state: 'visible', timeout: 10_000})
+		.then(() => true)
+		.catch(() => false);
+	if (resumed && (options.resume ?? true)) {
+		await page.locator(CONFIRMATION).click();
+	}
+
+	return {
+		offered: true,
+		route: before.route,
+		payer: before.payer,
+		explained,
+		resumed,
+	};
+}
+
 export const test = base.extend<WalletFixtures & WalletOptions>({
 	// Option fixture: which burner account the connect flow selects.
 	// Override per file/describe with `test.use({walletAccountIndex: 1})`.
@@ -584,6 +877,38 @@ export const test = base.extend<WalletFixtures & WalletOptions>({
 	 */
 	waitForTransaction: async ({}, use) => {
 		await use(waitForTransactionComplete);
+	},
+
+	authoriseBrowser: async ({}, use) => {
+		await use(authoriseBrowser);
+	},
+
+	walletAccounts: async ({}, use) => {
+		await use(walletAccounts);
+	},
+
+	/**
+	 * Fund every account the wallet holds.
+	 *
+	 * For the tests that pay with an account OTHER than the one signed in: the
+	 * burner generates its accounts per browser context, so which one the payment
+	 * picker lands on cannot be known in advance, and an unfunded payer cannot
+	 * pay. Funding all of them removes the guess.
+	 */
+	fundWalletAccounts: async ({}, use) => {
+		await use(async (page: Page) => {
+			for (const address of await walletAccounts(page)) {
+				await fundAddressViaHardhat(address, '100');
+			}
+		});
+	},
+
+	topUpState: async ({}, use) => {
+		await use(topUpState);
+	},
+
+	isDelegateRegistered: async ({}, use) => {
+		await use(isDelegateRegistered);
 	},
 });
 

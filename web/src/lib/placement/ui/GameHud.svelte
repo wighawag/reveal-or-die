@@ -122,6 +122,16 @@
 				<Button size="sm" class="mt-3" onclick={() => reserve.fund(TOP_UP)}>
 					Deposit to play
 				</Button>
+			{:else if $hud.setup.action === 'authorise'}
+				<!--
+					The same flow the out-of-gas remedy uses: it registers the delegate
+					AND funds it in one transaction, which is the right shape here too.
+					A key that is authorised but has no gas is authorised in name only,
+					and that is a second dead end one step further on.
+				-->
+				<Button size="sm" class="mt-3" onclick={() => topUp.start()}>
+					Authorise and carry on
+				</Button>
 			{/if}
 		{:else}
 			<p class="text-sm {toneClass[$hud.roundTone]}">{$hud.roundLabel}</p>

@@ -69,6 +69,8 @@ upstream commits are unpushed, this is blocked": they were pushed, and only this
 repo's cached remote refs were stale. `git ls-remote upstream` answers it without
 changing anything.
 
+**Upstream's e2e tests come down too, and they drive the DEMO.** `delegation.e2e.ts` and `demo.e2e.ts` both need the greetings page this repo removed, so they go with it. Worth deleting promptly rather than leaving to fail: they connect a wallet each, and seven simultaneous wallet connects tipped the documented connect flake from intermittent into every-run. Five is fine; the suite passed twice at five and failed 7-of-7 at seven. If that flake is ever fixed properly, it is a fixture-level fix upstream.
+
 **The conflict is wherever this repo DELETED something upstream still edits.**
 The recurring one is the demo route: `web/src/routes/demo/` went with the demo
 in `d34ad44`, and upstream keeps developing it, so every merge that touches it
@@ -93,9 +95,9 @@ b9309b7  docs: hand off the template work to a fresh context
 
 All green. 16 commits are committed and unpushed; on top of them sits an UNCOMMITTED merge of `upstream/variant/full` (12e8df3) plus the classifier retirement, left uncommitted deliberately. These are the numbers to reconcile against after a merge, rather than accepting whatever comes out: a suite that silently stops being collected looks exactly like a clean run.
 
-- `pnpm contracts:test` -> 6 passing
+- `pnpm contracts:test` -> 87 passing (61 solidity, 26 nodejs)
 - `pnpm web:check` -> 0 errors
-- `pnpm --filter ./web test:unit --run` -> 591 passing in 55 files
+- `pnpm --filter ./web test:unit --run` -> 685 passing in 62 files
 - `pnpm test:e2e` -> 19 passing. Pass the ports explicitly, e.g. `cd web && E2E_RPC_PORT=8631 E2E_PORT=4631 pnpm test:e2e`. Bare `pnpm test` chains into e2e against port 8545, which is usually the user's own dev chain.
 
 The e2e run happens in a throwaway git worktree, and it carries the WORKING TREE across (uncommitted diff plus untracked files), so it tests what you are looking at rather than the last commit. For a fast loop on one test, `test.only` restricts the whole run to it (`forbidOnly` is CI-only), taking a full run from ~4.5 minutes to ~1.5.
@@ -209,9 +211,13 @@ A grid of shared cells at `/play`: click to plan placements, the round commits a
 - `web/src/lib/game/render/pixi/` is the pixi surface, ported from conquest with its three hard-won bug comments intact (click coordinate space, viewport resize, backdrop sizing). Shipped as ONE implementation of the render seam, the same way the poller is one implementation of the state seam.
 - `createContext` is decomposed. `context/core.ts` is jolly-roger's half and takes the game as an injected `createGame`; `context/game.ts` is the framework wired to this game; `context/index.ts` is three lines of composition. The core builds the game part-way through its own construction, because the game needs the connection and the RPC-health/refresh wiring needs the game's reads. That ordering is commented at the injection point.
 
-## Who signs what
+## Who signs what, and who OWNS
 
 A core-template decision, and the one most likely to be got wrong by inheriting jolly-roger's defaults unchanged.
+
+**The template got the second half wrong until recently, and the correction is the most important thing in this document.** It used to make the local signer the PLAYER: the reserve was the signer's reserve, and every cell it won was the signer's cell. Everything worked, and the position was indefensible. An identity that exists only in one browser's storage is one cleared site away from being gone, taking the staked reserve with it and leaving nothing to recover from; and a key with no owner is a key with full authority, so any copy of it held the money. The signer is a local account with ZERO ownership, and delegation is what makes it safe to use.
+
+So: the ACCOUNT is the player, and the signer merely acts for it, authorised on chain. The account owns the reserve, the commitment and the cells; the signer spends gas and nothing else. Losing the browser costs a key, and the player authorises another one and carries on. `contracts/src/core/Delegation.sol` (merged down from jolly-roger as a library a game can adopt) is what records that authority, and `GameDelegation` is the route that exposes it.
 
 A commit-reveal round is at least two transactions every epoch, forever. Sent from the wallet that is a MetaMask prompt per commit AND per reveal, which is unplayable, and worse than unplayable here: a reveal the player does not approve in time costs them their stake. An account authenticated by email or social sign-in has no wallet provider at all, so under wallet execution it cannot send anything and simply cannot play.
 
@@ -219,7 +225,10 @@ A commit-reveal round is at least two transactions every epoch, forever. Sent fr
 
 - `core.ts` builds a SECOND executor pinned to the signer. `gameExecutor` sends moves; `executor` stays for anything that spends the player's money, with a prompt, deliberately.
 - The choice is made per DEPLOYMENT (`gameIdentityAvailable`), not per moment. Picking whichever executor happens to be ready would quietly route a move through the wallet while a sign-in was still in flight, which is the exact prompt this removes.
-- The signer holds no funds, so `addToReserve(address player, uint256 amount)` takes a beneficiary: the wallet pays, the signer is credited. `contracts/test/Game.test.ts` pins this ("lets one address pay the stake and another play with it").
+- The signer holds no funds, so `addToReserve(address player, uint256 amount)` takes a beneficiary: the wallet pays, the ACCOUNT is credited. `contracts/test/js/Game.test.ts` pins this ("lets one address pay the stake and another play with it").
+- `makeCommitment` and `cancelCommitment` take a `player` and resolve it with `Delegation.requireAccountFor(msg.sender, player)`, so an unauthorised sender reverts with `NotDelegate` instead of quietly bonding its own empty reserve. `reveal` deliberately does NOT check the caller: a reveal is validated by the commitment hash, and anyone being able to submit one is what stops an offline player forfeiting.
+- **`withdrawFromReserve` is deliberately NOT delegable**, and is the only account-facing function that is not. The delegate may SPEND the reserve on playing, which is what it is for, and may never take it out. That single line is what makes a disposable browser key safe to hold, and there is a test named for it.
+- The setup gate asks for the authorisation BEFORE the stake: both are wallet transactions, and a player who abandons setup half way should have spent as little as possible. The authorisation is one transaction that also funds the signer's gas, which is the same top-up flow the out-of-gas remedy uses.
 - Game moves do NOT go through `balanceCheck.ensureCanAfford`. That is the app's user-facing spending check: it opens a modal for the whole call ("Preparing Transaction" while estimating, then insufficient-funds) and it checks the WALLET's balance. Over a game board, on every commit and reveal, against the wrong address.
 - The signer needs gas of its own. `createSignerBalanceStore` already existed in `$lib/core` as an explicitly unwired building block for exactly this; it is now wired, and the HUD shows "Play key gas".
 
@@ -236,6 +245,11 @@ Those three call sites had NO tests, which the migration exposed rather than cau
 What that test does NOT cover is the wrong direction, a contract revert being offered a top-up that cannot fix it. That needs a move which reverts on chain rather than being refused by the node, and it is pinned by unit tests instead.
 
 **Still to do:** the HOSTED sign-in path cannot be exercised locally, because no hosted sign-in service is configured anywhere, so every local run takes the wallet-only fallback. Narrower than it first looks, and this was overstated here before: a wallet-only sign-in still DERIVES a signer (`hasLocalSigner` is `targetStep === 'SignedIn'`, not "is there a wallet host"), so e2e does run the whole signer path for real, including draining it and topping it back up. What remains unproven is an account authenticated by email or social sign-in, which is the case with no wallet provider at all. Also, showing the signer balance in the TOP BAR belongs upstream in jolly-roger rather than here, so every descendant gets it rather than this template diverging `lib/core`.
+
+## Sent upstream, or worth sending
+
+- **The delegation client was bound to the demo's contract by NAME** (`deployments.contracts.GreetingsRegistry`, in three places). That works in exactly one repo, and every descendant of jolly-roger replaces the demo, so every descendant had to keep a contract named after a greeting or fork the file. It takes an ADDRESS here now, with the module declaring the ABI it needs (`DELEGATION_ABI`), because delegation is a feature with a fixed interface rather than a property of any app. The address is carried on the delegation store so the writers address the same contract the reader answered about. This is a small, self-contained change and jolly-roger should take it.
+- **`ensureCanAfford` and `writeContract` disagree about `value` for payable functions** (see the findings above). Still unsent.
 
 ## What is left
 
@@ -309,7 +323,7 @@ Kept because both were asserted confidently and both are wrong, and the wrong ve
 
 1. **The round never reconciles with the chain.** `restore()` trusts local storage alone. Every one of these contracts exposes `getCommitment(identity)`, which would let a client notice "there is a live commitment on chain that this browser knows nothing about". Today that case is a silent forfeit. It pairs with `makeSecret`: a derived secret plus a chain read is a genuinely recoverable round. `missed-reveal.ts` already does the chain read for the FORFEIT case; the live case is the missing half.
 2. **No `cancel`.** `cancelCommitment` exists on this template's own contract, and on conquest and reveal-or-die, and `RoundStore` has no way to call it. Cheap to add, and the template is currently shipping an unreachable contract function.
-3. **Identity is really a PAIR.** catacombs (`characterID` + controller), reveal-or-die/bomber-world (`avatarID` + controller), conquest (`empireID` + `Empire{owner, controller}`) all separate the identity from the address authorised to act for it, usually a burner key. `PlayerIdentity` covers the identity and the adapter can hold the sender, so nothing breaks, but the template only demonstrates the degenerate case where the two are the same.
+3. ~~**Identity is really a PAIR.**~~ **CLOSED.** catacombs (`characterID` + controller), reveal-or-die/bomber-world (`avatarID` + controller), conquest (`empireID` + `Empire{owner, controller}`) all separate the identity from the address authorised to act for it, usually a burner key. The template now demonstrates that split rather than the degenerate case: the account is the identity, the signer is the controller, and `core/Delegation.sol` records the authority. What is still degenerate is the identity TYPE (an address, not an `avatarID`), which is decision 2's type parameter and a different axis.
 4. **Identity ACQUISITION has no seam.** Three games require minting an ERC721 and depositing it before a player exists at all. The round takes `identity: Readable<TIdentity | undefined>` and simply does nothing while it is undefined; the onboarding flow that produces one is off the map. conquest additionally allows several identities per account, which a round keyed on the account address cannot represent.
 5. **`createViewState` demands `TState & {epoch: number}`.** Indexer-built state (stratagems, catacombs) carries no epoch; it comes from a separate store. That requirement should be relaxed rather than forcing every indexer game to fake a field.
 6. **`OnchainStateStore` needs an adapter for an indexer.** `ethereum-indexer-browser` exposes `{state, syncing, status}` with no `update()` and a different status shape. Anticipated by decision 4, and it is an adapter rather than a redesign, but nobody has written it.

@@ -22,6 +22,11 @@ export default deployScript(
 			{name: 'Getters', artifact: artifacts.GameGetters, args: [config]},
 			{name: 'Commit', artifact: artifacts.GameCommit, args: [config]},
 			{name: 'Reveal', artifact: artifacts.GameReveal, args: [config]},
+			// Who may play as whom. Its own route because a router maps one
+			// selector to one route, and UsingDelegation carries seven. Takes no
+			// config: the delegation record is namespaced storage shared across
+			// every route behind the proxy, and this contract holds nothing.
+			{name: 'Delegation', artifact: artifacts.GameDelegation, args: []},
 		];
 
 		await deployViaProxy<Abi_IGame>(
