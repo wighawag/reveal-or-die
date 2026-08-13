@@ -1,6 +1,6 @@
-import {Abi_GameToken} from '../../generated/abis/GameToken.js';
-import {Abi_IGame} from '../../generated/abis/IGame.js';
-import {loadAndExecuteDeploymentsFromFiles} from '../../rocketh/environment.js';
+import {Abi_GameToken} from '../../../generated/abis/GameToken.js';
+import {Abi_IGame} from '../../../generated/abis/IGame.js';
+import {loadAndExecuteDeploymentsFromFiles} from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
 
 export function setupFixtures(provider: EthereumProvider) {

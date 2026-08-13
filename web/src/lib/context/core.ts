@@ -9,6 +9,9 @@ import {createGasFeeStore} from '$lib/core/connection/gasFee';
 import {createRpcHealthStore} from '$lib/core/connection/rpcHealth';
 import {createOfflineStore} from '$lib/core/connection/offline';
 import {createClockStore} from '$lib/core/clock';
+import {createDelegationState} from '$lib/onchain/delegation.js';
+import {createDelegationCheckStore} from '$lib/ui/delegation/delegation-check.js';
+import {createConfirmation} from '$lib/core/ui/confirm/confirmation.js';
 import {createTransactionObserver} from '@etherkit/tx-observer';
 import {createTabLeaderService} from '$lib/core/tab-leader';
 import {createTrackedWalletClient} from '@etherkit/viem-tx-tracker';
@@ -354,6 +357,25 @@ export function createCoreContext(params: {
 		gasFee,
 	});
 
+	// Whether this browser's signer may act for the account. Scoped to the
+	// account AND its signer, so it resets when either changes, and gated the
+	// same way the game's chain reads are: with no app RPC there is nothing to
+	// read it over until a wallet is connected.
+	const signerAddress = derived(signer, ($signer) => $signer?.address);
+	const delegation = createDelegationState({
+		publicClient,
+		deployments: deployments.get(),
+		account,
+		signer: signerAddress,
+		fetchGate: chainFetchGate,
+	});
+
+	// The yes/no questions the app has to ask before going on: "carry on with
+	// what you were doing?", "your wallet may still have this, really stop?".
+	// One mechanism, one modal, and the words come from whoever asks.
+	// See core/ui/confirm.
+	const confirmation = createConfirmation();
+
 	const accountData = createAccountData({
 		accountStore: account,
 		deployments: deployments.get(),
@@ -448,9 +470,13 @@ export function createCoreContext(params: {
 	};
 	const gameContext = params.createGame(services);
 
+	// Both chain reads that a transaction of ours can invalidate: the board, and
+	// whether the signer is still a delegate. The registration lands in a
+	// transaction the app itself sent, so without the second one the UI would go
+	// on refusing to send until the next slow poll.
 	const onchainStateRefreshConnector = createOnchainStateRefreshConnector({
 		txObserver,
-		onchainState: gameContext.onchainState,
+		stores: [gameContext.onchainState, delegation],
 	});
 
 	// Health reflects whether we can read the chain right now. All inputs share
@@ -513,6 +539,8 @@ export function createCoreContext(params: {
 			accountBalance,
 			publicClient,
 			balanceCheck,
+			delegation,
+			confirmation,
 		},
 		{
 			faucetApi: PUBLIC_FAUCET_API,
@@ -520,6 +548,16 @@ export function createCoreContext(params: {
 			hasFaucet,
 		},
 	);
+
+	// Getting past "this browser may not act for you yet" WITHOUT losing what the
+	// user was doing. Built here for the same reason the top-up flow is: the send
+	// that was interrupted waits on it, and the modal that resumes it has to be
+	// driven by the same instance. See ui/delegation/delegation-check.
+	const delegationCheck = createDelegationCheckStore({
+		delegation,
+		topUp,
+		confirmation,
+	});
 
 	// Debug store for tx-observer processing stats
 	const txObserverDebug = writable<TxObserverDebugState>({
@@ -558,6 +596,9 @@ export function createCoreContext(params: {
 		txObserverDebug: {subscribe: txObserverDebug.subscribe},
 		balanceCheck,
 		topUp,
+		delegation,
+		delegationCheck,
+		confirmation,
 		// The game half, spread in so call sites see one context.
 		onchainState: gameContext.onchainState,
 		viewState: gameContext.viewState,

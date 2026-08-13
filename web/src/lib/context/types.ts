@@ -21,6 +21,7 @@ import type {
 	TransactionMetadata,
 } from '$lib/account/AccountData';
 import type {OnchainStateStore} from '$lib/onchain/state';
+import type {DelegationStore} from '$lib/onchain/delegation';
 import type {ViewStateStore} from '$lib/view';
 import type {Game, Render} from './game';
 import type {BoardState} from '$lib/placement/state';
@@ -29,6 +30,8 @@ import type {ClockStore} from '$lib/core/clock';
 import type {TransactionObserver} from '@etherkit/tx-observer';
 import type {BalanceCheckStore} from '$lib/core/transaction/balance-check-store';
 import type {TopUpFlow} from '$lib/ui/credits/top-up-flow';
+import type {DelegationCheckStore} from '$lib/ui/delegation/delegation-check';
+import type {ConfirmationStore} from '$lib/core/ui/confirm/confirmation';
 import type {AccountCannotSendStore} from '$lib/core/transaction/account-cannot-send-store';
 import type {ErrorDetailsStore} from '$lib/core/transaction/error-details-store';
 
@@ -101,6 +104,23 @@ export type Context = {
 	 * on top of one already running. See ui/credits/top-up-flow.
 	 */
 	topUp: TopUpFlow;
+	/**
+	 * Ensuring this browser may act for the account, without losing the action
+	 * that discovered it could not.
+	 *
+	 * The counterpart of `balanceCheck` for authorisation rather than funds: the
+	 * interrupted call waits on a promise while the user registers, and resumes
+	 * on their say-so. See ui/delegation/delegation-check.
+	 */
+	delegationCheck: DelegationCheckStore;
+	/**
+	 * The yes/no questions the app has to ask before going on: carrying on with
+	 * an interrupted action, or giving up on one a wallet may still act upon.
+	 *
+	 * Knows nothing about what is being asked: the caller supplies the words,
+	 * this holds the promise, and one modal renders it. See core/ui/confirm.
+	 */
+	confirmation: ConfirmationStore;
 	rpcHealth: RpcHealthStore;
 	/**
 	 * Wallet nonce-cache detection (dev + app-RPC only; a no-op store otherwise).
@@ -174,6 +194,20 @@ export type Context = {
 	game: Game;
 	/** The render surface and the camera that scopes what is loaded. */
 	render: Render;
+	/**
+	 * Whether this browser's signer may act for the account, read from the chain
+	 * and kept live.
+	 *
+	 * The app has to know BEFORE it lets a send through, or the user gets a bare
+	 * `NotDelegate` revert. Treated the way "needs funds" already is: a state the
+	 * UI reads, explains, and offers the remedy for (the top-up flow, which
+	 * registers and funds in one transaction). See onchain/delegation.
+	 *
+	 * WHICH contract answers it is the app's to say, so this reads whatever the
+	 * context pointed the store at rather than a contract named in advance. See
+	 * onchain/delegation.
+	 */
+	delegation: DelegationStore;
 	clock: Clock;
 	txObserver: TransactionObserver;
 	txObserverDebug: TxObserverDebugStore;

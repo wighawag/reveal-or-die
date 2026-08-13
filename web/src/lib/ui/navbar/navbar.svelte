@@ -15,6 +15,10 @@
 		SignerBalance,
 		createCreditsViewStore,
 	} from '$lib/ui/credits/index.js';
+	import {
+		DelegationRow,
+		createDelegationRowStore,
+	} from '$lib/ui/delegation/index.js';
 	import MenuIcon from '@lucide/svelte/icons/menu';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -43,6 +47,11 @@
 		...context,
 		credits: context.credits,
 	});
+
+	// Whether this browser may act for the account, and whether that can be
+	// withdrawn from here. Subscribing is also what starts the delegation poll,
+	// so a page that never shows the panel never reads it.
+	const delegationRow = createDelegationRowStore(context);
 
 	let showMenu = $state(false);
 	let accountsOpen = $state(false);
@@ -235,7 +244,9 @@
 		</button>
 	</div>
 	<Drawer.Root bind:open={showMenu} direction="right">
-		<Drawer.Portal to="#--layer-drawer" />
+		<!-- Lands in the drawer layer, which is Drawer.Content's own default (see
+		     lib/core/ui/layers.ts). That is what keeps the modals this panel opens,
+		     Top up above all, ABOVE the panel itself. -->
 		<Drawer.Content class="select-text **:select-text">
 			{#if connection.isTargetStepReached($connection)}
 				<!-- Account Section -->
@@ -321,6 +332,13 @@
 					     pays for playing, so it is what a user checks. The account below
 					     is what they own, which matters less often. -->
 					<SignerBalance view={$creditsView} />
+
+					<!-- Directly under what the browser SPENDS, because it is the other
+					     half of the same thing: what this browser is allowed to do for
+					     you, and how to take that back. An authorisation the user cannot
+					     withdraw is the failure delegation exists to avoid, so it is a
+					     row here rather than an entry point nobody can reach. -->
+					<DelegationRow view={$delegationRow} />
 
 					<div class="flex flex-col gap-1 rounded-md bg-muted/50 px-3 py-2">
 						<div class="flex items-center justify-between">
