@@ -933,7 +933,11 @@ export function createTopUpFlow(
 			signature,
 		});
 
-		const registry = deployments.get().contracts.GreetingsRegistry;
+		// From the delegation store, not looked up again by name: see
+		// DelegationStore. Registering against a different contract from the one
+		// `resolveRegistering` just read would spend the user's money and leave the
+		// send it was unblocking still blocked.
+		const registry = delegation.registry;
 
 		// The direct route is the owner sending, which for the account method is
 		// the app's own account executor and for the payment method is the payment

@@ -46,7 +46,10 @@ export async function revokeDelegation(
 	if ($executor.status === 'cannot-send') return {status: 'cannot-send'};
 	if ($executor.status !== 'ready') return {status: 'cancelled'};
 
-	const registry = get(deployments).contracts.GreetingsRegistry;
+	// From the store that reads it, not looked up again by name: see
+	// DelegationStore. A revoke aimed at a different contract from the one the
+	// UI just read would appear to succeed and change nothing.
+	const registry = delegation.registry;
 
 	try {
 		const hash = await $executor.client.writeContract({

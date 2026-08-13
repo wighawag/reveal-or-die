@@ -1,4 +1,3 @@
-import type {TypedDeployments} from '$lib/core/connection/types';
 import {
 	createPollingStore,
 	type PollingStore,
@@ -34,8 +33,91 @@ export type DelegationState = {
 	withdrawn: boolean;
 };
 
+/**
+ * The delegation surface, as an ABI rather than as a named contract.
+ *
+ * This is the whole external shape of `core/UsingDelegation.sol`, which is what
+ * a contract gets by adopting the library. Declared here, once, because
+ * delegation is a FEATURE with a fixed interface and not a property of any
+ * particular app: an app that adopts the library has exactly these functions,
+ * whatever else it does and whatever it calls itself.
+ *
+ * This module used to reach for `deployments.contracts.GreetingsRegistry` by
+ * name, which is the demo's contract. That works in exactly one repo. Every
+ * descendant of this template replaces the demo, so every descendant had to
+ * either keep a contract named after a greeting or fork this file - and the
+ * failure was a type error at best and a read against `undefined` at worst.
+ * The registry is an ADDRESS now, supplied by the app that knows which of its
+ * contracts adopted the library.
+ */
+export const DELEGATION_ABI = [
+	{
+		inputs: [{internalType: 'address', name: 'owner', type: 'address'}],
+		name: 'delegateOf',
+		outputs: [{internalType: 'address', name: '', type: 'address'}],
+		stateMutability: 'view',
+		type: 'function',
+	},
+	{
+		inputs: [
+			{internalType: 'address', name: 'owner', type: 'address'},
+			{internalType: 'address', name: 'delegate', type: 'address'},
+		],
+		name: 'delegationWithdrawn',
+		outputs: [{internalType: 'bool', name: '', type: 'bool'}],
+		stateMutability: 'view',
+		type: 'function',
+	},
+	{
+		inputs: [
+			{internalType: 'address', name: 'delegate', type: 'address'},
+			{internalType: 'address payable', name: 'payee', type: 'address'},
+		],
+		name: 'registerDelegate',
+		outputs: [],
+		stateMutability: 'payable',
+		type: 'function',
+	},
+	{
+		inputs: [
+			{internalType: 'address', name: 'owner', type: 'address'},
+			{internalType: 'string', name: 'origin', type: 'string'},
+			{internalType: 'address', name: 'delegate', type: 'address'},
+			{internalType: 'bytes', name: 'signature', type: 'bytes'},
+		],
+		name: 'registerDelegateViaSignature',
+		outputs: [],
+		stateMutability: 'payable',
+		type: 'function',
+	},
+	{
+		inputs: [],
+		name: 'revokeDelegate',
+		outputs: [],
+		stateMutability: 'nonpayable',
+		type: 'function',
+	},
+] as const;
+
+/** Where the delegation registry lives, and how to talk to it. */
+export type DelegationRegistry = {
+	address: `0x${string}`;
+	abi: typeof DELEGATION_ABI;
+};
+
 export type DelegationValue = PollingValue<DelegationState>;
-export type DelegationStore = PollingStore<DelegationState>;
+/**
+ * The live answer, plus WHERE it was read from.
+ *
+ * The registry is carried on the store rather than resolved again by each
+ * caller, because every writer (registering, revoking, the top-up flow's
+ * register-and-fund) has to address the same contract the reader just answered
+ * about. Two lookups is two chances to disagree, and the disagreement would be
+ * invisible: a UI that says "already authorised" while a send keeps reverting.
+ */
+export type DelegationStore = PollingStore<DelegationState> & {
+	readonly registry: DelegationRegistry;
+};
 
 export const ZERO_ADDRESS =
 	'0x0000000000000000000000000000000000000000' as const;
@@ -65,7 +147,14 @@ type DelegationScope = {
 
 export function createDelegationState(params: {
 	publicClient: PublicClient;
-	deployments: TypedDeployments;
+	/**
+	 * The deployed contract that adopted `core/UsingDelegation.sol`.
+	 *
+	 * An address, not a name: see {@link DELEGATION_ABI}. In this template it is
+	 * the Game, because the Game is what a player's moves are sent to and what
+	 * their reserve is held by, so it is the account authority that matters.
+	 */
+	registry: `0x${string}`;
 	/** The authenticated account. The read is scoped to it, and resets with it. */
 	account: Readable<`0x${string}` | undefined>;
 	/**
@@ -78,7 +167,11 @@ export function createDelegationState(params: {
 	fetchGate?: Readable<boolean>;
 	fetchInterval?: number;
 }): DelegationStore {
-	const {publicClient, deployments, account, signer, fetchGate} = params;
+	const {publicClient, account, signer, fetchGate} = params;
+	const registry: DelegationRegistry = {
+		address: params.registry,
+		abi: DELEGATION_ABI,
+	};
 
 	// The polling engine takes ONE source, so the account, the signer and the
 	// gate are folded into one: a closed gate reads as "no account to look up",
@@ -100,13 +193,12 @@ export function createDelegationState(params: {
 					: undefined,
 			);
 
-	return createPollingStore(
+	const store = createPollingStore(
 		async (scope: DelegationScope) => {
 			// Never reached with an absent scope: the engine treats a falsy source as
 			// "nothing to fetch". Narrowed for the type rather than for the case.
 			if (!scope) throw new Error('no account to read delegation for');
 			const {owner, signer} = scope;
-			const registry = deployments.contracts.GreetingsRegistry;
 			const [delegate, withdrawn] = await Promise.all([
 				publicClient.readContract({
 					...registry,
@@ -134,4 +226,8 @@ export function createDelegationState(params: {
 			},
 		},
 	);
+
+	// Carried on the store so every writer addresses the contract the reader just
+	// answered about. See {@link DelegationStore}.
+	return Object.assign(store, {registry});
 }

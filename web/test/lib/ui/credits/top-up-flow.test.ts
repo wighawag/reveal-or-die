@@ -235,6 +235,11 @@ function deps(params: DepsParams) {
 				delegationUpdate();
 				return delegationValue();
 			}),
+			// The contract the registration is sent to, carried by the store that
+			// reads it rather than looked up by name in deployments: see
+			// DelegationStore. An app names ITS delegation contract once, in the
+			// context, so this fixture no longer has to pretend to be the demo.
+			registry: {address: '0xREG', abi: []},
 		}),
 		payment: {
 			connection: paymentConnection,
@@ -254,17 +259,17 @@ function deps(params: DepsParams) {
 		}),
 		credits: params.credits,
 		// Both a store and a `.get()`: the flow reads it synchronously, while
-		// claimFaucet reads it with svelte's `get`.  The real one is both, and the
-		// registration needs the registry's address and abi off it.
+		// claimFaucet reads it with svelte's `get`. The real one is both. The
+		// registry is NOT here any more; it comes off the delegation store above.
 		deployments: Object.assign(
 			writable({
 				chain: {id: 31337, nativeCurrency: {decimals: 18, symbol: 'ETH'}},
-				contracts: {GreetingsRegistry: {address: '0xREG', abi: []}},
+				contracts: {},
 			}),
 			{
 				get: () => ({
 					chain: {id: 31337, nativeCurrency: {decimals: 18, symbol: 'ETH'}},
-					contracts: {GreetingsRegistry: {address: '0xREG', abi: []}},
+					contracts: {},
 				}),
 			},
 		),

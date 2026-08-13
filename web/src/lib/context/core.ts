@@ -364,7 +364,12 @@ export function createCoreContext(params: {
 	const signerAddress = derived(signer, ($signer) => $signer?.address);
 	const delegation = createDelegationState({
 		publicClient,
-		deployments: deployments.get(),
+		// The Game itself: it adopts `core/UsingDelegation.sol`, so the authority
+		// to play as an account is recorded by the same contract that holds that
+		// account's reserve and cells. An address rather than a contract name,
+		// because delegation is a feature with a fixed ABI and not a property of
+		// any one app - see DELEGATION_ABI.
+		registry: deployments.get().contracts.Game.address,
 		account,
 		signer: signerAddress,
 		fetchGate: chainFetchGate,
