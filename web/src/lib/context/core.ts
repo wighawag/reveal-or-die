@@ -1,4 +1,9 @@
 import type {Context, TxObserverDebugState} from './types.js';
+// The same store the connection hands back below, imported here because the
+// permission the app declares has to be known BEFORE the connection is built.
+// Aliased so the name the rest of this function uses keeps coming from the
+// connection, which is where every other consumer gets it.
+import {deployments as deploymentsStore} from '$lib/deployments-store';
 import {writable, derived, type Readable} from 'svelte/store';
 import {createWalletClient, custom, http} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
@@ -135,6 +140,33 @@ export function createCoreContext(params: {
 } {
 	let cleanupBurnerWallet: (() => void) | undefined;
 
+	/**
+	 * WHERE THIS APP'S DELEGATION LIVES, named once and only once.
+	 *
+	 * The Game itself: it inherits {UsingDelegation}, so the authority to play as
+	 * an account is recorded by the same contract that holds that account's
+	 * reserve and its cells. An address rather than a contract name, because
+	 * delegation is a feature with a fixed surface and not a property of any one
+	 * app - the entry points come with the package (see onchain/delegation).
+	 *
+	 * THE PAIR, not the address, and that is why the chain id travels with it:
+	 * the contract's own address and the chain id are both inside the message the
+	 * owner signs, so the same address on another chain is another contract
+	 * entirely. Three consumers have to mean the same pair - the chain read, every
+	 * writer, and the permission declared at connect time - and three independent
+	 * lookups is three chances to disagree. The disagreement would be invisible in
+	 * the worst way: a UI stating the browser may play while every move reverts.
+	 *
+	 * Read from the deployments store directly rather than from the connection,
+	 * because the permission has to be declared BEFORE the connection is built.
+	 * It is the same store, and it is typed, so pointing this at a contract that
+	 * does not exist is a compile error rather than a read that answers nothing.
+	 */
+	const delegationTarget = {
+		chainId: deploymentsStore.get().chain.id,
+		contract: deploymentsStore.get().contracts.Game.address,
+	} as const;
+
 	// Reasons the app cannot run. Collected rather than thrown: the context is
 	// also constructed during SSR / prerender, where a throw would fail the build
 	// instead of showing the user anything. See ADR-0002.
@@ -199,6 +231,23 @@ export function createCoreContext(params: {
 		targetStep,
 		walletHost,
 		walletOnly,
+		// WHAT THIS APP ASKS FOR, declared where the user can still say no: the
+		// authority to act in their name at the Game and nowhere else. The same
+		// pair the chain read and every writer use, named once above.
+		//
+		// OPTIONAL, deliberately. Required would make a refusal a wall at the door
+		// for something the user cannot evaluate yet - they have not seen the board
+		// and have staked nothing. Optional keeps the game browsable read-only and
+		// turns a refusal into a remedy the app offers at the moment it needs the
+		// authorisation (see the `re-authorise` route in ui/delegation/registration).
+		permissions: [
+			{
+				type: 'delegation',
+				required: false,
+				chainId: delegationTarget.chainId,
+				contract: delegationTarget.contract,
+			},
+		],
 		// The RPC url handed to the WALLET, which is not necessarily the one the
 		// app uses. Without it the exported chain info carries an empty rpc list
 		// (rocketh does not bake a public endpoint into chain info), and a wallet
@@ -369,12 +418,8 @@ export function createCoreContext(params: {
 	const signerAddress = derived(signer, ($signer) => $signer?.address);
 	const delegation = createDelegationState({
 		publicClient,
-		// The Game itself: it adopts `core/UsingDelegation.sol`, so the authority
-		// to play as an account is recorded by the same contract that holds that
-		// account's reserve and cells. An address rather than a contract name,
-		// because delegation is a feature with a fixed ABI and not a property of
-		// any one app - see DELEGATION_ABI.
-		registry: deployments.get().contracts.Game.address,
+		registry: delegationTarget.contract,
+		chainId: delegationTarget.chainId,
 		account,
 		signer: signerAddress,
 		fetchGate: chainFetchGate,

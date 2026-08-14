@@ -19,8 +19,10 @@
 		"src",
 		"deployments"
 	],
+	"dependencies": {
+		"@etherplay/delegation": "^0.1.0"
+	},
 	"devDependencies": {
-		"@etherplay/connect-core": "^0.2.0",
 		"@nomicfoundation/hardhat-keystore": "^3.0.8",
 		"@openzeppelin/contracts": "5.4.0",
 		"abitype": "^1.2.1",
@@ -79,7 +81,8 @@
 		"typescript:watch": "as-soon -w js pnpm typescript",
 		"format:check": "prettier --check .",
 		"format": "prettier --write .",
-		"lint": "slippy \"src/**/*.sol\" \"test/solidity/**/*.sol\"",
+		"_lint": "test/solidity is not listed: this repo has no Solidity tests left (delegation's went into @etherplay/delegation), and slippy fails on a pattern that matches nothing. hardhat.config still points at the directory, so put the glob back with the first .t.sol that lands there.",
+		"lint": "slippy \"src/**/*.sol\"",
 		"---------------------- PRODUCTION ---------------------- ": "",
 		"docgen": "ldenv -m default pnpm run deploy @@MODE --save-deployments true --skip-prompts ~~ pnpm rocketh-doc -e @@MODE --except-suffix _Implementation,_Proxy,_Router,_Route ~~ @@",
 		"execute": "ldenv -n HARDHAT_NETWORK tsx @@",

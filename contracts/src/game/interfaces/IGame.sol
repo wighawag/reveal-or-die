@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.0;
 
-import "../../core/IDelegation.sol";
+// The delegation surface is NOT restated here. It is composed from the
+// interface that ships beside the implementation in the etherplay delegation
+// package, so the router's selector list and the library cannot drift: a
+// restatement is a copy, and the failure it produces is a selector that routes
+// nowhere, which reads to a player as a broken wallet rather than as a missing
+// feature.
+import {IDelegation} from "@etherplay/delegation/contracts/IDelegation.sol";
 
 import "./UsingGameTypes.sol";
 import "./UsingGameEvents.sol";

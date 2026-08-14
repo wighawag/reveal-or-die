@@ -86,3 +86,8 @@ export function operationScopeAddress(
 ): `0x${string}` {
 	return deployments.contracts.Game.address;
 }
+
+// Delegation names its contract in `context/core`, not here: it needs the CHAIN
+// ID as well as the address (a credential is bound to the pair), and it is read
+// before the connection exists, so it cannot take a `TypedDeployments` the way
+// the scope above does. See `delegationTarget` there.

@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "../internal/UsingGameInternal.sol";
 import "../interfaces/IGame.sol";
-import {Delegation} from "../../core/Delegation.sol";
+import {Delegation} from "@etherplay/delegation/contracts/Delegation.sol";
 
 contract GameCommit is IGameCommit, UsingGameInternal {
     constructor(Config memory config) UsingGameInternal(config) {}
@@ -55,7 +55,7 @@ contract GameCommit is IGameCommit, UsingGameInternal {
 
     /// @notice Whose move this is, having checked the caller may make it.
     /// @dev The LIBRARY rather than {UsingDelegation}, deliberately. Inheriting
-    ///      that contract would bring its seven external functions along, and a
+    ///      that contract would bring its six external functions along, and a
     ///      router maps each selector to exactly one route - they belong to
     ///      {GameDelegation}, so having them here too would be a collision at
     ///      deploy time. The library reads no `msg.sender` of its own, which is

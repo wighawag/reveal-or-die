@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.0;
 
-import "../../core/UsingDelegation.sol";
+import {UsingDelegation} from "@etherplay/delegation/contracts/UsingDelegation.sol";
 
 /// @title The Game's delegation route
 /// @notice Who is allowed to play as whom.
@@ -29,15 +29,33 @@ import "../../core/UsingDelegation.sol";
 /// the proxy: {GameCommit} resolves a move against exactly what is registered
 /// here. Deployed as its own route rather than folded into {GameCommit}
 /// because a router maps one selector to one route, and a contract inheriting
-/// {UsingDelegation} brings all seven of these with it.
+/// {UsingDelegation} brings all six of these with it.
+///
+/// The library is not forked into this tree: it ships as source in the
+/// etherplay delegation package and is compiled into this route. That matters
+/// because a delegate authorised here may do anything at THIS game that its
+/// owner could do through {GameCommit-_accountFor} - the whole contract, not
+/// one action - and nothing anywhere else, since the address of this contract
+/// and the chain id are inside the message the owner signs. A shared registry
+/// deployment would put the REGISTRY's address in every signature instead,
+/// making one credential good at every game on it.
+///
+/// BEHIND THE ROUTER, that address is the PROXY. The route runs under
+/// `delegatecall`, so `address(this)` in {Delegation} is the proxy a player's
+/// client talks to, which is also where the record lives and where the check
+/// happens. So a signature is bound to the Game as a whole rather than to the
+/// implementation of one of its routes, and re-deploying a route does not
+/// invalidate anything already signed. That is the behaviour a router-based
+/// adopter needs, and it is asserted rather than assumed: see the proxy tests
+/// in `test/js/Game.test.ts`.
 ///
 /// Deliberately does NOT declare `is IDelegation`, though {IGame} composes that
 /// interface for the ABI. Solidity makes a contract inheriting both an
 /// interface and an abstract implementation of it restate every function as an
-/// `override`, which is precisely the seventy lines of boilerplate
-/// {UsingDelegation} exists to spare an adopter. The agreement between the two
-/// is checked instead by `test/solidity/game/GameDelegationRoute.t.sol`, at the
-/// level where it can actually break: whether each selector is ROUTED on the
-/// deployed proxy. A compiler check would have proved the interface matched
-/// while the route was still missing from the deploy script.
+/// `override`, which is precisely the boilerplate {UsingDelegation} exists to
+/// spare an adopter. The agreement between the two is checked instead by
+/// `test/js/Game.test.ts`, at the level where it can actually break: whether
+/// each selector is ROUTED on the deployed proxy. A compiler check would have
+/// proved the interface matched while the route was still missing from the
+/// deploy script.
 contract GameDelegation is UsingDelegation {}

@@ -219,16 +219,24 @@ export function resumeWhenGasArrives(params: {
  */
 export function setupNeeded(params: {
 	identity: `0x${string}` | undefined;
-	signer: `0x${string}` | undefined;
+	/**
+	 * The delegation read, which is already SCOPED to this browser's signer.
+	 *
+	 * No signer is passed alongside it, and none is missing: the read asks the
+	 * chain about the (account, signer) pair, so `allowed` is the answer about
+	 * this browser rather than about whichever delegate happened to be listed
+	 * first. It used to be an address comparison here, which only worked while an
+	 * account could have exactly one delegate.
+	 */
 	delegation: DelegationValue;
 	reserve: {step: string; amount?: bigint};
 }): SetupNeeded | undefined {
-	const {identity, signer, delegation, reserve} = params;
+	const {identity, delegation, reserve} = params;
 	if (!identity) return {step: 'sign-in'};
 	// Only once the read has landed. Treating Unloaded as "not authorised" would
 	// flash the gate over a board that is perfectly playable, on every load, for
 	// as long as the first read takes.
-	if (delegation.step === 'Loaded' && !isRegistered(delegation, signer)) {
+	if (delegation.step === 'Loaded' && !isRegistered(delegation)) {
 		return {step: 'authorise'};
 	}
 	if (reserve.step === 'Loaded' && reserve.amount === 0n) {
@@ -403,15 +411,11 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * A player who stops halfway through setup should be left having spent as
 	 * little as possible.
 	 */
-	const signerAddress = derived(core.signerExecutor, ($executor) =>
-		$executor.status === 'ready' ? $executor.address : undefined,
-	);
 	const setup = derived(
-		[gameIdentity, signerAddress, core.delegation, reserve],
-		([$identity, $signer, $delegation, $reserve]) =>
+		[gameIdentity, core.delegation, reserve],
+		([$identity, $delegation, $reserve]) =>
 			setupNeeded({
 				identity: $identity,
-				signer: $signer,
 				delegation: $delegation,
 				reserve: $reserve,
 			}),

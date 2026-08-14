@@ -3,6 +3,8 @@ import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not 
 import {network} from 'hardhat';
 import {setupFixtures} from './utils/index.js';
 import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
+import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts';
+import {delegationMessage} from '@etherplay/delegation';
 
 const {provider, networkHelpers} = await network.connect();
 const {deployAll} = setupFixtures(provider);
@@ -505,14 +507,15 @@ describe('Game delegation', function () {
 			functionName: 'registerDelegate',
 			args: [signer, zeroAddress],
 		});
+		// Asked about the PAIR, which is the only question there is: an account
+		// may authorise several browsers, so there is no such thing as "the"
+		// delegate to read back.
 		expect(
-			(
-				(await env.read(Game, {
-					functionName: 'delegateOf',
-					args: [account],
-				})) as string
-			).toLowerCase(),
-		).toEqual(signer.toLowerCase());
+			await env.read(Game, {
+				functionName: 'delegationStatus',
+				args: [account, signer],
+			}),
+		).toEqual([true, false]);
 
 		const placements: Placement[] = [{cellID: cellAt(5, 6)}];
 		await env.execute(Game, {
@@ -617,23 +620,175 @@ describe('Game delegation', function () {
 		// recognized", which reads to a user as a broken wallet rather than as a
 		// missing feature. Reading through the proxy is the only check that covers
 		// the wiring as well as the code.
-		const {env, Game, unnamedAccounts} = await networkHelpers.loadFixture(deployAll);
+		//
+		// All six of them, including the two writers, which are reached with a
+		// call rather than a transaction: a selector that does not route reverts
+		// on `eth_call` exactly as it would on a send, and this way the assertion
+		// is about the wiring rather than about what registering does.
+		const {env, Game, unnamedAccounts} =
+			await networkHelpers.loadFixture(deployAll);
 		const account = unnamedAccounts[0];
 
 		expect(
-			await env.read(Game, {functionName: 'delegateOf', args: [account]}),
-		).toEqual(zeroAddress);
-		expect(
 			await env.read(Game, {
-				functionName: 'delegationWithdrawn',
+				functionName: 'delegationStatus',
 				args: [account, account],
 			}),
-		).toEqual(false);
+		).toEqual([false, false]);
 		expect(
 			typeof (await env.read(Game, {
 				functionName: 'delegationMessage',
-				args: ['example.com', account],
+				args: [account, 0n],
 			})),
 		).toEqual('string');
+		expect(
+			typeof (await env.read(Game, {
+				functionName: 'delegationDigest',
+				args: [account, 0n],
+			})),
+		).toEqual('string');
+
+		// The writers, sent for real. A selector that does not route reverts
+		// before it reaches any code, so these landing at all is the assertion.
+		const delegate = unnamedAccounts[1];
+		await env.execute(Game, {
+			account,
+			functionName: 'registerDelegate',
+			args: [delegate, zeroAddress],
+		});
+		await env.execute(Game, {
+			account,
+			functionName: 'revokeDelegate',
+			args: [delegate],
+		});
+		expect(
+			await env.read(Game, {
+				functionName: 'delegationStatus',
+				args: [account, delegate],
+			}),
+		).toEqual([false, true]);
+
+		// The last one is reached by the error it gives back: rejecting the
+		// signature means it got as far as the library, which is what routing
+		// means here. A missing route would have said "function selector was not
+		// recognized" instead.
+		await expect(
+			env.execute(Game, {
+				account,
+				functionName: 'registerDelegateViaSignature',
+				args: [account, unnamedAccounts[2], 0n, `0x${'11'.repeat(65)}`],
+				gas: 1000000n,
+			}),
+		).toBeRejectedWith(`custom error 'MalformedSignature()'`);
+	});
+});
+
+/**
+ * WHICH CONTRACT A SIGNATURE IS GOOD AT, when the contract is behind a router.
+ *
+ * The delegation message names the verifying contract, taken from
+ * `address(this)`, and that bound is the whole point of the mechanism: a
+ * credential minted for one game must not be submittable at another. This game
+ * is deployed behind a PROXY, which the library upstream is not, so the answer
+ * to "which address is that" is not something to reason about from how
+ * `delegatecall` works. It is something to read off the deployed thing.
+ *
+ * If it were the route implementation rather than the proxy, every consequence
+ * would be wrong at once: the client addresses the proxy, so it would build a
+ * message for an address the contract never checks against; and re-deploying a
+ * route would invalidate every signature already in existence.
+ */
+describe('Game delegation behind the router', function () {
+	it('names the PROXY as the verifying contract, not the route', async function () {
+		const {env, Game} = await networkHelpers.loadFixture(deployAll);
+		const delegate = privateKeyToAccount(generatePrivateKey()).address;
+
+		const message = (await env.read(Game, {
+			functionName: 'delegationMessage',
+			args: [delegate, 0n],
+		})) as string;
+
+		// The address the client talks to is the address inside the text.
+		expect(message).toInclude(Game.address.toLowerCase());
+
+		// And the route's own address is nowhere in it. Read from the deployment
+		// rather than assumed, so this fails if the route stops being separate.
+		const route = env.get('Game_Implementation_Router_Delegation_Route');
+		expect(route.address.toLowerCase()).not.toEqual(Game.address.toLowerCase());
+		expect(message).not.toInclude(route.address.toLowerCase());
+	});
+
+	it('accepts a signature built for the proxy, from the package builder', async function () {
+		// The end of the chain the previous test starts: the client builds the
+		// message in TypeScript for the address it addresses, the owner signs it
+		// without ever sending anything, somebody else submits it, and the
+		// registration lands. Nothing here reads the message off the contract, so
+		// the two implementations are agreeing rather than being compared.
+		const {env, Game, unnamedAccounts} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const owner = privateKeyToAccount(generatePrivateKey());
+		const delegate = privateKeyToAccount(generatePrivateKey());
+		const payer = unnamedAccounts[0];
+		const chainId = Number(
+			BigInt((await provider.request({method: 'eth_chainId'})) as string),
+		);
+
+		const signature = await owner.signMessage({
+			message: delegationMessage({
+				delegate: delegate.address,
+				contract: Game.address,
+				chainId,
+				deadline: 0,
+			}),
+		});
+
+		await env.execute(Game, {
+			account: payer,
+			functionName: 'registerDelegateViaSignature',
+			args: [owner.address, delegate.address, 0n, signature],
+		});
+
+		expect(
+			await env.read(Game, {
+				functionName: 'delegationStatus',
+				args: [owner.address, delegate.address],
+			}),
+		).toEqual([true, false]);
+	});
+
+	it('refuses a signature naming the route implementation instead', async function () {
+		// The negative half, and the one that would catch the bug quietly. A
+		// signature for the wrong contract is well-formed, recovers to a real
+		// address, and is simply somebody else's - so if the proxy ever started
+		// verifying against the route, the test above would still pass while every
+		// credential in the wild stopped working.
+		const {env, Game, unnamedAccounts} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const owner = privateKeyToAccount(generatePrivateKey());
+		const delegate = privateKeyToAccount(generatePrivateKey());
+		const route = env.get('Game_Implementation_Router_Delegation_Route');
+		const chainId = Number(
+			BigInt((await provider.request({method: 'eth_chainId'})) as string),
+		);
+
+		const signature = await owner.signMessage({
+			message: delegationMessage({
+				delegate: delegate.address,
+				contract: route.address,
+				chainId,
+				deadline: 0,
+			}),
+		});
+
+		await expect(
+			env.execute(Game, {
+				account: unnamedAccounts[0],
+				functionName: 'registerDelegateViaSignature',
+				args: [owner.address, delegate.address, 0n, signature],
+				gas: 1000000n,
+			}),
+		).toBeRejectedWith(`custom error 'InvalidSignature()'`);
 	});
 });
