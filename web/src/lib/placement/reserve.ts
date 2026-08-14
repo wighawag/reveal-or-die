@@ -27,9 +27,13 @@ export type ReserveStore = Readable<ReserveState> & {
  *
  * `accountExecutor`, NOT `signerExecutor`: staking moves the player's real money, so it
  * is paid from the wallet they control, with a prompt, deliberately. The
- * reserve is CREDITED to `gameIdentity` (the local signer), which is the
- * address that will then commit and reveal without prompting. The contract's
- * `addToReserve(player, amount)` takes the beneficiary for exactly this reason.
+ * reserve is CREDITED to the ACCOUNT, which is what owns the stake and the
+ * cells won with it. The signer neither pays nor owns; it acts for the
+ * account, and only once `registerDelegate` has authorised it onchain. The
+ * contract's `addToReserve(player, amount)` takes the beneficiary separately
+ * from the payer precisely so the two CAN differ, which is safe because a
+ * reserve can only ever be withdrawn by its owner: topping up somebody else's
+ * is a gift.
  */
 export type ReserveDeps = Pick<
 	Context,
@@ -58,9 +62,11 @@ export function createReserve(params: {
 	const state = writable<ReserveState>({step: 'Unloaded'});
 
 	async function update() {
-		// The reserve belongs to the address that PLAYS; the tokens belong to the
-		// address that PAYS. They are different on purpose, so read each from the
-		// right one.
+		// The reserve is filed under the address that OWNS it; the tokens sit with
+		// the address that PAYS. Both are the account here, since that is what this
+		// game plays as and what it stakes from. They keep separate names because
+		// `addToReserve` lets a payer credit someone else, and a game that takes
+		// that up should not have to untangle one name doing two jobs.
 		const player = get(params.gameIdentity);
 		const payer = get(deps.account);
 		if (!player || !payer) {
@@ -131,7 +137,8 @@ export function createReserve(params: {
 	 */
 	async function fund(amount: bigint) {
 		const {executor, deployments} = await ready();
-		// The wallet pays; the signer is credited.
+		// The wallet pays; the ACCOUNT is credited. The signer neither pays nor
+		// owns; it plays the moves later, once registered as a delegate.
 		const payer = executor.address;
 		const player = get(params.gameIdentity);
 		if (!player) {
