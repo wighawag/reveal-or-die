@@ -39,7 +39,7 @@ template's contracts are a reference to start from.
 | repo                     | state                                                                                                                     |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | `jolly-roger`            | done, ours merged, clean and pushed. Now carries the `with/*` feature branches described above                             |
-| `template-commit-reveal` | **23 commits ahead of its stem, none pushed. Working tree clean.** Unit and contract suites green; e2e green only serially |
+| `template-commit-reveal` | **28 commits ahead of its stem and fully merged with it, none pushed. Working tree clean.** All four suites green                |
 | `conquest-v1`            | done and pushed, clean, descends from jolly-roger directly                                                                 |
 | `reveal-or-die`          | untouched. Still on a jolly-roger from ~497 commits back                                                                   |
 | `bomber-world`           | untouched. reveal-or-die + ~6 commits (bombs)                                                                             |
@@ -77,10 +77,10 @@ branch and 'stem/with/local-signer' have diverged, ahead N and behind M", which
 reads like a problem and is not: **ahead** is our work, **behind** is upstream
 work not yet merged down. Merge it with `git merge stem/with/local-signer`.
 
-**59 upstream commits are currently unmerged**, most of them dependency and
-base-stack updates arriving through jolly-roger's `offshoot-fanout` merges. That
-backlog is the next merge-down, and it is the reason to read the merge notes
-below before starting one.
+**Fully merged as of `a345d53`**, which took 98 commits down in one go. Do not
+let a backlog build to that size again if it can be helped: the last one had to
+be read as one lump, and the API break it carried (see below) was found by the
+type checker rather than by anyone reading the commits.
 
 **Fetch before concluding a commit is missing.** One merge began with "the
 upstream commits are unpushed, this is blocked": they were pushed, and only this
@@ -99,11 +99,64 @@ route that is not there. Earlier merges conflicted in `context/index.ts`
 instead, for the opposite reason (upstream editing a monolithic `createContext`
 this repo has split); expect either shape.
 
+**`context/index.ts` conflicts are resolved by keeping ours and then doing the
+real work by hand.** The file is three lines of composition here; upstream's is
+a 600-line `createContext`. So the conflict is never informative and the change
+inside it always is. Diff upstream's version against its own previous one
+(`git diff <old-merge-base> stem/with/local-signer -- web/src/lib/context/index.ts`)
+and port what that shows into `core.ts`. The `a345d53` merge is the worked
+example: `establishRemoteConnection` stopped returning `payment` and started
+returning `chainInfo`, with the app building the rail itself, and taking "ours"
+without reading would have left `core.ts` destructuring a property that no
+longer exists.
+
+**Grep the result of a merge for DUPLICATE definitions, every time.** In
+`a345d53` the `web/e2e/fixtures/test.ts` conflict looked like a pure insertion,
+where "keep both sides" is the obvious resolution: it was wrong, because
+upstream had MOVED `walletAccounts` rather than added it. Two further helpers
+(`topUpState`, `isDelegateRegistered`) were duplicated by hunks that merged
+cleanly and were never flagged at all. Every copy was byte-identical, so nothing
+failed; the file simply held two of each until somebody edited one.
+`grep -oE "^(async )?function [a-zA-Z0-9_]+|^const [A-Z_]+ =|^class [A-Za-z]+" FILE | sort | uniq -d`
+is enough to catch it. This is jolly-roger's `check-shared-divergence.sh`
+problem one level down, and its README says the useful half out loud: conflicts
+get attention, clean auto-merges do not.
+
+**Regenerate `web/src/lib/deployments.ts` after a merge that bumps rocketh.**
+It is generated and gitignored, so it survives every merge untouched, and its
+FORMAT changes with the toolchain and not just its contents. `a345d53` failed
+`web:check` with a type error inside `core/connection/remote.ts` (a file
+byte-identical to the stem's, on which jolly-roger checks clean) purely because
+the newer exporter emits a `WidenChain` wrapper widening `rpcUrls.default.http`
+to `readonly string[]`, and the old literal-typed export made a cast in that
+file unsound. Deploy locally, then
+`pnpm --filter ./contracts export localhost --ts ../web/src/lib/deployments.ts`.
+An error in `$lib/core` that upstream does not have is a signal to check the
+generated file before touching the shared one.
+
+**Two files fail `prettier` and must be left alone**: `web/playwright.config.ts`
+and `web/src/lib/core/metadata/Head.svelte`. Both are byte-identical to the
+stem, and jolly-roger's own `format:check` fails on exactly those two, so this
+is upstream's state. Reformatting would diverge shared files for a cosmetic
+reason and buy a conflict in every future merge.
+
 Once the force-push to `origin/main` has happened, switching to
 `git branch -u origin/main main` is the tidier end state (that is how
 `conquest-v1` is set up), with the stem merged in explicitly.
 
-The 23 commits, oldest last (`git log --oneline stem/with/local-signer..main`):
+The 28 commits, oldest last (`git log --oneline stem/with/local-signer..main`).
+The four most recent are listed by name because they are the ones no reader has
+seen in a merge yet:
+
+```
+a345d53  Merge stem/with/local-signer: service workers, e2e ports, connect 0.7
+bc6b7b3  docs: re-assess the handoff against the tree it now describes
+9ae6c7d  credits: fold the config into the live chains block
+6e5127c  game: index a zone's claimed cells, so a board read costs what it holds
+de102a4  e2e: say a wallet connection FAILED, instead of waiting it out
+```
+
+And before them:
 
 ```
 cbbac0a  reserve: say the account is credited, not the signer
@@ -131,13 +184,14 @@ b9309b7  docs: hand off the template work to a fresh context
 d34ad44  feat(contracts): put the commit-reveal game on jolly-roger
 ```
 
-**The baseline to reconcile against after a merge**, rather than accepting whatever comes out: a suite that silently stops being collected looks exactly like a clean run. Measured on `cbbac0a` with a clean working tree.
+**The baseline to reconcile against after a merge**, rather than accepting whatever comes out: a suite that silently stops being collected looks exactly like a clean run. Measured on `a345d53` with a clean working tree. It moved twice in one day, both times legitimately (the delegation library leaving took 74 contract tests with it; the stem merge brought 38 unit tests and 2 e2e tests), which is the argument for writing down what a number MEANS next to it rather than just the number.
 
 - `pnpm contracts:test` -> 13 passing (13 nodejs, **0 solidity**)
-- `pnpm web:check` -> 0 errors and 0 warnings
-- `pnpm --filter ./web test:unit --run` -> 706 passing in 64 files
-- `pnpm test:e2e` -> 19 passing in ~4.5 minutes, four workers. Pass the ports explicitly, e.g. `cd web && E2E_RPC_PORT=8631 E2E_PORT=4631 pnpm test:e2e`. Bare `pnpm test` chains into e2e against port 8545, which is usually the user's own dev chain.
+- `pnpm web:check` -> 0 errors and 0 warnings, once `deployments.ts` is regenerated (see the merge notes above)
+- `pnpm --filter ./web test:unit --run` -> 744 passing in 66 files
+- `pnpm test:e2e` -> 21 passing, four workers. Pass the ports explicitly, e.g. `cd web && E2E_RPC_PORT=8638 E2E_PORT=4638 pnpm test:e2e`. Bare `pnpm test` chains into e2e against port 8545, which is usually the user's own dev chain. The suite also starts two GATEWAY servers of its own on 4273/4274 (`web/e2e/ports.ts`, overridable with `E2E_GATEWAY_PLAIN_PORT` / `E2E_GATEWAY_SW_PORT`); they do not reuse an existing server, so a busy port fails the run rather than silently serving it.
 - `pnpm --filter ./contracts lint` -> **29 errors, and that is the state on `main` too.** All of them are `no-global-imports` and one `no-send`, none introduced by recent work. Do not read a red lint as something you broke; do not read it as fine either.
+- `pnpm format:check` -> **2 warnings, both upstream's** (see the merge notes). Anything else is yours.
 
 **The contract count fell from 87 to 13, and that is correct.** This document used to record 87 (61 solidity, 26 nodejs). 74 of those were the delegation library's own tests, and they left the tree with the library when it became `@etherplay/delegation` in `918cb4f`: `contracts/test/solidity/` is gone entirely and so are `Delegation.test.ts` and `SignatureUtils.test.ts`. What is left is `contracts/test/js/Game.test.ts`, which is this template's own game and its use of the package. Do not read the drop as lost coverage, and do not go looking for the Solidity suite; `contracts/package.json` has a `_lint` note explaining why the `test/solidity` glob is not listed.
 
@@ -314,7 +368,7 @@ Also, showing the signer balance in the TOP BAR belongs upstream in jolly-roger 
 
 ## What is left
 
-**One thing comes before all of it: 59 stem commits are waiting to be merged down** (see the tracking section above). The suite is trustworthy again as of the `getCellsInZones` fix, which is the precondition for that merge being readable at all: merging on top of a suite you cannot trust means the merge gets blamed for whatever was already broken.
+Nothing blocks these now. The two items that used to sit in front of them are done: the suite is trustworthy in parallel again (the `getCellsInZones` fix), and the stem is fully merged (`a345d53`). Doing them in that order mattered, and is worth repeating next time: merging on top of a suite you cannot trust means the merge gets blamed for whatever was already broken.
 
 1. **Port reveal-or-die.** First real test of the seams against a game that was not written for them. Expect `CommitRevealAdapter` to need changing again.
 2. **Port bomber-world** onto reveal-or-die. Small: ~18 files differ, and 64 of 81 shared web files are byte-identical.
