@@ -32,6 +32,14 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     mapping(uint64 => Cell) internal _cells;
     mapping(uint64 => mapping(address => uint256)) internal _stakeOnCellBy;
 
+    /// @notice Which cells of a zone have ever been placed on.
+    /// @dev The index that makes reading a viewport cost what the board HOLDS
+    ///      instead of a flat 16x16 per zone. Append-only, and safe to be so:
+    ///      a cell is claimed by accumulation and nothing ever un-claims it, so
+    ///      an entry can never go stale and the list needs no removal. Written
+    ///      by _place on a cell's first ever placement; read by _cellsInZones.
+    mapping(uint64 => uint64[]) internal _occupiedCellsInZone;
+
     ManualEpoch internal _manualEpoch;
 
     /// @notice Create an instance of a game

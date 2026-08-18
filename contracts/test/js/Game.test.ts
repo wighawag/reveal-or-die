@@ -135,9 +135,10 @@ describe('Game', function () {
 	 * and both violate it. So it is asserted directly rather than trusted.
 	 */
 	it('reaches the same board whichever order the reveals arrive in', async function () {
-		async function boardAfterRevealsInOrder(
-			revealFirst: 'A' | 'B',
-		): Promise<{totalStake: bigint; numClaimants: number}> {
+		async function boardAfterRevealsInOrder(revealFirst: 'A' | 'B'): Promise<{
+			contested: {totalStake: bigint; numClaimants: number};
+			listed: string[];
+		}> {
 			const {
 				env,
 				Game,
@@ -173,10 +174,16 @@ describe('Game', function () {
 				});
 			}
 
-			// Both players commit to the SAME cell, blind to each other.
+			// Both players commit to the SAME cell, blind to each other, and each
+			// also takes a cell of their own. The private cells are what make the
+			// zone LISTING order-sensitive if anything is: they are claimed for
+			// the first time by different reveals, so whichever lands first is
+			// indexed first.
 			const contested = cellAt(7, 7);
-			const placementsA: Placement[] = [{cellID: contested}];
-			const placementsB: Placement[] = [{cellID: contested}];
+			const onlyA = cellAt(6, 7);
+			const onlyB = cellAt(5, 7);
+			const placementsA: Placement[] = [{cellID: contested}, {cellID: onlyA}];
+			const placementsB: Placement[] = [{cellID: contested}, {cellID: onlyB}];
 
 			await env.execute(Game, {
 				account: playerA,
@@ -223,22 +230,53 @@ describe('Game', function () {
 				await revealA();
 			}
 
-			return (await env.read(Game, {
+			const cell = (await env.read(Game, {
 				functionName: 'getCell',
 				args: [contested],
 			})) as {totalStake: bigint; numClaimants: number};
+
+			// The same zone as the client reads it. Sorted, because the ORDER of
+			// this list is allowed to depend on arrival (see _place: the zone
+			// index is appended to by whichever reveal claims a cell first) while
+			// its CONTENT is not. Sorting is what separates the two, so this
+			// assertion says what it means to.
+			// All three cells are in zone 0, which spans -8..7 on both axes.
+			const [listed] = (await env.read(Game, {
+				functionName: 'getCellsInZone',
+				args: [0n],
+			})) as [
+				{cellID: bigint; totalStake: bigint; numClaimants: number}[],
+				bigint,
+			];
+
+			return {
+				contested: cell,
+				listed: listed
+					.map((c) => `${c.cellID}:${c.totalStake}:${c.numClaimants}`)
+					.sort(),
+			};
 		}
 
 		const aFirst = await boardAfterRevealsInOrder('A');
 		const bFirst = await boardAfterRevealsInOrder('B');
 
 		// Same final board either way: the cell is shared, not won.
-		expect(aFirst.totalStake).toEqual(bFirst.totalStake);
-		expect(aFirst.numClaimants).toEqual(bFirst.numClaimants);
+		expect(aFirst.contested.totalStake).toEqual(bFirst.contested.totalStake);
+		expect(aFirst.contested.numClaimants).toEqual(
+			bFirst.contested.numClaimants,
+		);
 
 		// And it really is shared, rather than both reveals failing.
-		expect(aFirst.numClaimants).toEqual(2);
-		expect(aFirst.totalStake).toEqual(parseEther('2'));
+		expect(aFirst.contested.numClaimants).toEqual(2);
+		expect(aFirst.contested.totalStake).toEqual(parseEther('2'));
+
+		// The board a client READS is the same board too. This is a separate
+		// claim from the one above: the cells are listed out of a per-zone index
+		// that reveals append to, so an index that indexed only what the first
+		// reveal saw, or that indexed a cell twice, would leave the stakes
+		// identical and still show two different boards.
+		expect(aFirst.listed).toEqual(bFirst.listed);
+		expect(aFirst.listed.length).toEqual(3);
 	});
 
 	it('forfeits the bond of a player who never reveals', async function () {
@@ -490,8 +528,15 @@ describe('Game delegation', function () {
 	}
 
 	it('lets an authorised key commit for the account, bonding the ACCOUNT reserve', async function () {
-		const {env, Game, GameToken, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
-			await networkHelpers.loadFixture(deployAll);
+		const {
+			env,
+			Game,
+			GameToken,
+			unnamedAccounts,
+			advanceToEpoch,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
 
 		const account = unnamedAccounts[0];
 		// Stands in for the browser's local signer: it holds no tokens and has no
@@ -547,8 +592,15 @@ describe('Game delegation', function () {
 	});
 
 	it('refuses a key the account never authorised', async function () {
-		const {env, Game, GameToken, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
-			await networkHelpers.loadFixture(deployAll);
+		const {
+			env,
+			Game,
+			GameToken,
+			unnamedAccounts,
+			advanceToEpoch,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
 
 		const account = unnamedAccounts[0];
 		const stranger = unnamedAccounts[2];
@@ -585,8 +637,15 @@ describe('Game delegation', function () {
 		// reserve on playing, which is what it is for, and it may not take it out.
 		// `withdrawFromReserve` has no player argument at all, so the delegate can
 		// only ever withdraw its OWN reserve, which is empty.
-		const {env, Game, GameToken, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
-			await networkHelpers.loadFixture(deployAll);
+		const {
+			env,
+			Game,
+			GameToken,
+			unnamedAccounts,
+			advanceToEpoch,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
 
 		const account = unnamedAccounts[0];
 		const signer = unnamedAccounts[1];

@@ -42,9 +42,19 @@ that, and both are easy to break by accident.
   nothing. Accumulate (`+=`); do not compare against another player's state.
 
   Rules like "the first to reveal takes the cell" or "reject a cell that is
-  already taken" look reasonable and violate this. `contracts/test/Game.test.ts`
-  asserts the property directly by replaying the same commitments in two
+  already taken" look reasonable and violate this.
+  `contracts/test/js/Game.test.ts` asserts the property directly by replaying the same commitments in two
   different orders; keep that test working when you change resolution rules.
+
+  The test is whether the ORDER can change what a player GETS, not whether
+  shared state is read at all. There is exactly one place here that reads it on
+  purpose: `_place` checks whether a cell has ever been claimed so it can add it
+  to a per-zone index once, and the indexed set, every stake and every player's
+  position come out identical either way (only the array order and which reveal
+  pays for the append differ). That argument is written next to the code and
+  pinned by a test that compares the zone listing as a SET in both orders. If
+  you need the same exemption, do both of those things; if you cannot make the
+  argument, you are looking at the rule, not at an exception to it.
 
 - **Something must be at stake, or nobody has to reveal.** A player who dislikes
   what they committed to can simply go quiet. The template makes this concrete

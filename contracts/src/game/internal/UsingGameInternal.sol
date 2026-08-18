@@ -153,10 +153,33 @@ abstract contract UsingGameInternal is
         emit CommitmentRevealed(player, epoch, hashRevealed, placements, cost);
     }
 
-    /// @dev Pure accumulation. Reads nothing that another player's reveal in
-    ///      this epoch could have written, so it commutes. See _reveal.
+    /// @dev Pure accumulation. No player's outcome depends on what another
+    ///      player's reveal did this epoch, so it commutes. See _reveal.
     function _place(address player, uint64 cellID) internal {
         Cell storage cell = _cells[cellID];
+
+        if (cell.numClaimants == 0) {
+            // First claim this cell has ever had: index it under its zone, so
+            // reading a viewport costs what the board holds (see
+            // _cellsInZones) instead of walking 256 slots per zone.
+            //
+            // This branch READS SHARED STATE - another player's reveal in this
+            // same epoch may have claimed the cell first - which the
+            // order-independence rule normally forbids. It is sound here, and
+            // the reason is worth being precise about rather than trusting:
+            // the rule exists so that no player's OUTCOME depends on the order
+            // reveals arrive in, and nothing observable to a player changes
+            // here. The cell is appended exactly once whoever arrives first,
+            // every stake still accumulates, and the client keys the result by
+            // cellID. What does differ with order is the POSITION of the entry
+            // in the array, and which of the two reveals pays for the append.
+            // Neither is part of the game.
+            //
+            // Guarded on numClaimants rather than totalStake so it stays
+            // correct for a game configured with a zero placement cost, where
+            // an occupied cell can still have a total stake of zero.
+            _occupiedCellsInZone[PositionUtils.getZone(cellID)].push(cellID);
+        }
 
         if (_stakeOnCellBy[cellID][player] == 0) {
             cell.numClaimants += 1;

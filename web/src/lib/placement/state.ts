@@ -52,19 +52,22 @@ type CellAt = {cellID: bigint; totalStake: bigint; numClaimants: number};
 /**
  * How many zones to ask for in one call.
  *
- * `getCellsInZones` walks all 16x16 cells of every zone it is given, twice
- * (once to count, once to fill), so its cost grows with the number of zones
- * and NOT with how much is actually on the board. Past a certain number the
- * read exceeds the node's `eth_call` gas cap and comes back as a revert - and
- * because the Game sits behind a router, that surfaces as the router's
- * "function selector was not recognized" rather than as anything resembling
- * out-of-gas. On a stock hardhat node the wall is 14 zones; a camera at the
- * default zoom already asks for 15, so this is not an edge case.
+ * `getCellsInZones` now reads a per-zone index of claimed cells, so a viewport
+ * costs what the board HOLDS there. Keep batching anyway: the cost is bounded
+ * by occupancy rather than by geometry, and occupancy is exactly the thing
+ * that grows as a game is played, so an unbatched read would be cheap for as
+ * long as it was never tested and expensive once the board filled up.
  *
- * Eight leaves generous headroom for a node with a lower cap. The proper fix
- * belongs in the contract (track the occupied cells of a zone, so a read costs
- * what the zone holds rather than a flat 256 slots); batching here is correct
- * regardless, since no single call can be allowed to grow without bound.
+ * Eight is inherited from when this was a workaround rather than a policy, and
+ * the failure it worked around is worth keeping written down, because the
+ * shape of it is not obvious: the getter used to walk all 16x16 cells of every
+ * zone TWICE, so an empty viewport cost the same as a full one, and past ~14
+ * zones the read exceeded the node's `eth_call` gas cap. Because the Game sits
+ * behind a router, that surfaced as the router's "function selector was not
+ * recognized" rather than as anything resembling out-of-gas. A camera at the
+ * default zoom asks for 15 zones, so it was hit immediately, and the same walk
+ * cost ~280ms of a local node's single thread per 8 empty zones - enough for a
+ * few browsers polling to stall every other call to the chain.
  */
 const ZONES_PER_CALL = 8;
 
