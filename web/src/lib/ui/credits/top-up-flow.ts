@@ -21,7 +21,7 @@ import {
 } from '$lib/ui/delegation/registration';
 import {
 	delegationAccountOf,
-	signDelegation,
+	fetchDelegation,
 	signsWithoutPrompt,
 	submitRegistration,
 	type DelegationAccount,
@@ -31,6 +31,10 @@ import {
 	walletCanActAs,
 	walletSelectedInstead,
 } from '$lib/core/connection/wallet-account';
+import {
+	connectionRefusal,
+	refusalExplanation,
+} from '$lib/core/connection/refusal';
 import {
 	fundAddress,
 	fundSignerFromAccount,
@@ -782,8 +786,20 @@ export function createTopUpFlow(
 		return false;
 	};
 
-	/** Ask the owner's wallet for the authorisation, normalising the outcome. */
-	const sign = async (
+	/**
+	 * Get the owner's authorisation, normalising the outcome.
+	 *
+	 * ONE CALL for both kinds of owner: a hosted account hands back what it
+	 * minted at sign-in, a wallet owner is asked to sign now. Which of the two is
+	 * about to happen was already decided by the route, and only so the app can
+	 * say the right thing beforehand (a consent step and a "Sign and pay" button
+	 * for the one that opens a wallet, nothing for the one that does not).
+	 *
+	 * Called HERE and not while choosing the route, because on the wallet path it
+	 * opens a wallet: asking during route selection would prompt the user merely
+	 * to work out what to put on screen.
+	 */
+	const obtainCredential = async (
 		account: DelegationAccount,
 		mine: number,
 	): Promise<
@@ -792,18 +808,20 @@ export function createTopUpFlow(
 		| {status: 'error'; message: string; details: string}
 	> => {
 		try {
-			const signed = await signDelegation({
-				$connection: get(connection),
-				account,
+			const signed = await fetchDelegation({
+				connection,
 				target: delegationTarget,
+				delegate: account.delegate,
 			});
 			if (stale(mine)) return {status: 'cancelled'};
 			return {status: 'signed', credential: signed};
 		} catch (error) {
 			if (isUserRejectionError(error)) return {status: 'cancelled'};
-			console.error('Could not sign the delegation message', error);
+			console.error('Could not obtain the delegation credential', error);
 			return {
 				status: 'error',
+				// Only ever shown on the live path; the hosted one has a remedy
+				// rather than a message. See the caller.
 				message: 'The authorisation was not signed, so nothing was sent.',
 				details: error instanceof Error ? error.stack || '' : String(error),
 			};
@@ -901,27 +919,49 @@ export function createTopUpFlow(
 			return;
 		}
 
-		// THE OWNER'S CREDENTIAL, taken while the wallet is actually on the owner's
-		// account. Held for the run, so a wallet that has to be switched back and
-		// forth is never asked to sign the same thing twice.
-		if (route?.kind === 'pre-signed') credential = route.credential;
+		// THE OWNER'S CREDENTIAL, asked for while the wallet is actually on the
+		// owner's account. Held for the run, so a wallet that has to be switched
+		// back and forth is never asked to sign the same thing twice.
+		//
+		// Both signature routes come through the same call, and the wallet check is
+		// the visible difference between them. It is skipped for the pre-signed
+		// route because there is no wallet in that story at all: the account's key
+		// lives at a host, and asking a payer's wallet to switch to an account it
+		// does not hold would be an instruction nobody can follow.
+		const asksLive = route?.kind === 'live-signature';
+		const needsCredential = asksLive || route?.kind === 'pre-signed';
 
-		if (route?.kind === 'live-signature' && !credential) {
-			if (!(await ensureWalletIsOn(connection, account.owner, 'sign'))) return;
+		if (needsCredential && !credential) {
+			if (
+				asksLive &&
+				!(await ensureWalletIsOn(connection, account.owner, 'sign'))
+			) {
+				return;
+			}
 
 			set({phase: 'sending', error: undefined, details: undefined});
-			const signed = await sign(account, mine);
+			const signed = await obtainCredential(account, mine);
 			if (stale(mine)) return;
+			if (signed.status === 'cancelled') {
+				set({phase: 'ready'});
+				return;
+			}
 			if (signed.status !== 'signed') {
-				set(
-					signed.status === 'cancelled'
-						? {phase: 'ready'}
-						: {
-								phase: 'ready',
-								error: signed.message,
-								details: signed.details,
-							},
-				);
+				// A wallet that failed to sign is a failure to report and try again.
+				// A HOSTED account that cannot produce its credential is not: it
+				// cannot sign after sign-in at all, so there is nothing to retry and
+				// the remedy is the one the library names in its own error, which is
+				// to sign in again. Reporting that as "the authorisation was not
+				// signed" would be both untrue and a dead end.
+				if (asksLive) {
+					set({
+						phase: 'ready',
+						error: signed.message,
+						details: signed.details,
+					});
+				} else {
+					park({kind: 're-authorise', reason: 'expired'});
+				}
 				return;
 			}
 			credential = signed.credential;
@@ -1409,10 +1449,44 @@ export function createTopUpFlow(
 				// Backing out of a sign-in is an answer, not a fault - but the session
 				// is gone either way, so the user is told rather than left to discover
 				// it from a screen that still names their account.
-				if (isUserRejectionError(error)) {
+				//
+				// THIS STEP HAS TO SPEAK FOR ITSELF, unlike the call sites that merely
+				// await a connection and can leave the reporting to the connection's own
+				// modal: `disconnect` is part of the remedy, so however this ends the
+				// user is signed out, with this flow still open in front of them.
+				const refusal = connectionRefusal(error);
+				if (isUserRejectionError(error) || refusal?.kind === 'cancelled') {
+					// Now reached by a CLOSED POPUP too, which it was not before 0.6.0:
+					// `ConnectionFailure('Connection cancelled')` carries no 4001 and does
+					// not say "user cancelled", so backing out of a hosted sign-in used to
+					// fall through and be reported as a failure with a stack trace.
 					set({
 						phase: 're-authorise',
 						error: 'You are signed out. Sign in again to carry on.',
+					});
+					return;
+				}
+				if (refusal?.kind === 'cross-origin-blocked') {
+					// `unavailable`, not `re-authorise`: the consent that would allow this
+					// lives in the wallet host, so signing in again cannot reach it and
+					// the step's "Sign in again" button would be an invitation to press a
+					// button that can only fail. `unavailable` already means "nothing the
+					// user does from here can work" and offers Close alone.
+					set({
+						phase: 'unavailable',
+						route: undefined,
+						explanation: refusalExplanation(refusal),
+					});
+					return;
+				}
+				if (refusal?.kind === 'permission-denied') {
+					// Stays on `re-authorise`, which keeps the button that is already
+					// there. Nothing is added: the remedy for a declined permission is the
+					// person answering differently, and this button is how they say so by
+					// hand. Nothing here retries on their behalf.
+					set({
+						phase: 're-authorise',
+						error: refusalExplanation(refusal),
 					});
 					return;
 				}

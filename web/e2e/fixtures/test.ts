@@ -32,6 +32,26 @@ const RPC_PORT = (globalThis as any).process.env.E2E_RPC_PORT || '8545';
 const HARDHAT_RPC_URL =
 	(globalThis as any).process.env.E2E_RPC_URL || `http://127.0.0.1:${RPC_PORT}`;
 
+/**
+ * How many times one call to the node is worth sending: the original, plus a
+ * single repeat for a connection that died in transit. Anything higher stops
+ * being a transport allowance and starts being a way not to hear about a node
+ * that is genuinely unwell.
+ */
+const RPC_ATTEMPTS = 2;
+/** Long enough for a dropped socket to be replaced, short enough to not be a wait. */
+const RPC_RETRY_DELAY_MS = 250;
+/** How far a failure message follows `cause` before it stops. Cycles are legal. */
+const MAX_CAUSE_DEPTH = 5;
+/**
+ * How much of the app's connection state a failure message may carry.
+ *
+ * A provider error can hang an entire request/response off `cause`, and a dump
+ * that buries the assertion it was meant to explain has changed which line
+ * nobody reads rather than fixing it.
+ */
+const MAX_DIAGNOSIS_CHARS = 2000;
+
 // The app's base URL comes from playwright.config.ts (`use.baseURL`), so tests
 // navigate with relative paths and nothing here needs to duplicate it.
 
@@ -62,10 +82,137 @@ async function appSenderAddresses(
 }
 
 /**
+ * Every account the connected wallet holds.
+ *
+ * Needed by the tests that pay with a DIFFERENT account than the one signed in:
+ * the burner generates its accounts per browser context, so their addresses
+ * cannot be known in advance, and an unfunded payer cannot pay.
+ */
+async function walletAccounts(page: Page): Promise<string[]> {
+	return page.evaluate(() => {
+		const read = (store: any) => {
+			let value: any;
+			store.subscribe((v: any) => (value = v))();
+			return value;
+		};
+		const context = (globalThis as any).context;
+		if (!context) return [];
+		return read(context.connection)?.wallet?.accounts ?? [];
+	});
+}
+
+/** The delegation flow's own state, which names the route it actually took. */
+async function topUpState(page: Page): Promise<{
+	phase?: string;
+	route?: string;
+	registering?: boolean;
+	payer?: string;
+}> {
+	return page.evaluate(() => {
+		const read = (store: any) => {
+			let value: any;
+			store.subscribe((v: any) => (value = v))();
+			return value;
+		};
+		const context = (globalThis as any).context;
+		if (!context) return {};
+		const state = read(context.topUp) ?? {};
+		return {
+			phase: state.phase,
+			route: state.route,
+			registering: state.registering,
+			payer: state.payer,
+		};
+	});
+}
+
+/** Whether the chain says this browser's signer may act for the account. */
+async function isDelegateRegistered(page: Page): Promise<boolean> {
+	return page.evaluate(() => {
+		const read = (store: any) => {
+			let value: any;
+			store.subscribe((v: any) => (value = v))();
+			return value;
+		};
+		const context = (globalThis as any).context;
+		if (!context) return false;
+		const delegation = read(context.delegation);
+		const signer = read(context.signerExecutor)?.address;
+		// The read is scoped to this signer, so `allowed` IS the answer about it.
+		// The signer is still required: without one there is nothing authorised and
+		// nothing the value could be describing.
+		if (!signer || delegation?.step !== 'Loaded') return false;
+		return delegation.allowed === true;
+	});
+}
+
+/**
+ * An error and everything it was caused by, one line each.
+ *
+ * Node's `fetch` throws a bare `TypeError: fetch failed` and puts the reason
+ * that actually explains it - ECONNRESET, ECONNREFUSED, a socket timeout - on
+ * `cause`. A message that prints only the top-level error therefore names the
+ * symptom and hides the diagnosis, which is how a transport blip against the
+ * node reads as an inscrutable four-word failure.
+ */
+function causeChain(error: unknown): string {
+	const lines: string[] = [];
+	let current: any = error;
+	// Bounded: `cause` is a user-supplied field and nothing forbids a cycle.
+	while (current && lines.length < MAX_CAUSE_DEPTH) {
+		const parts = [
+			`${current.name ?? typeof current}: ${current.message ?? String(current)}`,
+		];
+		for (const key of ['code', 'errno', 'syscall'] as const) {
+			if (current[key] !== undefined) parts.push(`${key}=${current[key]}`);
+		}
+		lines.push(parts.join(' '));
+		current = current.cause;
+	}
+	return lines.join('\n    caused by ');
+}
+
+/**
+ * The node answered, and the answer was no.
+ *
+ * ITS OWN CLASS RATHER THAN A FLAG ON THE ERROR, because the alternative is to
+ * smuggle the flag through `cause` - and `cause` already means something here:
+ * `causeChain` walks it. A `{retryable: false}` sentinel parked there gets
+ * walked into and printed as `object: [object Object]`, appending a line of
+ * junk to the refusal message, which is the case with the most diagnostic
+ * value in the whole function. So the marker goes somewhere the chain cannot
+ * see it, and `cause` stays free for a real underlying error.
+ */
+class NodeRefusedCall extends Error {
+	name = 'NodeRefusedCall';
+}
+
+/**
  * Fund an address using Hardhat's hardhat_setBalance RPC method.
  * This is useful for tests where we need to ensure the wallet has ETH.
+ *
+ * ONE RETRY, AND ONLY FOR THE TRANSPORT. Under parallel load several workers
+ * fund at once and a connection to the node occasionally dies mid-request,
+ * which surfaced as `TypeError: fetch failed` in a test that had already
+ * connected its wallet successfully - a socket problem wearing the costume of
+ * an app problem. This is not a test retry (those hide signal): it is one call
+ * to a node that dropped one connection, and it is safe only because
+ * `hardhat_setBalance` sets an ABSOLUTE balance, so sending it twice lands on
+ * the same state as sending it once. Do not copy this loop onto anything that
+ * accumulates, like a transfer.
+ *
+ * WHAT COUNTS AS AN ANSWER, and so is never repeated:
+ *
+ * - a JSON-RPC error in the body: the node considered the call and refused it
+ * - any 4xx: the request itself is wrong, and it will be just as wrong twice
+ * - a body that is not JSON: something that is not the node replied (a proxy,
+ *   or the wrong port), and it will reply the same way again
+ *
+ * A 5xx is NOT an answer in that sense - the node can be transiently unable to
+ * serve while it is being hammered by eight workers - so it is retried along
+ * with the transport failures.
  */
-async function fundAddressViaHardhat(
+export async function fundAddressViaHardhat(
 	address: string,
 	amountInEth = '100',
 ): Promise<void> {
@@ -73,19 +220,59 @@ async function fundAddressViaHardhat(
 	const weiAmount = BigInt(parseFloat(amountInEth) * 1e18);
 	const hexAmount = '0x' + weiAmount.toString(16);
 
-	const response = await fetch(HARDHAT_RPC_URL, {
-		method: 'POST',
-		headers: {'Content-Type': 'application/json'},
-		body: JSON.stringify({
-			jsonrpc: '2.0',
-			method: 'hardhat_setBalance',
-			params: [address, hexAmount],
-			id: 1,
-		}),
-	});
+	for (let attempt = 1; attempt <= RPC_ATTEMPTS; attempt++) {
+		try {
+			const response = await fetch(HARDHAT_RPC_URL, {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({
+					jsonrpc: '2.0',
+					method: 'hardhat_setBalance',
+					params: [address, hexAmount],
+					id: 1,
+				}),
+			});
 
-	if (!response.ok) {
-		throw new Error(`Failed to set balance: ${response.statusText}`);
+			if (!response.ok) {
+				const description = `hardhat_setBalance returned HTTP ${response.status} ${response.statusText}`;
+				if (response.status < 500) throw new NodeRefusedCall(description);
+				throw new Error(description);
+			}
+
+			// The node answers a rejected call with HTTP 200 and an `error` member,
+			// so a body nobody reads is a funding failure nobody notices - until a
+			// later assertion fails for want of gas and takes the blame.
+			//
+			// Read as TEXT first: `response.json()` gives no way to show what it
+			// choked on, and swallowing the parse failure would re-open exactly the
+			// hole this paragraph exists to close, since an unreadable body would
+			// then pass for success.
+			const raw = await response.text();
+			let body: {error?: {message?: string; code?: number}};
+			try {
+				body = JSON.parse(raw);
+			} catch {
+				throw new NodeRefusedCall(
+					`hardhat_setBalance got a reply that is not JSON: ${raw.slice(0, 200)}`,
+				);
+			}
+			if (body?.error) {
+				throw new NodeRefusedCall(
+					`hardhat_setBalance refused for ${address}: ` +
+						`${body.error.message ?? 'no message'} (code ${body.error.code ?? 'none'})`,
+				);
+			}
+			return;
+		} catch (error) {
+			if (error instanceof NodeRefusedCall || attempt === RPC_ATTEMPTS) {
+				throw new Error(
+					`could not fund ${address} via ${HARDHAT_RPC_URL} ` +
+						`(attempt ${attempt} of ${RPC_ATTEMPTS}):\n    ${causeChain(error)}`,
+					{cause: error},
+				);
+			}
+			await new Promise((resolve) => setTimeout(resolve, RPC_RETRY_DELAY_MS));
+		}
 	}
 }
 
@@ -258,12 +445,96 @@ async function isWalletConnected(page: Page): Promise<boolean> {
 	return attr === 'true';
 }
 
-/** Assert the wallet is connected, failing with a clear message if it is not. */
+/**
+ * What the app itself says about the connection, for a failure message.
+ *
+ * The attribute this fixture waits on cannot tell "still connecting" from
+ * "connect threw and gave up": both read `data-connected="false"` for the whole
+ * timeout, and the app's own failure modal collapses anything that is not a
+ * user rejection into "failed to connect to wallet", keeping the real error on
+ * `cause` where nobody looks. So the store is asked directly, and the `cause`
+ * is unpacked INSIDE the page: an `Error` crossing `evaluate` serialises to
+ * `{}`, which would throw away the one thing worth reading.
+ */
+async function describeConnectionState(page: Page): Promise<string> {
+	const state = await page
+		.evaluate(() => {
+			const read = (store: any) => {
+				let value: any;
+				store.subscribe((v: any) => (value = v))();
+				return value;
+			};
+			const describe = (value: any, depth = 0): any => {
+				if (value === null || typeof value !== 'object' || depth > 3)
+					return value;
+				const out: any = {};
+				if (value instanceof Error) {
+					out.name = value.name;
+					out.message = value.message;
+				}
+				for (const key of Object.keys(value))
+					out[key] = describe(value[key], depth + 1);
+				if ((value as any).cause !== undefined)
+					out.cause = describe((value as any).cause, depth + 1);
+				return out;
+			};
+			const context = (globalThis as any).context;
+			if (!context) return {noAppContext: true};
+			const connection = read(context.connection);
+			return {
+				step: connection?.step,
+				connected: connection?.connected,
+				error: connection?.error
+					? {
+							message: connection.error.message,
+							cause: describe(connection.error.cause),
+						}
+					: undefined,
+				// Which modal is on screen, which names the step it is stuck on.
+				dialog:
+					document
+						.querySelector('[role="dialog"]')
+						?.textContent?.replace(/\s+/g, ' ')
+						.trim()
+						.slice(0, 200) ?? null,
+			};
+		})
+		.catch((error) => ({unreadable: causeChain(error)}));
+
+	const text = JSON.stringify(state, null, 2);
+	return text.length > MAX_DIAGNOSIS_CHARS
+		? `${text.slice(0, MAX_DIAGNOSIS_CHARS)}\n... (truncated, ${
+				text.length - MAX_DIAGNOSIS_CHARS
+			} more characters)`
+		: text;
+}
+
+/**
+ * Assert the wallet is connected, and say WHY it is not when it is not.
+ *
+ * A bare attribute timeout here reports that the wait ran out, which is the one
+ * thing already obvious from the stack. The app knows more than that - it may
+ * be resting on a failure with the wallet's own error attached - so the message
+ * carries the connection's state and the `cause` the failure modal hides.
+ */
 async function expectWalletConnected(page: Page, timeout = 30_000) {
-	await expect(
-		page.locator(WALLET_STATUS),
-		'wallet should be connected (navbar data-connected)',
-	).toHaveAttribute('data-connected', 'true', {timeout});
+	try {
+		await expect(
+			page.locator(WALLET_STATUS),
+			'wallet should be connected (navbar data-connected)',
+		).toHaveAttribute('data-connected', 'true', {timeout});
+	} catch (error) {
+		// `cause` keeps the original: the text below is a rendering of it, and a
+		// rendering is not the thing. Playwright's own `TimeoutError` and its stack
+		// are worth having intact for anything that inspects the error rather than
+		// reading it.
+		throw new Error(
+			'wallet should be connected (navbar data-connected)\n' +
+				`the app's own connection state was:\n${await describeConnectionState(page)}\n\n` +
+				`${causeChain(error)}`,
+			{cause: error},
+		);
+	}
 }
 
 /**
@@ -513,70 +784,6 @@ async function waitForTransactionComplete(page: Page): Promise<void> {
 
 const PAYMENT_METHODS = '[data-testid="payment-methods"]';
 const CONFIRM_TOP_UP = '[data-testid="confirm-top-up"]';
-/**
- * Every account the connected wallet holds.
- *
- * Needed by the tests that pay with a DIFFERENT account than the one signed in:
- * the burner generates its accounts per browser context, so their addresses
- * cannot be known in advance, and an unfunded payer cannot pay.
- */
-async function walletAccounts(page: Page): Promise<string[]> {
-	return page.evaluate(() => {
-		const read = (store: any) => {
-			let value: any;
-			store.subscribe((v: any) => (value = v))();
-			return value;
-		};
-		const context = (globalThis as any).context;
-		if (!context) return [];
-		return read(context.connection)?.wallet?.accounts ?? [];
-	});
-}
-
-/** The delegation flow's own state, which names the route it actually took. */
-async function topUpState(page: Page): Promise<{
-	phase?: string;
-	route?: string;
-	registering?: boolean;
-	payer?: string;
-}> {
-	return page.evaluate(() => {
-		const read = (store: any) => {
-			let value: any;
-			store.subscribe((v: any) => (value = v))();
-			return value;
-		};
-		const context = (globalThis as any).context;
-		if (!context) return {};
-		const state = read(context.topUp) ?? {};
-		return {
-			phase: state.phase,
-			route: state.route,
-			registering: state.registering,
-			payer: state.payer,
-		};
-	});
-}
-
-/** Whether the chain says this browser's signer may act for the account. */
-async function isDelegateRegistered(page: Page): Promise<boolean> {
-	return page.evaluate(() => {
-		const read = (store: any) => {
-			let value: any;
-			store.subscribe((v: any) => (value = v))();
-			return value;
-		};
-		const context = (globalThis as any).context;
-		if (!context) return false;
-		const delegation = read(context.delegation);
-		const signer = read(context.signerExecutor)?.address;
-		// The read is scoped to this signer, so `allowed` IS the answer about it.
-		// The signer is still required: without one there is nothing authorised and
-		// nothing the value could be describing.
-		if (!signer || delegation?.step !== 'Loaded') return false;
-		return delegation.allowed === true;
-	});
-}
 
 // The explanation of what is being signed, which rides ON the confirm step: it
 // belongs immediately before the wallet opens, and that is where the button is.
@@ -598,6 +805,17 @@ const CONFIRMATION = '[data-testid="confirmation-confirm"]';
 export async function connectPaymentWallet(
 	page: Page,
 	accountIndex = 1,
+	/**
+	 * The other way this can legitimately END, besides reaching the transfer step.
+	 *
+	 * A payer that cannot prove the authorisation is parked rather than sent
+	 * (`re-authorise`, `unavailable`), and that is an OUTCOME, not a failure to
+	 * connect. Without this the caller waits 45 seconds and is then told the
+	 * payment connection never produced a payer, which is both untrue and the
+	 * opposite of a useful message. Defaults to nothing, so existing callers are
+	 * unchanged.
+	 */
+	alsoSettledOn: string[] = [],
 ): Promise<void> {
 	const deadline = Date.now() + 45_000;
 
@@ -608,6 +826,14 @@ export async function connectPaymentWallet(
 			.isVisible()
 			.catch(() => false);
 		if (ready) return;
+
+		for (const selector of alsoSettledOn) {
+			const settled = await page
+				.locator(selector)
+				.isVisible()
+				.catch(() => false);
+			if (settled) return;
+		}
 
 		// The top-up modal is itself a dialog, so every open one is inspected and
 		// only the connect-flow steps are acted on.

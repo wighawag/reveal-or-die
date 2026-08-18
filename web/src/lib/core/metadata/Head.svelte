@@ -31,6 +31,7 @@
 
 	let pageURL = $derived(`${host}${page.url.pathname}`);
 	let isHome = $derived(page.url.pathname === '/');
+
 </script>
 
 <svelte:head>

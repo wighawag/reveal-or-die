@@ -1,10 +1,12 @@
 # Delegation: many signers, bounded authorisation
 
-Status: steps zero to three done, step four outstanding. Step zero landed in `ba5a28a`; steps one and two shipped from the `etherplay-connect` monorepo as `@etherplay/delegation` 0.1.0, `@etherplay/connect-core` 0.3.0, `@etherplay/connect` 0.4.0 and `@etherplay/openfort` 0.2.0; step three is this repo's working tree.
+Status: **all five steps done.** Step zero landed in `ba5a28a`; steps one and two shipped from the `etherplay-connect` monorepo as `@etherplay/delegation` 0.1.0, `@etherplay/connect-core` 0.3.0, `@etherplay/connect` 0.4.0 and `@etherplay/openfort` 0.2.0; step three landed here in `8b37759`; step four, this repo merging down, is the merge that carries this line.
 
 Scope: `jolly-roger` on `variant/full`, the `etherplay-connect` monorepo, and `template-commit-reveal` as the first downstream adopter.
 
 Note on names: `variant/full` has since been renamed `with/local-signer` upstream, and this repo tracks it as `stem/with/local-signer`. The old name is kept below because that is the branch the work described here actually happened on.
+
+**Kept here after jolly-roger deleted it** (`f87d98b`, "delete docs"), which is why the merge that completes the plan also conflicts over it. Upstream is right to drop it: the plan is done there, and a finished plan is scaffolding. It stays in this repo for now because this template is the first adopter behind a router, because the "Parked, deliberately" section below is a list of decisions that are still open rather than a record of ones that were made, and because `HANDOFF.md` cites it. Delete it when that section has found a home, and do it deliberately rather than by taking a merge.
 
 ## Why
 

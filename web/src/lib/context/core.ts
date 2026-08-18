@@ -9,6 +9,7 @@ import {createWalletClient, custom, http} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
 import {createAccountData} from '$lib/account/AccountData.js';
 import {establishRemoteConnection} from '$lib/core/connection';
+import {createPaymentRail} from '$lib/core/connection/remote.js';
 import {createBalanceStore} from '$lib/core/connection/balance';
 import {createGasFeeStore} from '$lib/core/connection/gasFee';
 import {createRpcHealthStore} from '$lib/core/connection/rpcHealth';
@@ -223,7 +224,7 @@ export function createCoreContext(params: {
 		publicClient,
 		account,
 		signer,
-		payment,
+		chainInfo,
 		deployments,
 		forceRpcFailure,
 	} = establishRemoteConnection({
@@ -259,6 +260,20 @@ export function createCoreContext(params: {
 		// or key-bearing endpoint, and this value is handed to every user's wallet.
 		chainInfoNodeURL: PUBLIC_CHAIN_INFO_NODE_URL,
 	});
+
+	// The payment rail: a SECOND connection, used only to buy credits, built here
+	// rather than by establishRemoteConnection because wanting one is this app's
+	// decision and not a property of how it authenticates. A variant that sells
+	// nothing simply never calls this and never pays for the second connection.
+	//
+	// Given the same chainInfo the app connection was built from, so the payer's
+	// wallet is told about the chain exactly as the player's was, including the
+	// wallet-facing RPC override.
+	//
+	// This game keeps it because the thing that runs dry here is the SIGNER, which
+	// pays for a commit and a reveal every epoch, and no faucet aimed at the
+	// user's wallet can fix that. See the top-up flow below.
+	const payment = createPaymentRail(chainInfo, {nodeURL: PUBLIC_NODE_URL});
 
 	// ----------------------------------------------------------------------------
 	// CHAIN CONFIGURATION

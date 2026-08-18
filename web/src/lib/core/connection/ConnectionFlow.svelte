@@ -22,6 +22,7 @@
 		combinesAccountChoiceWithSignIn,
 		effectiveAccountSelection,
 	} from './connection-flow';
+	import {connectionFailureView} from './refusal';
 	import {dev} from '$lib';
 
 	interface Props {
@@ -60,15 +61,25 @@
 	// the user swapped their active account while on the confirm screen.
 	let signInAddress = $derived(resolveSignInAddress($connection));
 
-	// Whether clicking away (or escape) should tear the flow down. It must not
-	// while a wallet is being waited on: the wallet takes the focus, and the
-	// first click back on the page lands outside the dialog. Cancel is offered in
-	// every one of those steps and still works. See canDismissConnection.
+	// Whether clicking away (or escape) should tear the flow down. See
+	// canDismissConnection for why it must not while the wallet holds a request.
+	//
+	// Passed as `undefined` rather than as a guarded handler when dismissal is
+	// refused, because Modal.Root derives its affordances from whether it got one
+	// (see core/ui/modal/modal.svelte: showCloseButton, interactOutsideBehavior,
+	// escapeKeydownBehavior). A handler that decides internally would leave the
+	// close X on screen doing nothing and swallow escape silently, which is worse
+	// than refusing: it offers an exit that is not there.
 	let dismissable = $derived(canDismissConnection($connection));
-	const dismiss = () => {
-		if (dismissable) connection.cancel();
-	};
+	const dismiss = () => connection.cancel();
 	let swappedAccount = $derived(hasSwappedAccount($connection));
+
+	// What a failed attempt should say. Under @etherplay/connect 0.6.0 the wallet
+	// host's own refusals reach the app instead of being flattened into a
+	// cancellation, and their messages are written for a developer reading a
+	// console, so the wording is decided in core/connection/refusal rather than
+	// printed raw. Undefined when nothing is resting on the connection.
+	let failure = $derived(connectionFailureView($connection.error));
 
 	// Combined choose+sign-in modal (multi-account wallet under a sign-in
 	// target): which row the user explicitly picked (undefined = follow the
@@ -103,10 +114,7 @@
 	}
 </script>
 
-<Modal.Root
-	openWhen={$connection.step == 'WaitingForWalletConnection'}
-	onCancel={() => dismissable && connection.back('Idle')}
->
+<Modal.Root openWhen={$connection.step == 'WaitingForWalletConnection'}>
 	<Modal.Title>Waiting for Wallet Connection...</Modal.Title>
 	Please Accept Connection Request...
 </Modal.Root>
@@ -115,22 +123,34 @@
      back to a resting state (Idle / MechanismToChoose / WalletToChoose) with an
      error. Without this the error is set on the store but never rendered, so a
      fast rejection (e.g. werust's 4100) just flashes the waiting modal and
-     silently returns to idle. -->
+     silently returns to idle.
+
+     ALSO WHERE A REFUSAL LANDS, since 0.6.0: a declined required permission or
+     a blocked cross-origin request now rests here with its reason attached,
+     where before it was indistinguishable from a closed popup and showed
+     nothing at all. Dismiss is the only action, deliberately: neither refusal
+     is answered by pressing the same button again. -->
 <BasicModal
-	title="Connection Failed"
-	openWhen={!!$connection.error &&
+	title={failure?.title ?? 'Connection Failed'}
+	openWhen={!!failure &&
 		($connection.step === 'Idle' ||
 			$connection.step === 'MechanismToChoose' ||
 			$connection.step === 'WalletToChoose')}
 	cancel={{label: 'Dismiss', onclick: () => connection.clearError()}}
 >
-	<p class="text-sm text-muted-foreground">{$connection.error?.message}</p>
+	<p class="text-sm text-muted-foreground">{failure?.message}</p>
+	{#if failure?.detail}
+		<!-- Addressed to whoever configured the app rather than to the person
+		     reading it, so it is quieter and separate rather than folded into the
+		     sentence above. -->
+		<p class="mt-2 text-xs text-muted-foreground">{failure.detail}</p>
+	{/if}
 </BasicModal>
 
 <Modal.Root
 	openWhen={$connection.step == 'WalletToChoose' ||
 		$connection.step == 'MechanismToChoose'}
-	onCancel={dismiss}
+	onCancel={dismissable ? dismiss : undefined}
 	elementToFocus={emailInput}
 >
 	{#if connection.targetStep == 'SignedIn' && !connection.walletOnly}
@@ -348,7 +368,7 @@
 	openWhen={connection.targetStep !== 'WalletConnected' &&
 		$connection.step === 'WalletConnected' &&
 		!signingInFromChooser}
-	onCancel={dismiss}
+	onCancel={dismissable ? dismiss : undefined}
 >
 	<Modal.Title>Confirm sign in</Modal.Title>
 	<Modal.Description>
@@ -392,7 +412,7 @@
        action (no signature follows). -->
 <Modal.Root
 	openWhen={$connection.step === 'ChooseWalletAccount'}
-	onCancel={dismiss}
+	onCancel={dismissable ? dismiss : undefined}
 >
 	{#if $connection.step == 'ChooseWalletAccount'}
 		<!-- ASSERT ChooseWalletAccount -->
@@ -483,7 +503,7 @@
 <BasicModal
 	openWhen={$connection.step === 'WaitingForSignature'}
 	title="Please sign"
-	onCancel={dismiss}
+	onCancel={dismissable ? dismiss : undefined}
 >
 	<p>Please accept the signature request...</p>
 </BasicModal>
@@ -533,7 +553,7 @@
 		$connection.mechanism.type === 'wallet' &&
 		$connection.wallet?.invalidChainId) ||
 		false}
-	onCancel={dismiss}
+	onCancel={dismissable ? dismiss : undefined}
 >
 	<Modal.Title>Switch Network Required</Modal.Title>
 	<Modal.Description>
