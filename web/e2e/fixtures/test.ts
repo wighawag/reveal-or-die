@@ -383,6 +383,19 @@ async function connectWalletDevMode(
 			// just sign.
 			await pickSignableAccount(dialog, accountIndex);
 			await page.getByRole('button', {name: /^sign in$/i}).click();
+		} else if (/connection failed/i.test(text)) {
+			// The app is TELLING us the connect failed. Nothing in this loop can
+			// answer that dialog, so without this branch the helper spins on it
+			// until its own deadline and the test then fails at
+			// `expectWalletConnected` with "data-connected is false" - true, and
+			// useless, because it names the symptom 45 seconds after the cause
+			// was on screen and reads like a timing problem. Fail at once, and
+			// quote what the app said, since the app knows why.
+			throw new Error(
+				`the app reported a failed wallet connection: "${text
+					.replace(/\s+/g, ' ')
+					.trim()}"`,
+			);
 		} else if (/insufficient funds|funds available/i.test(text)) {
 			// Funding is handled by handleInsufficientFundsModal below.
 			break;
