@@ -13,63 +13,82 @@ Before deleting, move anything still true and still useful to where it belongs, 
 Five games exist that are all commit-reveal, all written independently, and all carrying their own copy of the same machinery. The aim is one template they can all descend from, with the parts they disagree about expressed as seams rather than forked code.
 
 ```
-jolly-roger (main)                    generic app template
-  └── variant/full                    + backend-requiring bits (hosted sign-in)
-        └── template-commit-reveal    + the commit-reveal framework  <- THIS REPO
-              ├── reveal-or-die       avatar in a maze
-              │     └── bomber-world  reveal-or-die + bombs
-              ├── conquest-v1         empires and star systems
-              ├── catacombs           dungeon crawler, deferred - see below
-              └── stratagems          board placement, deferred - see below
+jolly-roger (main)                      generic app template
+  └── with/local-signer                 + sign-in that derives a local signer
+        ├── with/hosted-account         + email/social sign-in - NOT tracked here
+        └── template-commit-reveal      + the commit-reveal framework  <- THIS REPO
+              ├── reveal-or-die         avatar in a maze
+              │     └── bomber-world    reveal-or-die + bombs
+              ├── conquest-v1           empires and star systems
+              ├── catacombs             dungeon crawler, deferred - see below
+              └── stratagems            board placement, deferred - see below
 ```
 
-Every game descends from `template-commit-reveal`, including stratagems and catacombs. An earlier version of this document drew stratagems hanging off `variant/full` instead; that was wrong. They are deferred on GROUNDS OF EFFORT (a different generation of the stack, see the section at the end), not because they sit somewhere else in the tree. The seams have to fit them.
+**jolly-roger renamed and reshaped its branches, and this repo now hangs off a different one.** What was `variant/full` is now `with/local-signer`, and the `with/*` branches are FEATURES rather than variants: each adds one capability to `main`, they are meant to compose, and `jolly-roger`'s `tooling` branch carries `check-shared-divergence.sh` to fail a cascade merge that leaves a shared file holding two versions of the same logic. The tree is declared in `fanout.config.json` on jolly-roger's orphan `offshoot` branch.
 
-Each descendant is its own repo, tracks its parent as `upstream`, and merges
-down. Contracts are NOT inherited: every game writes its own. The template's
-contracts are a reference to start from.
+The consequence for this repo is not cosmetic: **hosted (email/social) sign-in is no longer upstream of us.** It is `with/hosted-account`, a SIBLING built on the same parent. What this template inherits is the local signer and nothing more, which is exactly what it needs (see "Who signs what" below), and a descendant that wants hosted accounts adopts the combination rather than finding it already merged down. `web/src/lib/core/connection/mode.ts` is where that choice is a single line, `TARGET_STEP`.
+
+Every game descends from `template-commit-reveal`, including stratagems and catacombs. An earlier version of this document drew stratagems hanging off the parent branch instead; that was wrong. They are deferred on GROUNDS OF EFFORT (a different generation of the stack, see the section at the end), not because they sit somewhere else in the tree. The seams have to fit them.
+
+Each descendant is its own repo, tracks its parent as the `stem` remote, and
+merges down. Contracts are NOT inherited: every game writes its own. The
+template's contracts are a reference to start from.
 
 ## Where things stand
 
-| repo                     | state                                                                                                                         |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `jolly-roger`            | done, ours merged. **1 unpushed commit that is not ours** (`c93ded2 route: accept relative paths`)                            |
-| `template-commit-reveal` | **6 unpushed commits + uncommitted work, in progress.** Contracts green; upstream merged down; the web game works end to end   |
-| `conquest-v1`            | done and pushed, descends from jolly-roger directly. **1 unpushed commit that is not ours** (`deb8127`, same change as above) |
-| `reveal-or-die`          | untouched. Still on a jolly-roger from ~497 commits back                                                                      |
-| `bomber-world`           | untouched. reveal-or-die + ~6 commits (bombs)                                                                                 |
-| `catacombs`              | untouched, deferred. Svelte 5 already; indexer + fuzd + WebGL. Contracts and web BOTH unfinished - see below                   |
-| `stratagems`             | untouched, deliberately deferred                                                                                              |
+| repo                     | state                                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `jolly-roger`            | done, ours merged, clean and pushed. Now carries the `with/*` feature branches described above                             |
+| `template-commit-reveal` | **23 commits ahead of its stem, none pushed. Working tree clean.** Unit and contract suites green; e2e green only serially |
+| `conquest-v1`            | done and pushed, clean, descends from jolly-roger directly                                                                 |
+| `reveal-or-die`          | untouched. Still on a jolly-roger from ~497 commits back                                                                   |
+| `bomber-world`           | untouched. reveal-or-die + ~6 commits (bombs)                                                                             |
+| `catacombs`              | untouched, deferred. Svelte 5 already; indexer + fuzd + WebGL. Contracts and web BOTH unfinished - see below               |
+| `stratagems`             | untouched, deliberately deferred                                                                                          |
 
-The two unpushed `route:` commits appeared during this work and were not made by
-the previous session. Leave them alone; ask before touching.
+The two stray `route:` commits this document used to flag as unpushed in
+`jolly-roger` and `conquest-v1` (`c93ded2`, `deb8127`) are pushed. Both repos
+are in sync with their origin; nothing is left dangling there.
 
 ### template-commit-reveal, specifically
 
-`main` was reset onto `upstream/variant/full` and has three commits. The
-previous history is preserved on the `old` branch. **Nothing is pushed**, and
-the eventual push is a force-push (agreed), keeping `old` as an archive.
+`main` was reset onto jolly-roger's parent branch and now carries 23 commits.
+The previous history is preserved on the `old` branch, which is also what
+`origin/main` still points at. **Nothing is pushed**, and the eventual push is a
+force-push (agreed), keeping `old` as an archive.
 
 **Git tracking is deliberately hybrid, do not "fix" it blindly.**
 
 ```
-branch.main.remote     = upstream          (jolly-roger)
-branch.main.merge      = refs/heads/variant/full
+branch.main.remote     = stem              (jolly-roger)
+branch.main.merge      = refs/heads/with/local-signer
 branch.main.pushRemote = origin            (template-commit-reveal)
 ```
 
+The remote used to be called `upstream` and the branch `variant/full`. The
+branch was renamed on jolly-roger; the remote was renamed here to match the
+template tree's own vocabulary, where a parent remote is called `stem`.
+Historical commit messages and the `docs/plans/` notes still say `variant/full`,
+and deliberately so: that is the branch the work happened on.
+
 So `git push` goes to this repo's own origin, while `git status` compares
-against jolly-roger's `variant/full`. That makes `git status` say "your branch
-and 'upstream/variant/full' have diverged, ahead N and behind M", which reads
-like a problem and is not: **ahead** is our work, **behind** is upstream work
-not yet merged down. Merge it with `git merge upstream/variant/full`.
+against jolly-roger's `with/local-signer`. That makes `git status` say "your
+branch and 'stem/with/local-signer' have diverged, ahead N and behind M", which
+reads like a problem and is not: **ahead** is our work, **behind** is upstream
+work not yet merged down. Merge it with `git merge stem/with/local-signer`.
 
-**Fetch before concluding a commit is missing.** The last merge began with "the
+**59 upstream commits are currently unmerged**, most of them dependency and
+base-stack updates arriving through jolly-roger's `offshoot-fanout` merges. That
+backlog is the next merge-down, and it is the reason to read the merge notes
+below before starting one.
+
+**Fetch before concluding a commit is missing.** One merge began with "the
 upstream commits are unpushed, this is blocked": they were pushed, and only this
-repo's cached remote refs were stale. `git ls-remote upstream` answers it without
-changing anything.
+repo's cached remote refs were stale. `git ls-remote stem` answers it without
+changing anything. Fetch with `--prune` too: `variant/full` was deleted upstream
+when it was renamed, and a stale `stem/variant/full` would still look alive.
 
-**Upstream's e2e tests come down too, and they drive the DEMO.** `delegation.e2e.ts` and `demo.e2e.ts` both need the greetings page this repo removed, so they go with it. Worth deleting promptly rather than leaving to fail: they connect a wallet each, and seven simultaneous wallet connects tipped the documented connect flake from intermittent into every-run. Five is fine; the suite passed twice at five and failed 7-of-7 at seven. If that flake is ever fixed properly, it is a fixture-level fix upstream.
+**Upstream's e2e tests come down too, and they drive the DEMO.** `delegation.e2e.ts` and `demo.e2e.ts` both need the greetings page this repo removed, so they go with it. Worth deleting promptly rather than leaving to fail: they connect a wallet each, and seven simultaneous wallet connects tipped the documented connect flake from intermittent into every-run. Five is fine; the suite passed twice at five and failed 7-of-7 at seven. That was measured when five was reliably green in parallel, which it no longer is (see the e2e note under "Environment gotchas"), so read it as evidence that the failure scales with simultaneous connects, not as a safe budget. If it is ever fixed properly, it is a fixture-level fix upstream.
 
 **The conflict is wherever this repo DELETED something upstream still edits.**
 The recurring one is the demo route: `web/src/routes/demo/` went with the demo
@@ -82,25 +101,49 @@ this repo has split); expect either shape.
 
 Once the force-push to `origin/main` has happened, switching to
 `git branch -u origin/main main` is the tidier end state (that is how
-`conquest-v1` is set up), with upstream merged in explicitly.
+`conquest-v1` is set up), with the stem merged in explicitly.
+
+The 23 commits, oldest last (`git log --oneline stem/with/local-signer..main`):
 
 ```
-d34ad44  contracts on jolly-roger's variant/full
-29df48f  the seams, and the framework the four games agree on
-095cee4  address-based, staked, shared-cell template game
-b9309b7  docs: hand off the template work to a fresh context
+cbbac0a  reserve: say the account is credited, not the signer
+5495fa9  Merge: delegation becomes a dependency, not a fork
+8b37759  game: the account is the player, the signer only acts for it
+f9897c8  delegation: address the registry, do not name it
+94e0d9a  Merge: delegation, and the layers modals sit in
+dd2b0ea  game: classify a failed move once, at the boundary
+a8d0ecb  Merge: recognising an account that cannot pay
+c68453e  feat(game): offer the remedy when a move runs out of gas
+56351ab  Merge: the top-up flow for the signer
+de040c2  docs: record the e2e connect flake
+7a2cab7  test(e2e): assert the game plays as the signer, not as the account
+921b559  test(e2e): follow the game onto the signer
+99470bd  Merge: two named executors, credits, e2e worktree
+43bae4e  test(e2e): cover the commit-reveal round, and retire the demo
+ceef173  feat(web): the template's own game, and split the context in two
+8aa79f3  feat(game): the commit-reveal round, and the seams it proved wrong
+d928921  feat(contracts): let one address pay the stake and another play with it
+d0d5980  Merge: first merge-down from the stem
 7c21d1b  docs: record the hybrid git tracking
-(merge)  upstream/variant/full merged down
+b9309b7  docs: hand off the template work to a fresh context
+095cee4  feat(contracts): address-based, staked, shared-cell template game
+29df48f  feat(game): the seams, and the framework the four games agree on
+d34ad44  feat(contracts): put the commit-reveal game on jolly-roger
 ```
 
-All green. 16 commits are committed and unpushed; on top of them sits an UNCOMMITTED merge of `upstream/variant/full` (12e8df3) plus the classifier retirement, left uncommitted deliberately. These are the numbers to reconcile against after a merge, rather than accepting whatever comes out: a suite that silently stops being collected looks exactly like a clean run.
+**The baseline to reconcile against after a merge**, rather than accepting whatever comes out: a suite that silently stops being collected looks exactly like a clean run. Measured on `cbbac0a` with a clean working tree.
 
-- `pnpm contracts:test` -> 87 passing (61 solidity, 26 nodejs)
-- `pnpm web:check` -> 0 errors
-- `pnpm --filter ./web test:unit --run` -> 685 passing in 62 files
-- `pnpm test:e2e` -> 19 passing. Pass the ports explicitly, e.g. `cd web && E2E_RPC_PORT=8631 E2E_PORT=4631 pnpm test:e2e`. Bare `pnpm test` chains into e2e against port 8545, which is usually the user's own dev chain.
+- `pnpm contracts:test` -> 13 passing (13 nodejs, **0 solidity**)
+- `pnpm web:check` -> 0 errors and 0 warnings
+- `pnpm --filter ./web test:unit --run` -> 706 passing in 64 files
+- `pnpm test:e2e` -> 19 passing in ~4.5 minutes, four workers. Pass the ports explicitly, e.g. `cd web && E2E_RPC_PORT=8631 E2E_PORT=4631 pnpm test:e2e`. Bare `pnpm test` chains into e2e against port 8545, which is usually the user's own dev chain.
+- `pnpm --filter ./contracts lint` -> **29 errors, and that is the state on `main` too.** All of them are `no-global-imports` and one `no-send`, none introduced by recent work. Do not read a red lint as something you broke; do not read it as fine either.
 
-The e2e run happens in a throwaway git worktree, and it carries the WORKING TREE across (uncommitted diff plus untracked files), so it tests what you are looking at rather than the last commit. For a fast loop on one test, `test.only` restricts the whole run to it (`forbidOnly` is CI-only), taking a full run from ~4.5 minutes to ~1.5.
+**The contract count fell from 87 to 13, and that is correct.** This document used to record 87 (61 solidity, 26 nodejs). 74 of those were the delegation library's own tests, and they left the tree with the library when it became `@etherplay/delegation` in `918cb4f`: `contracts/test/solidity/` is gone entirely and so are `Delegation.test.ts` and `SignatureUtils.test.ts`. What is left is `contracts/test/js/Game.test.ts`, which is this template's own game and its use of the package. Do not read the drop as lost coverage, and do not go looking for the Solidity suite; `contracts/package.json` has a `_lint` note explaining why the `test/solidity` glob is not listed.
+
+**e2e used to fail in parallel and no longer does.** For a while the suite passed only with `CI=1` (one worker), while four workers failed 4-5 of the five wallet-connecting tests every run. That was not a test problem: see "A slow view function is a real outage" below. `CI=1` remains useful for a quiet, serial run with retries, at about twice the wall time.
+
+The e2e run happens in a throwaway git worktree, and it carries the WORKING TREE across (uncommitted diff plus untracked files), so it tests what you are looking at rather than the last commit. For a fast loop on one test, `test.only` restricts the whole run to it (`forbidOnly` is CI-only), taking a full run from ~4.5 minutes to ~1.5. It has to be `test.only` rather than a filter, because `scripts/run-e2e-tests.sh` ends in a bare `pnpm exec playwright test` and forwards no arguments, so there is no way to pass `--grep` or `--workers` in. `CI=1` works only because the config reads the environment.
 
 ## Environment gotchas
 
@@ -110,7 +153,9 @@ The e2e run happens in a throwaway git worktree, and it carries the WORKING TREE
   polluting theirs. `scripts/run-e2e-tests.sh` silently reuses whatever is on
   8545 otherwise. Check with `fuser 8555/tcp` first; 8080 has been in use by an
   unrelated process.
-- **The e2e connect step is intermittently flaky under parallel load.** Seen three times in about six runs since sign-in became part of the flow, always as `expectWalletConnected` timing out after 30s while the connect dialogs are still in flight. It passes on a re-run. Signing in adds a dialog and a signature to what that 30s has to cover, and four workers all doing it at once is the condition. Worth timing rather than guessing at: if it is simply too tight, the fix is upstream in the fixture, not a retry here.
+- **`test-results/` holds the evidence after a failure**: `error-context.md` (the failing locator and the page's accessibility snapshot) and `test-failed-1.png` per test. Read the SCREENSHOT. The snapshot was actively misleading in the connect investigation, listing only the `Connect` button, while the screenshot showed the failure modal that named the cause.
+- **A wallet connect that FAILS is now reported as one.** The connect helper answers whatever dialog is on screen, and a "Connection Failed" modal is not one it can answer, so it used to spin until its own 45s deadline and let the test fail at `expectWalletConnected` with "data-connected is false": true, and useless, since it names the symptom long after the cause was on screen and reads like a timing problem. It now throws immediately, quoting the app's own words.
+- **The node is single-threaded and shared by every worker.** Four browsers, one hardhat process. Anything that costs it real CPU is charged to every other test at once, and `@etherplay/connect` bounds `getChainId`/`getAccounts` with a 5s timeout (`withTimeout`, not configurable), so a busy node does not slow a connect down, it fails it.
 - **Check for ORPHANED hardhat nodes, not just a busy port.** Several runs can leave nodes behind; they queue on the same port, and when the one holding it dies another takes over with completely different state. The symptom is baffling: a contract you just deployed has no code, or addresses change between deploys. `fuser 8555/tcp` only shows the one that won. Use `ps -eo pid,etimes,cmd | grep contracts/node_modules` and check the ages.
 - **`pnpm web:dev` exercises SSR; `pnpm build` does not exercise it the same way.** A dependency without an `exports` field resolves to its CJS build under the dev SSR runner and fails there while the production build succeeds. Test both surfaces; the game route was 500ing in dev while every build and e2e run was green.
 - **`vite preview` can serve a stale output dir** (every asset 404s, no CSS).
@@ -157,9 +202,16 @@ the first one wrong twice in a single message.
   the game to whoever pays the most gas. Accumulate (`+=`). Stratagems does this
   correctly with `cellUpdate.delta += enemyOrFriend`.
 
-  `contracts/test/Game.test.ts` asserts this by replaying the same commitments
-  in both reveal orders. It has been verified to have teeth: reintroducing the
-  reject-if-occupied rule fails that test while the other three still pass.
+  `contracts/test/js/Game.test.ts` asserts this by replaying the same
+  commitments in both reveal orders. It has been verified to have teeth:
+  reintroducing the reject-if-occupied rule fails that test while the other
+  three still pass.
+
+  It now replays the zone LISTING as well as the cell, because the per-zone
+  index added for `getCellsInZones` is written by whichever reveal claims a cell
+  first. That is the one deliberate read of shared state in `_place`, and the
+  argument for it (the content is order-independent, only the array order and
+  who pays the append are not) is in `AGENTS.md` and in the code.
 
 - **Something must be at stake or nobody has to reveal.** A player who dislikes
   what they committed to just goes quiet. This was `// TODO burn / stake ....`
@@ -225,7 +277,7 @@ A descendant that wants the readable, editable source back has lost something re
 
 A commit-reveal round is at least two transactions every epoch, forever. Sent from the wallet that is a MetaMask prompt per commit AND per reveal, which is unplayable, and worse than unplayable here: a reveal the player does not approve in time costs them their stake. An account authenticated by email or social sign-in has no wallet provider at all, so under wallet execution it cannot send anything and simply cannot play.
 
-`variant/full` already derives a local signer at sign-in (`OriginAccount.signer`), so the fix is wiring, not invention:
+The stem branch already derives a local signer at sign-in (`OriginAccount.signer`), which is what `with/local-signer` IS, so the fix is wiring, not invention:
 
 - `core.ts` builds a SECOND executor pinned to the signer. `gameExecutor` sends moves; `executor` stays for anything that spends the player's money, with a prompt, deliberately.
 - The choice is made per DEPLOYMENT (`gameIdentityAvailable`), not per moment. Picking whichever executor happens to be ready would quietly route a move through the wallet while a sign-in was still in flight, which is the exact prompt this removes.
@@ -248,7 +300,11 @@ Those three call sites had NO tests, which the migration exposed rather than cau
 
 What that test does NOT cover is the wrong direction, a contract revert being offered a top-up that cannot fix it. That needs a move which reverts on chain rather than being refused by the node, and it is pinned by unit tests instead.
 
-**Still to do:** the HOSTED sign-in path cannot be exercised locally, because no hosted sign-in service is configured anywhere, so every local run takes the wallet-only fallback. Narrower than it first looks, and this was overstated here before: a wallet-only sign-in still DERIVES a signer (`hasLocalSigner` is `targetStep === 'SignedIn'`, not "is there a wallet host"), so e2e does run the whole signer path for real, including draining it and topping it back up. What remains unproven is an account authenticated by email or social sign-in, which is the case with no wallet provider at all. Also, showing the signer balance in the TOP BAR belongs upstream in jolly-roger rather than here, so every descendant gets it rather than this template diverging `lib/core`.
+**Still to do, and now partly SOMEONE ELSE'S to do:** the HOSTED sign-in path cannot be exercised locally, because no hosted sign-in service is configured anywhere, so every local run takes the wallet-only fallback. Narrower than it first looks, and this was overstated here before: a wallet-only sign-in still DERIVES a signer (`hasLocalSigner` is `targetStep === 'SignedIn'`, not "is there a wallet host"), so e2e does run the whole signer path for real, including draining it and topping it back up. What remains unproven is an account authenticated by email or social sign-in, which is the case with no wallet provider at all.
+
+That gap is no longer this repo's to close on its own, and that is the practical consequence of the branch reshuffle: email/social sign-in is `with/hosted-account`, a sibling of this template rather than an ancestor of it, so proving it belongs there and arrives here only if a descendant adopts both. What this repo must keep true is that nothing in the game assumes a wallet provider exists, since that is the assumption a hosted account breaks.
+
+Also, showing the signer balance in the TOP BAR belongs upstream in jolly-roger rather than here, so every descendant gets it rather than this template diverging `lib/core`.
 
 ## Sent upstream, or worth sending
 
@@ -258,13 +314,15 @@ What that test does NOT cover is the wrong direction, a contract revert being of
 
 ## What is left
 
+**One thing comes before all of it: 59 stem commits are waiting to be merged down** (see the tracking section above). The suite is trustworthy again as of the `getCellsInZones` fix, which is the precondition for that merge being readable at all: merging on top of a suite you cannot trust means the merge gets blamed for whatever was already broken.
+
 1. **Port reveal-or-die.** First real test of the seams against a game that was not written for them. Expect `CommitRevealAdapter` to need changing again.
 2. **Port bomber-world** onto reveal-or-die. Small: ~18 files differ, and 64 of 81 shared web files are byte-identical.
 3. **Port conquest** onto the template. Second bigint identity, different actions. Note this is a rewrite of working, tested code (406 unit + 11 e2e), so it needs the same scrutiny: the bugs found there (black map, click offset, scrollbar overflow) were all found by measuring in a real browser, not by reasoning.
 4. **Reassess stratagems** once three ports are done.
-5. **Make `getCellsInZones` scale.** See the findings below: it is O(256 x zones) regardless of how much is on the board, and the client batches around it. The contract-side fix is to track a zone's occupied cells so a read costs what the zone holds.
+5. ~~**Make `getCellsInZones` scale.**~~ **DONE**, and it turned out not to be an optimisation. `_occupiedCellsInZone` in `UsingGameStore` is an append-only per-zone index, written by `_place` the first time a cell is claimed and read by `_cellsInZones`, so a viewport read costs what the board holds: 8 zones went from ~280ms to 4ms, and 15 zones from "2.9s then revert" to 5ms. It is safe to append only, because a cell is claimed by accumulation and nothing ever un-claims it. See the findings below for why this was breaking the e2e suite, and `_place` for why a branch on shared state is admissible there. **What a port must carry across is the order-independence argument, not just the index**: `_place` decides whether to append by reading a cell another player's reveal in the same epoch may have claimed first, which is sound only because the array's CONTENT does not depend on the order and no player's outcome does either. `contracts/test/js/Game.test.ts` now asserts the listing as a SET in both reveal orders, and that assertion has teeth (indexing on every placement instead of the first fails it, and only it).
 6. **`mine` is not drawn.** Which share of a cell belongs to you is deliberately not shown: the contract answers it only per cell (`getStakeOnCell`), and a client-side tally of "what I revealed this session" is wrong after a reload. Worth doing properly (a multicall over visible cells, with the player folded into the fetch scope) since a shared-cell game rather wants it.
-7. **The credits `chains` block in `contracts/rocketh/config.ts` is still commented out.** The template now has a real per-move cost (a commit plus a reveal), so it can be filled in with measured gas rather than left as documentation. Until it is, the in-app balance shows native currency rather than a move count.
+7. **The credits config in `contracts/rocketh/config.ts` is still not set.** It used to be worse than unset: upstream added a real, live `chains` block to that file, while the credits template sat further down as a SECOND commented-out `chains:` key in the same object literal, so uncommenting it as it stood was a duplicate key that would silently have replaced the live one. That trap is gone; the guidance now lives as a comment on the live block. What remains is a measurement: put `creditsGasMultiplier` (the worst-case gas of one move, which here is a commit plus a reveal) and optionally `creditsPerTopUp` on the 31337 entry. `web/src/lib/core/connection/credits.ts` reads exactly those and falls back to native currency without them, which is why half a configuration is worse than none.
 8. **The mint/approve/stake sequence is still three silent transactions.** A stepper (shadcn has one) was asked for and never built. `addToReserve(player, amount)` already lets the wallet pay and the signer be credited, so the plumbing is right and only the presentation is missing.
 
 ## What building the game found
@@ -277,7 +335,12 @@ Everything here was found by running the thing, not by reading it. Recorded beca
 - **One missed reveal locked a player out forever.** An unrevealed commitment from a past epoch makes every later `makeCommitment` revert with `PreviousCommitmentNotRevealed`, and nothing in the client ever called `acknowledgeMissedReveal`. See the section below: this is now surfaced and settled by the player, deliberately.
 - **"Missed" is a question about the CURRENT epoch, not a property of the commitment.** The same commitment is live in the epoch it was made and forfeit in the next. Checking only on load and on account change meant a tab open across the boundary answered "nothing is wrong" once and never revisited it, leaving the player blocked with no idea why committing did nothing. The check re-runs on every epoch change.
 - **The game canvas was hiding its own clock.** `absolute inset-0` with no positioned ancestor pins to the VIEWPORT, so the canvas slid under the sticky `z-50` navbar, which then covered the top of the HUD. The casualty was the phase countdown, the one thing a player needs to see. The comment justifying `absolute inset-0` had been ported from conquest, whose layout does have a positioned content region; this one does not. The game route stays in normal flow now.
-- **`getCellsInZones` blows the node's `eth_call` gas cap.** It walks all 256 cells of every zone TWICE, so cost tracks the zones asked for and not the board. The wall is 14 zones on a stock hardhat node; a camera at default zoom asks for 15. Worse, because the Game sits behind a router, the failure surfaces as "function selector was not recognized" rather than anything resembling out-of-gas. The reader now batches 8 zones per call.
+- **`getCellsInZones` blew the node's `eth_call` gas cap**, and later turned out to be breaking the e2e suite as well. It walked all 256 cells of every zone TWICE, so cost tracked the zones asked for and not the board. The wall was 14 zones on a stock hardhat node; a camera at default zoom asks for 15. Worse, because the Game sits behind a router, the failure surfaced as "function selector was not recognized" rather than anything resembling out-of-gas. The reader batches 8 zones per call, and the contract now keeps a per-zone index of claimed cells. See the next entry for what the batching was hiding.
+- **A SLOW VIEW FUNCTION IS A REAL OUTAGE, and it was diagnosed as a flaky test for weeks.** The parallel e2e suite failed 4-5 of its five wallet-connecting tests every run with a "Connection Failed - failed to connect to wallet" modal, which reads like a connection-layer bug and is not one. Sampling `eth_chainId` against the node from outside the suite while it ran showed the chain going completely unresponsive for 19 to 30 seconds at a time. The cause was the batched `getCellsInZones` poll: measured against a local node on an EMPTY board, 8 zones cost ~280ms and 15 zones cost 2.9s before failing the gas cap. Four browsers polling their viewport is therefore more work than one JS thread has, the queue grows without bound, and everything else queues behind it - including the connect, which `@etherplay/connect` bounds with a 5s timeout it cannot survive. Hence a failed connect rather than a slow one, in tests that have nothing to do with the board.
+
+  Two general lessons, both of which cost real time here. **"It is only a view function, the cost is the caller's"** is true about gas and false about wall time: a dev chain is a shared, single-threaded resource, and an expensive read denies service to every other caller of it. And **a failure whose only symptom is under parallel load is a resource problem until proven otherwise**; the tempting fixes (raise the timeout, add a retry, run serially) all hide it. The measurement that cracked it took ten minutes and needed nothing but `curl` in a loop.
+
+  The fix is what the list below already asked for: the contract keeps `_occupiedCellsInZone`, an append-only per-zone index written by `_place` the first time a cell is claimed, so a read costs what the board HOLDS. Same measurement after: 8 zones 4ms, 15 zones 5ms and no longer failing. The parallel suite went from 5, 4 and 2 failures on three consecutive runs to 19/19 twice in a row.
 - **The poller treated "node has not reached this epoch" as a failed read**, which starts exponential backoff and feeds the health banner a false outage: a blank board every epoch boundary until the player pans. It now retries within a block-time-scaled budget, which is what conquest already does inside its fetcher.
 - **`ensureCanAfford` and `writeContract` disagree about `value` for PAYABLE functions.** Upstream never hit it because the demo only calls nonpayable ones. Cast at that one boundary rather than editing `$lib/core`, which has to stay mergeable. Worth fixing upstream.
 - **`web/src/lib/deployments.ts` was stale**, still the OLD avatar-based game (`avatarID`, an `avatars` IERC721, a deposit route). It is generated and gitignored, so it silently disagrees with `contracts/src`. Regenerate it before trusting `web:check`: deploy locally, then `pnpm --filter ./contracts export localhost --ts ../web/src/lib/deployments.ts`.
@@ -343,7 +406,7 @@ conquest's `_acquireStarSystem` is literally "first to reveal takes the empty sy
 
 stratagems is the one that already gets it right, and it is subtle: it DOES read a same-epoch write (`epochWhenTokenIsAdded == epoch`) but converges regardless of arrival order by turning any contested cell `Evil` and having every placer pay the same. Worth studying before writing resolution rules, because it shows the rule does not forbid reading shared state, only letting the ORDER change the outcome.
 
-**Only this template has a test for the property.** None of the other four do. Every port should bring `contracts/test/Game.test.ts`'s replay-in-both-orders test with it.
+**Only this template has a test for the property.** None of the other four do. Every port should bring `contracts/test/js/Game.test.ts`'s replay-in-both-orders test with it.
 
 **Something at stake: the shapes differ more than "a bonded token".**
 

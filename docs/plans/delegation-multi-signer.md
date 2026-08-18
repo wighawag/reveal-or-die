@@ -4,6 +4,8 @@ Status: steps zero to three done, step four outstanding. Step zero landed in `ba
 
 Scope: `jolly-roger` on `variant/full`, the `etherplay-connect` monorepo, and `template-commit-reveal` as the first downstream adopter.
 
+Note on names: `variant/full` has since been renamed `with/local-signer` upstream, and this repo tracks it as `stem/with/local-signer`. The old name is kept below because that is the branch the work described here actually happened on.
+
 ## Why
 
 This began as one question and turned up a second, larger one.
