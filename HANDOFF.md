@@ -39,7 +39,7 @@ template's contracts are a reference to start from.
 | repo                     | state                                                                                                                     |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | `jolly-roger`            | done, ours merged, clean and pushed. Now carries the `with/*` feature branches described above                             |
-| `template-commit-reveal` | **28 commits ahead of its stem and fully merged with it, none pushed. Working tree clean.** All four suites green                |
+| `template-commit-reveal` | **29 commits ahead of its stem, fully merged with it, and PUSHED. Working tree clean.** All four suites green                  |
 | `conquest-v1`            | done and pushed, clean, descends from jolly-roger directly                                                                 |
 | `reveal-or-die`          | untouched. Still on a jolly-roger from ~497 commits back                                                                   |
 | `bomber-world`           | untouched. reveal-or-die + ~6 commits (bombs)                                                                             |
@@ -52,10 +52,21 @@ are in sync with their origin; nothing is left dangling there.
 
 ### template-commit-reveal, specifically
 
-`main` was reset onto jolly-roger's parent branch and now carries 23 commits.
-The previous history is preserved on the `old` branch, which is also what
-`origin/main` still points at. **Nothing is pushed**, and the eventual push is a
-force-push (agreed), keeping `old` as an archive.
+`main` was reset onto jolly-roger's parent branch and now carries 29 commits.
+**The force-push has happened** (`15b7f03`), and the pre-reset history is
+archived at `origin/old`, which was pushed FIRST and deliberately so: `origin`
+held exactly one ref, `main` at `0c02a45`, and the local `old` branch pointed at
+that same commit, so force-pushing first would have left 29 commits of this
+repo's own history existing in one working copy and nowhere else. Order matters
+more than the agreement did: push the archive, verify it landed, then force with
+a lease pinned to the commit you actually verified
+(`--force-with-lease=main:<sha>`, not the bare flag, which trusts a possibly
+stale remote-tracking ref).
+
+Two tags, `foundry-v0` and `old` (244 commits, 2023), sit on histories reachable
+from neither `main` nor the `old` branch, and are still **local only**. That
+predates all of this and nothing here made it worse, but they are one lost
+clone from gone, and pushing them costs nothing if they are worth keeping.
 
 **Git tracking is deliberately hybrid, do not "fix" it blindly.**
 
@@ -140,9 +151,14 @@ stem, and jolly-roger's own `format:check` fails on exactly those two, so this
 is upstream's state. Reformatting would diverge shared files for a cosmetic
 reason and buy a conflict in every future merge.
 
-Once the force-push to `origin/main` has happened, switching to
-`git branch -u origin/main main` is the tidier end state (that is how
-`conquest-v1` is set up), with the stem merged in explicitly.
+Now that the force-push has happened, `git branch -u origin/main main` is
+available as the tidier end state (that is how `conquest-v1` is set up), with
+the stem merged in explicitly. It has NOT been done, because it is a real trade
+rather than tidying: tracking `origin` makes `git status` report what is
+unpushed, and tracking the stem makes it report what is unmerged from upstream.
+The second is the one that has actually gone wrong here (98 commits accumulated
+unnoticed); the first is visible from `git log` any time. Switch it if pushing
+is what you forget, keep it if merging is.
 
 The 28 commits, oldest last (`git log --oneline stem/with/local-signer..main`).
 The four most recent are listed by name because they are the ones no reader has
