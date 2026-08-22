@@ -46,7 +46,7 @@ import {
 	TARGET_STEP,
 } from '$lib/core/connection/mode.js';
 import {resolveSignerRpc} from '$lib/core/connection/signer-rpc.js';
-import {hasConfiguredRpc} from '$lib/core/connection/rpc-config.js';
+import {resolveAppRpcUrl} from '$lib/core/connection/rpc-config.js';
 import {
 	createNonceCacheStore,
 	inactiveNonceCacheStore,
@@ -56,10 +56,20 @@ import {
 	memoiseSignerClient,
 	type ExecutorStore,
 } from '$lib/core/connection/executor.js';
+import {nodeNonceReader} from '$lib/core/connection/nonce-cache.js';
+import {
+	createInFlightLedger,
+	ephemeralStorage,
+} from '$lib/core/transaction/in-flight-store.js';
+import {guardDispatch} from '$lib/core/transaction/dispatch-guard.js';
+import {startInFlightTracking} from '$lib/core/transaction/in-flight-tracking.js';
+import {createRecordedNonceReader} from '$lib/account/recorded-nonces.js';
 import {createAccountCannotSendStore} from '$lib/core/transaction/account-cannot-send-store.js';
 import {createErrorDetailsStore} from '$lib/core/transaction/error-details-store.js';
 import type {AugmentedChainInfo} from '$lib/core/connection/types.js';
 import {createBalanceCheckStore} from '$lib/core/transaction/balance-check-store.js';
+import {createNavigationService} from '$lib/core/navigation/index.js';
+import {createOverlayRegistry} from '$lib/core/ui/overlay/index.js';
 import {resolveAppConfig, operationScopeAddress} from './config.js';
 import {startTxObserverLoop} from '$lib/core/tx-observer';
 import {parseImpersonateAddresses} from '$lib/dev-accounts.js';
@@ -71,7 +81,7 @@ import {parseImpersonateAddresses} from '$lib/dev-accounts.js';
  * when browser APIs are absent, so this also runs during SSR and prerendering.
  * Nothing here starts IO; that belongs to `start()`, which the provider calls
  * from `onMount`. Readiness is expressed as store state, never as an
- * unresolved promise. See ADR-0002.
+ * unresolved promise. See ADR-0002 (`work` branch).
  */
 /**
  * What the game half is built on.
@@ -188,11 +198,33 @@ export function createCoreContext(params: {
 	// context is also constructed during SSR / prerender, where there is no
 	// wallet to announce to. See ADR-0002.
 	if (burner.use && typeof window !== 'undefined') {
+		const impersonateAddresses = parseImpersonateAddresses(
+			PUBLIC_IMPERSONATE_ADDRESSES,
+			{
+				onDropped: (entry) => {
+					if (!import.meta.env.DEV) return;
+					console.warn(
+						`[burner] ignoring "${entry}" in PUBLIC_IMPERSONATE_ADDRESSES: ` +
+							`it is not an address. The account picker will be one short.`,
+					);
+				},
+			},
+		);
+		if (import.meta.env.DEV && impersonateAddresses.length === 0) {
+			// Not fatal: the burner still announces itself and can hold its own
+			// generated account. But asking for a burner wallet and giving it nobody
+			// to impersonate is almost always a missing env var rather than intent,
+			// and the symptom (an account picker with nothing familiar in it) does
+			// not point at the cause.
+			console.warn(
+				'[burner] PUBLIC_USE_BURNER_WALLET is set but ' +
+					'PUBLIC_IMPERSONATE_ADDRESSES is empty, so there is nobody to ' +
+					'impersonate. See web/.env.localhost.',
+			);
+		}
 		const {cleanup} = initBurnerWallet({
 			nodeURL: burner.nodeURL,
-			impersonateAddresses: [
-				...parseImpersonateAddresses(PUBLIC_IMPERSONATE_ADDRESSES),
-			],
+			impersonateAddresses: [...impersonateAddresses],
 		});
 		cleanupBurnerWallet = cleanup;
 	}
@@ -301,14 +333,25 @@ export function createCoreContext(params: {
 	}
 	const signerRpcUrl = signerRpc.ok ? signerRpc.rpcUrl : undefined;
 
+	// The app's own RPC url, when it has one. The nonce-cache check and the
+	// in-flight ledger both need the url rather than the yes/no, to compare an
+	// account's nonce against a node the app trusts.
+	//
+	// NOT `signerRpcUrl` above, even though today they resolve to the same string.
+	// That one answers "where does the local signer BROADCAST", and it is
+	// deliberately undefined when the resolution failed; this one answers "which
+	// node does the app read from". Collapsing them would tie a read the ledger
+	// depends on to a fatal condition about sending.
+	const appRpcUrl = resolveAppRpcUrl(
+		PUBLIC_NODE_URL,
+		chain.rpcUrls?.default?.http,
+	);
+
 	// Whether the app has an RPC of its own (PUBLIC_NODE_URL or a chain rpcUrl).
 	// When it does not, the app can only reach the chain via the connected wallet,
 	// so chain-data fetching must wait until the wallet is connected (otherwise it
 	// would fail and look like a broken RPC). Exposed so the UI can explain this.
-	const hasAppRpc = hasConfiguredRpc(
-		PUBLIC_NODE_URL,
-		chain.rpcUrls?.default?.http,
-	);
+	const hasAppRpc = !!appRpcUrl;
 
 	// Whether the app can read the chain right now: it has its own RPC, or the
 	// wallet is connected (and supplies one). Always a boolean, so UI can gate
@@ -328,6 +371,65 @@ export function createCoreContext(params: {
 	// Reactive clock store that updates every second for smooth "time ago" displays
 	const clock = createClockStore();
 
+	// Built here rather than further down, because the in-flight ledger below
+	// reconciles against the operations it holds, and the wallet client is guarded
+	// by that ledger. Ordering the three by what they need keeps every reference
+	// forward-free.
+	const accountData = createAccountData({
+		accountStore: account,
+		deployments: deployments.get(),
+		clock,
+		scopeAddress: operationScopeAddress(deployments.get()),
+	});
+
+	// ----------------------------------------------------------------------------
+	// IN-FLIGHT TRANSACTION REQUESTS
+	// ----------------------------------------------------------------------------
+
+	// Durable records of transactions handed to the wallet whose fate the app has
+	// not seen. See core/transaction/in-flight: an operation is otherwise recorded
+	// only on `transaction:broadcasted`, so a reload between dispatching
+	// eth_sendTransaction and receiving the hash leaves the app believing nothing
+	// happened while it may already be in the mempool. ADR-0004 (`work` branch).
+	const inFlight = createInFlightLedger({
+		// No storage off-browser, and nothing to record there either: the context is
+		// constructed during SSR / prerender too (ADR-0002). A ledger over a
+		// throwaway Map is inert rather than absent, so nothing has to null-check it.
+		storage:
+			typeof localStorage !== 'undefined' ? localStorage : ephemeralStorage(),
+		chainId: chain.id,
+		// A chain id is not identity: a restarted dev node returns as the same id
+		// with a different history, and these records are reconciled BY NONCE.
+		// AccountData's own key has always been scoped this way.
+		genesisHash: chain.genesisHash,
+		now: () => clock.now(),
+		// The app's own RPC when it has one, and the wallet's provider otherwise.
+		// The order is deliberate: `nonce-cache.ts` documents at length that a
+		// wallet's own nonce is exactly what cannot be trusted here.
+		readNodeNonce: appRpcUrl
+			? (address) => nodeNonceReader(appRpcUrl, address)()
+			: async (address) => {
+					try {
+						return await publicClient.getTransactionCount({
+							address,
+							blockTag: 'pending',
+						});
+					} catch {
+						return undefined;
+					}
+				},
+		recordedNonces: createRecordedNonceReader({
+			accountData,
+			account,
+			// So a record can be reconciled against the account IT names, rather
+			// than only the one that happens to be connected. On a reload with a
+			// locked wallet there is no connected account at all, which is exactly
+			// when this has to work.
+			deployments: deployments.get(),
+			scopeAddress: operationScopeAddress(deployments.get()),
+		}),
+	});
+
 	// ----------------------------------------------------------------------------
 	// TRACKED WALLET CLIENT
 	// ----------------------------------------------------------------------------
@@ -339,7 +441,18 @@ export function createCoreContext(params: {
 		populateMetadata: true,
 		clock: () => clock.now(),
 	});
-	const walletClient = trackerBuilder.using(rawWalletClient, publicClient);
+	// GUARDED HERE so every send through it records itself before dispatch: the
+	// account executor below is handed this client, and so is anything using
+	// `context.walletClient` directly.
+	//
+	// NOT the only one on this branch. This app builds a SECOND tracked client for
+	// the local signer (`buildSignerClient` below), which is a different object and
+	// therefore needs its own guard. Nothing can do that on its behalf, so the two
+	// call sites are deliberately written to look alike.
+	const walletClient = guardDispatch(
+		trackerBuilder.using(rawWalletClient, publicClient),
+		inFlight,
+	);
 
 	// ----------------------------------------------------------------------------
 	// TRANSACTION EXECUTORS
@@ -370,6 +483,19 @@ export function createCoreContext(params: {
 	// than for cost: without it the two would hold DIFFERENT client objects for
 	// the same signer, and the tracking connector, which identifies clients by
 	// reference, would listen to only one of them. See memoiseSignerClient.
+	//
+	// GUARDED INSIDE THE MEMOISATION, which is the whole subtlety of this call
+	// site. `guardDispatch` returns a WRAPPER, so guarding the result of
+	// `buildSignerClient` at each use would hand out a fresh object per call and
+	// recreate the very bug the memoisation exists to prevent: tracking identifies
+	// clients by reference, so the extra object is one nobody listens to, and its
+	// transactions silently stop being reported. Guarding in here keeps one private
+	// key mapped to one client OBJECT, which is already guarded.
+	//
+	// Worth guarding even with no wallet in the loop. The danger window is smaller,
+	// since the app signs locally and no human has to answer, but it is not empty:
+	// the tab can still die between `eth_sendRawTransaction` leaving and the hash
+	// coming back, and that is exactly the case core/transaction exists for.
 	const buildSignerClient = memoiseSignerClient((privateKey) => {
 		const account = privateKeyToAccount(privateKey);
 		const raw = createWalletClient({
@@ -384,7 +510,10 @@ export function createCoreContext(params: {
 				? http(signerRpcUrl)
 				: custom(connection.provider),
 		});
-		return {client: trackerBuilder.using(raw, publicClient), account};
+		return {
+			client: guardDispatch(trackerBuilder.using(raw, publicClient), inFlight),
+			account,
+		};
 	});
 
 	const accountExecutor = createExecutor({
@@ -440,19 +569,6 @@ export function createCoreContext(params: {
 		fetchGate: chainFetchGate,
 	});
 
-	// The yes/no questions the app has to ask before going on: "carry on with
-	// what you were doing?", "your wallet may still have this, really stop?".
-	// One mechanism, one modal, and the words come from whoever asks.
-	// See core/ui/confirm.
-	const confirmation = createConfirmation();
-
-	const accountData = createAccountData({
-		accountStore: account,
-		deployments: deployments.get(),
-		clock,
-		scopeAddress: operationScopeAddress(deployments.get()),
-	});
-
 	const txObserver = createTransactionObserver({
 		finality,
 		provider: connection.provider,
@@ -474,6 +590,13 @@ export function createCoreContext(params: {
 		walletClient,
 		executors: [accountExecutor, signerExecutor],
 		accountData,
+		// A transaction that was broadcast but could not be filed as an operation
+		// (the account went away between dispatch and answer) goes to the ledger,
+		// which already holds a record for it and can now attach the hash. Without
+		// this the app has a transaction on chain and no note of it anywhere, which
+		// is the outcome the whole in-flight machinery exists to prevent.
+		onUnrecordedBroadcast: ({from, nonce, hash}) =>
+			inFlight.noteUnrecordedBroadcast({account: from, nonce, hash}),
 	});
 
 	const txObserverConnector = createTransactionObserverConnector({
@@ -481,8 +604,29 @@ export function createCoreContext(params: {
 		txObserver,
 	});
 
+	// ----------------------------------------------------------------------------
+	// NAVIGATION AND OVERLAYS
+	// ----------------------------------------------------------------------------
+
+	// Inert until `$lib/kit` attaches a driver in the browser, so both are
+	// constructible on the server (ADR-0002). The registry follows the service, so
+	// closing view overlays on a route change is decided in one place rather than
+	// by each feature. See ADR-0004 (`work` branch).
+	const navigation = createNavigationService();
+	const overlays = createOverlayRegistry(navigation);
+
+	// The yes/no questions the app has to ask before going on: "carry on with
+	// what you were doing?", "your wallet may still have this, really stop?".
+	// One mechanism, one modal, and the words come from whoever asks.
+	//
+	// Built on the overlay registry (it is a prompt overlay), which is why it is
+	// created after it and handed it here rather than reaching for a global.
+	// See core/ui/confirm and ADR-0004 (`work` branch).
+	const confirmation = createConfirmation(overlays);
+
 	const toastConnector = createToastConnector({
 		accountData,
+		overlays,
 	});
 
 	// ----------------------------------------------------------------------------
@@ -670,6 +814,9 @@ export function createCoreContext(params: {
 		delegation,
 		delegationCheck,
 		confirmation,
+		inFlight,
+		navigation,
+		overlays,
 		// The game half, spread in so call sites see one context.
 		onchainState: gameContext.onchainState,
 		viewState: gameContext.viewState,
@@ -681,7 +828,15 @@ export function createCoreContext(params: {
 	// (e.g. `context.balance`). Self-maintaining: new context members appear
 	// automatically. Delete this line if you don't want it.
 	if (typeof window !== 'undefined') {
-		(globalThis as any).context = context;
+		// Guarded: this runs during context construction, so a global that refuses
+		// assignment (an accessor with no setter, which is how two wallet
+		// extensions fail over `window.ethereum`) would throw here and take the
+		// whole app down for the sake of a console convenience.
+		try {
+			(globalThis as any).context = context;
+		} catch {
+			// Nothing to do: the app runs fine without the console handle.
+		}
 	}
 
 	return {
@@ -720,6 +875,38 @@ export function createCoreContext(params: {
 			toastConnector.connect();
 			onchainStateRefreshConnector.connect();
 
+			// Records, reconciliation, the watcher and the unload guard, started as
+			// one thing. See startInFlightTracking for why those four belong
+			// together and why the guard is registered from domain state.
+			const stopInFlightTracking = startInFlightTracking({
+				ledger: inFlight,
+				account,
+				navigation,
+			});
+
+			// SAY SO IF NOBODY EVER ATTACHED A DRIVER.
+			//
+			// The navigation service is inert without one and every call is a no-op,
+			// which is right on the server and a silent catastrophe in a browser: no
+			// URL updates, no history entries, no back-closes-the-overlay, no unload
+			// guard. Nothing looks broken, because prompt overlays keep working. This
+			// warning is checked from the SERVICE rather than the adapter component,
+			// so it also covers the case where that component never mounted at all,
+			// which is the one its own fallback cannot catch.
+			const attachCheck =
+				import.meta.env.DEV && typeof window !== 'undefined'
+					? setTimeout(() => {
+							if (navigation.current()) return;
+							console.warn(
+								'[navigation] no driver is attached, so the app does not know ' +
+									'where it is: overlay URLs, the back gesture and the unload ' +
+									'guard are all inert. Is <KitNavigation /> mounted? See ' +
+									'src/lib/kit/README.md, and appNavigation.attached() in the ' +
+									'console.',
+							);
+						}, 5_000)
+					: undefined;
+
 			const stopGame = gameContext.start();
 
 			return () => {
@@ -730,6 +917,10 @@ export function createCoreContext(params: {
 				toastConnector.disconnect();
 				onchainStateRefreshConnector.disconnect();
 				stopTxObserverLoop();
+				stopInFlightTracking();
+				if (attachCheck !== undefined) clearTimeout(attachCheck);
+				overlays.stop();
+				navigation.stop();
 				tabLeader.stop();
 				unsubscribeFromBalance();
 				unsubscribeFromGasFee();

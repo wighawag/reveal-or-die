@@ -30,6 +30,14 @@ for tests: `pnpm test`
   factory functions that return `{subscribe, ...actions}` (see the existing
   stores under `src/lib/**` and `src/routes/**/lib/stores/`).
 
+## The framework boundary
+
+- **Only `web/src/lib/kit` may import `$app/*`.** Everything under `web/src/lib/core` takes what it needs from the framework as a parameter (`PathResolver`, `ServiceWorkerEnvironment`), and `web/src/routes/**` is exempt because routes are the framework's own surface. `web/test/framework-boundary.test.ts` enforces this and `web/src/lib/kit/README.md` states the scope, including what the rule deliberately does not cover.
+
+- **`web/src/lib/index.ts` is where the app is composed**, which is why it may import both `./kit/*` and the environment. Anything that composes THIS app belongs there rather than in `core/`.
+
+- The two boundary tests and this section are INHERITED from `template-svelte`, the root of this template tree, where they are also enforced. A change to either that is meaningful for a sibling belongs there rather than here, or every sibling silently misses it.
+
 ## Commit-reveal rules
 
 This template exists to build simultaneous-turn games. Two rules follow from
