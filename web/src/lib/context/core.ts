@@ -4,9 +4,9 @@ import type {Context, TxObserverDebugState} from './types.js';
 // Aliased so the name the rest of this function uses keeps coming from the
 // connection, which is where every other consumer gets it.
 import {deployments as deploymentsStore} from '$lib/deployments-store';
-import {writable, derived, type Readable} from 'svelte/store';
 import {createWalletClient, custom, http} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
+import {writable, derived, type Readable} from 'svelte/store';
 import {createAccountData} from '$lib/account/AccountData.js';
 import {establishRemoteConnection} from '$lib/core/connection';
 import {
@@ -73,7 +73,11 @@ import type {AugmentedChainInfo} from '$lib/core/connection/types.js';
 import {createBalanceCheckStore} from '$lib/core/transaction/balance-check-store.js';
 import {createNavigationService} from '$lib/core/navigation/index.js';
 import {createOverlayRegistry} from '$lib/core/ui/overlay/index.js';
-import {resolveAppConfig, operationScopeAddress} from './config.js';
+import {
+	resolveAppConfig,
+	operationScopeAddress,
+	type ResolvedAppConfig,
+} from './config.js';
 import {startTxObserverLoop} from '$lib/core/tx-observer';
 import {parseImpersonateAddresses} from '$lib/dev-accounts.js';
 
@@ -87,26 +91,47 @@ import {parseImpersonateAddresses} from '$lib/dev-accounts.js';
  * unresolved promise. See ADR-0002 (`work` branch).
  */
 /**
- * What the game half is built on.
+ * What `core.ts` hands the app's half, and what it expects back.
  *
- * The core services that exist before any game does, and that a game needs in
- * order to read the chain and send transactions. Passed explicitly rather than
- * the whole `Context`, so the dependency stays one-way: the game knows about
- * the core, the core does not know about the game.
+ * THIS IS WHAT CORE HAS, NOT WHAT THIS DEMO USES, and the difference is the
+ * whole point. It listed the greeting demo's four needs once, and every
+ * descendant then had to edit it: one had to REMOVE `maxMessages` (its
+ * `config.ts` has no such field, so it was a type error rather than a
+ * widening), one renamed it and added five members, one added nine. Three out
+ * of three edited the block, in both directions, so it conflicted on every
+ * single alignment.
  *
- * Note there are TWO executors, and which one a game reaches for is a decision
- * about who should be prompted. Moves go through `signerExecutor` and are
- * silent; anything that moves the player's assets goes through
- * `accountExecutor` and prompts, deliberately.
+ * A descendant should PICK from this list, never edit it. If something core
+ * builds is missing here, adding it is a one-line change that costs nothing;
+ * if a member is unused by an app, ignoring it costs nothing either.
+ *
+ * The one genuinely per-app value is chain-derived configuration, and it is
+ * passed as the WHOLE resolved object (`appConfig`) rather than as a field of
+ * it. `ResolvedAppConfig` is defined in `./config.ts`, which every fork rewrites
+ * anyway, so the fork changes the file it was already changing and this seam
+ * stays byte-identical.
  */
 export type CoreServices = {
+	/** The chain connection, and how far the app has authenticated to it. */
 	connection: Context['connection'];
 	publicClient: Context['publicClient'];
 	deployments: Context['deployments'];
+	/** The authenticated account, as the connection reports it. */
 	account: Context['account'];
-	/** The authenticated account. Prompts. For anything that spends assets. */
+	accountData: Context['accountData'];
+	/**
+	 * Sends from the authenticated account, with a wallet prompt. Prefer it over
+	 * `walletClient`: it resolves the `from` address and the client together.
+	 */
 	accountExecutor: Context['accountExecutor'];
-	/** The local signer. Silent. For whatever the app does on the user's behalf. */
+	/**
+	 * The local signer. Silent. For whatever the app does on the user's behalf.
+	 *
+	 * Local to this repo, like the three below it: which executor a game reaches
+	 * for is a decision about who should be prompted. Moves go through this one
+	 * and are silent; anything that moves the player's assets goes through
+	 * `accountExecutor` and prompts, deliberately.
+	 */
 	signerExecutor: Context['signerExecutor'];
 	/** Whether this app signs in, and so whether a signer exists at all. */
 	hasLocalSigner: boolean;
@@ -117,41 +142,71 @@ export type CoreServices = {
 	delegation: Context['delegation'];
 	/** Gas held by the signer: what pays for moves. */
 	signerBalance: Context['signerBalance'];
-	/** Gas held by the authenticated account: what pays for assets. */
+	/** Already guarded by the in-flight ledger, so any send records itself. */
+	walletClient: Context['walletClient'];
+	/** Gas held by the account that pays. */
 	accountBalance: Context['accountBalance'];
+	/** Whether that account can cover a given call at current gas. */
 	balanceCheck: Context['balanceCheck'];
-	accountData: Context['accountData'];
+	/** Where a failed transaction's full error text goes, for the details view. */
+	errorDetails: Context['errorDetails'];
 	txObserver: Context['txObserver'];
 	clock: Context['clock'];
 	/**
-	 * Chain reads only run while this is truthy. Undefined when the app has its
-	 * own RPC, in which case there is nothing to wait for.
+	 * Chain reads only run while this is truthy, or always when it is undefined.
+	 * The app must thread it into anything that polls, or its reads will run with
+	 * no RPC to run against.
 	 */
 	chainFetchGate: Readable<boolean> | undefined;
+	/** Whether the chain is readable right now, as a store the UI can gate on. */
 	canReadChain: Context['canReadChain'];
+	/** Whether the app has an RPC of its own, or reads only through the wallet. */
 	hasAppRpc: boolean;
+	/**
+	 * Chain-derived configuration, exactly as `./config.ts` resolved it.
+	 *
+	 * The whole object rather than a chosen field, so an app that adds one reads
+	 * it here without this type changing. See the note above.
+	 */
+	appConfig: ResolvedAppConfig;
 };
 
 /**
- * The parts of the context the game half supplies.
+ * What the app's half contributes to the context.
  *
- * Structural rather than an import of the game's own type, so this file has no
- * dependency on any particular game.
- */
-/**
- * What the app's half contributes, spread into the context as-is. Named to match
- * jolly-roger's `AppContext` so this file stays mergeable against it; the
- * PAYLOAD is wider here, because a game contributes more than a demo does.
+ * SPREAD into the context literal as-is, which is the point: an app that adds
+ * members of its own returns them here and never edits this file. Two
+ * descendants already need that (`mandalas` adds a purchase flow,
+ * `template-commit-reveal` adds the game and its renderer), and under the old
+ * single-function context each of them had to insert into the middle of the
+ * literal, which is where several of the recorded conflicts landed.
+ *
+ * The two named members are the ones CORE consumes: `onchainState` feeds the
+ * refresh connector, the RPC-health inputs and `refreshChainData`. Anything
+ * beyond them core neither sees nor cares about.
  */
 export type AppContext = {
 	onchainState: Context['onchainState'];
 	viewState: Context['viewState'];
+	/** This repo's own: the game, and the renderer driving its canvas. */
 	game: Context['game'];
 	render: Context['render'];
-	/** The game's own IO, begun with the context and torn down with it. */
+	/**
+	 * The app's own IO, begun when the context starts and torn down with it.
+	 * Returns its teardown, like every other `start` here.
+	 *
+	 * Optional upstream, because a greeting demo has none: its chain reads are
+	 * driven by core's refresh wiring. A game HAS one (it steps epochs), which is
+	 * why this slot exists at all, and it is what keeps that loop out of core.
+	 */
 	start?: () => () => void;
 };
 
+/**
+ * Generic over the app's own shape, so a descendant returning MORE than
+ * `AppContext` keeps those extra members typed all the way into the context
+ * rather than having them widened away at the seam.
+ */
 export type AppFactory<App extends AppContext = AppContext> = (
 	core: CoreServices,
 ) => App;
@@ -186,6 +241,9 @@ export function createCoreContext<App extends AppContext>(params: {
 	 * because the permission has to be declared BEFORE the connection is built.
 	 * It is the same store, and it is typed, so pointing this at a contract that
 	 * does not exist is a compile error rather than a read that answers nothing.
+	 *
+	 * Upstream reads this from `config.ts`'s `delegationRegistryAddress`; here the
+	 * Game IS the registry, so it is named here instead.
 	 */
 	const delegationTarget = {
 		chainId: deploymentsStore.get().chain.id,
@@ -279,14 +337,16 @@ export function createCoreContext<App extends AppContext>(params: {
 		walletHost,
 		walletOnly,
 		// WHAT THIS APP ASKS FOR, declared where the user can still say no: the
-		// authority to act in their name at the Game and nowhere else. The same
-		// pair the chain read and every writer use, named once above.
+		// authority to act in their name at one contract on one chain, and nowhere
+		// else. The pair is the same one the chain read and every writer use, from
+		// the same place (see `delegationTarget` above).
 		//
 		// OPTIONAL, deliberately. Required would make a refusal a wall at the door
-		// for something the user cannot evaluate yet - they have not seen the board
-		// and have staked nothing. Optional keeps the game browsable read-only and
-		// turns a refusal into a remedy the app offers at the moment it needs the
-		// authorisation (see the `re-authorise` route in ui/delegation/registration).
+		// for something the user cannot evaluate yet; optional keeps the app
+		// browsable read-only and turns a refusal into a remedy the app offers at
+		// the moment it actually needs the authorisation (see the `re-authorise`
+		// route in ui/delegation/registration). A game that genuinely cannot
+		// function read-only is the case for setting `required: true`.
 		permissions: [
 			{
 				type: 'delegation',
@@ -323,9 +383,16 @@ export function createCoreContext<App extends AppContext>(params: {
 
 	// Resolve chain-specific configuration (finality, block time, intervals)
 	// from the chain's optional properties + defaults.
+	//
+	// Kept WHOLE as well as destructured: core uses two of its fields, and the
+	// app's half is handed the entire object (see CoreServices), so a fork that
+	// adds a field to `config.ts` reads it without touching this file.
 	const chain = deployments.get().chain as AugmentedChainInfo;
-	const {finality, txObserverProcessInterval, maxMessages, credits} =
-		resolveAppConfig(chain);
+	const appConfig = resolveAppConfig(chain);
+	// `credits` is this branch's: the top-up flow prices them. `maxMessages` is
+	// no longer pulled apart here, because the app's half is handed the whole
+	// resolved object (see CoreServices).
+	const {finality, txObserverProcessInterval, credits} = appConfig;
 
 	// A local signer broadcasts raw transactions. It prefers a real node RPC
 	// (PUBLIC_NODE_URL or an rpcUrl configured on the chain), and REQUIRES one
@@ -461,7 +528,6 @@ export function createCoreContext<App extends AppContext>(params: {
 		walletClient: guardDispatch(rawPayment.walletClient, inFlight),
 	};
 
-
 	// ----------------------------------------------------------------------------
 	// TRACKED WALLET CLIENT
 	// ----------------------------------------------------------------------------
@@ -575,26 +641,17 @@ export function createCoreContext<App extends AppContext>(params: {
 
 	// ----------------------------------------------------------------------------
 
-	// The app half is built further down, once the wider CoreServices this repo's
-	// game needs (executors, balances, delegation) exists. See there.
-
-	const gasFee = createGasFeeStore({
-		publicClient: publicClient,
-		fetchGate: chainFetchGate,
-	});
-
-	const balanceCheck = createBalanceCheckStore({
-		publicClient,
-		gasFee,
-	});
-
 	// Whether this browser's signer may act for the account. Scoped to the
 	// account AND its signer, so it resets when either changes, and gated the
-	// same way the game's chain reads are: with no app RPC there is nothing to
-	// read it over until a wallet is connected.
+	// same way the message poll is: with no app RPC there is nothing to read it
+	// over until a wallet is connected.
 	const signerAddress = derived(signer, ($signer) => $signer?.address);
 	const delegation = createDelegationState({
 		publicClient,
+		// The one delegation fact this app owns: which of its contracts adopted
+		// the library. Same pair the connection declares its permission for, from
+		// the same place, because a credential is bound to the PAIR: the same
+		// address on another chain is another contract entirely.
 		registry: delegationTarget.contract,
 		chainId: delegationTarget.chainId,
 		account,
@@ -648,15 +705,6 @@ export function createCoreContext<App extends AppContext>(params: {
 	const navigation = createNavigationService();
 	const overlays = createOverlayRegistry(navigation);
 
-	// The yes/no questions the app has to ask before going on: "carry on with
-	// what you were doing?", "your wallet may still have this, really stop?".
-	// One mechanism, one modal, and the words come from whoever asks.
-	//
-	// Built on the overlay registry (it is a prompt overlay), which is why it is
-	// created after it and handed it here rather than reaching for a global.
-	// See core/ui/confirm and ADR-0004 (`work` branch).
-	const confirmation = createConfirmation(overlays);
-
 	const toastConnector = createToastConnector({
 		accountData,
 		overlays,
@@ -686,43 +734,81 @@ export function createCoreContext<App extends AppContext>(params: {
 		account: addressOf(signerExecutor),
 	});
 
+	const gasFee = createGasFeeStore({
+		publicClient: publicClient,
+		fetchGate: chainFetchGate,
+	});
+
+	// No balance here: which account pays is now decided per call, not once at
+	// construction. This app has exactly one payer, so every call site passes the
+	// same pair, but passing it is what keeps the check and the sender from ever
+	// disagreeing about whose funds were measured.
+	const balanceCheck = createBalanceCheckStore({
+		publicClient,
+		gasFee,
+	});
+
+	const offline = createOfflineStore();
+
+	// Debug store for tx-observer processing stats
+	const txObserverDebug = writable<TxObserverDebugState>({
+		processCount: 0,
+		lastProcessTime: null,
+		isLeader: false,
+	});
+
 	// ----------------------------------------------------------------------------
-	// THE GAME
+	// THE APP'S OWN HALF
 	// ----------------------------------------------------------------------------
+
+	// BUILT HERE, PARTWAY THROUGH, and the position is the whole design.
 	//
-	// Injected rather than imported, so this file stays the half that is merged
-	// down from jolly-roger. It is built HERE, part-way through, rather than
-	// before or after: the game needs the connection, the executors and the
-	// balance check that already exist above, while the RPC-health store and the
-	// refresh action below need the game's chain reads. Construction order is the
-	// only thing that resolves that, so it is made explicit instead of worked
-	// around with a placeholder store or a mutable hole.
-	const services: CoreServices = {
+	// Everything above is true of any app built on this template, and everything
+	// the app itself composes (its chain reads, its view model) lives in `./app.ts`
+	// and is replaced by a fork. Core builds it rather than the reverse because the
+	// dependencies run BOTH ways and only this order resolves them: the app needs
+	// the connection, the executor, the balances and the safety checks, which all
+	// exist by now, and core's refresh connector, RPC-health inputs and
+	// `refreshChainData` below all need the app's `onchainState`.
+	//
+	// THE LINE IS DRAWN AT `onchainState`, deliberately, and that is the ONLY
+	// reason anything is left below. Everything that does not need the app's chain
+	// reads was moved above this point, so `CoreServices` can offer it: an app that
+	// needs a balance or a balance check at CONSTRUCTION (a purchase flow, a game
+	// crediting a signer) would otherwise have to reorder this file, which two
+	// descendants independently did before this moved.
+	//
+	// Injected as a factory rather than imported, so this file names no app
+	// module and a descendant swaps its half by passing a different one.
+	const app = createApp({
 		connection,
 		publicClient,
 		deployments,
 		account,
+		accountData,
 		accountExecutor,
 		signerExecutor,
 		hasLocalSigner,
 		delegation,
 		signerBalance,
+		walletClient,
 		accountBalance,
 		balanceCheck,
-		accountData,
+		errorDetails,
 		txObserver,
 		clock,
 		chainFetchGate,
 		canReadChain,
 		hasAppRpc,
-	};
-	const app = params.createApp(services);
-	// Core consumes these by name; `start` is lifecycle rather than context, so it
-	// is held back from the spread into the literal below.
+		appConfig,
+	});
+	// Core consumes exactly this one by name, and `start` is lifecycle rather
+	// than context, so it is held back from the spread below. The rest goes into
+	// the context without this file needing to know what it is.
 	const {onchainState, start: startApp, ...appContext} = app;
 
-	// Both chain reads that a transaction of ours can invalidate: the board, and
-	// whether the signer is still a delegate. The registration lands in a
+	// Both chain reads that a transaction of ours can invalidate: the messages,
+	// and whether the signer is still a delegate. The registration lands in a
 	// transaction the app itself sent, so without the second one the UI would go
 	// on refusing to send until the next slow poll.
 	const onchainStateRefreshConnector = createOnchainStateRefreshConnector({
@@ -768,17 +854,19 @@ export function createCoreContext<App extends AppContext>(params: {
 		// this stays safe in an app that does not sign in.
 		void signerBalance.update();
 	};
-	const offline = createOfflineStore();
+	// The yes/no questions the app has to ask before going on: "carry on with
+	// what you were doing?", "really give up on a run the wallet may still act
+	// on?". One mechanism, one modal, and the words come from whoever asks.
+	//
+	// Built on the overlay registry (it is a prompt overlay), which is why it is
+	// created after it and handed it here rather than reaching for a global. See
+	// core/ui/confirm and ADR-0004 (`work` branch).
+	const confirmation = createConfirmation(overlays);
 
 	// Built here rather than in the component that shows it, because the account
 	// panel and the insufficient-funds modal must drive the SAME flow: the modal
 	// opens it for a transaction that is already blocked, and the panel opens it
 	// on its own, and a second instance would let both run at once.
-	//
-	// For this template that second driver matters more than it does upstream:
-	// the signer pays for every commit and every reveal, so it is the account
-	// that runs dry, and it is the one a faucet aimed at the user's wallet can
-	// never fix.
 	const topUp = createTopUpFlow(
 		{
 			connection,
@@ -808,13 +896,6 @@ export function createCoreContext<App extends AppContext>(params: {
 		delegation,
 		topUp,
 		confirmation,
-	});
-
-	// Debug store for tx-observer processing stats
-	const txObserverDebug = writable<TxObserverDebugState>({
-		processCount: 0,
-		lastProcessTime: null,
-		isLeader: false,
 	});
 
 	const context: Context = {
@@ -847,14 +928,17 @@ export function createCoreContext<App extends AppContext>(params: {
 		txObserverDebug: {subscribe: txObserverDebug.subscribe},
 		balanceCheck,
 		topUp,
-		delegation,
 		delegationCheck,
 		confirmation,
 		inFlight,
 		navigation,
 		overlays,
-		// The app's half, spread so this file never changes when the game gains a
-		// member. See AppContext.
+		// This branch's own: whether the signer may act for the account. Core, not
+		// app: the delegation is a property of how this variant authenticates, and
+		// the greeting demo merely reads it.
+		delegation,
+		// The app's half, spread so a descendant adding members never edits this
+		// literal. See AppContext.
 		...appContext,
 		onchainState,
 	};
