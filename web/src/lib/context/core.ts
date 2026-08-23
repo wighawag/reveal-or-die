@@ -9,7 +9,10 @@ import {createWalletClient, custom, http} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
 import {createAccountData} from '$lib/account/AccountData.js';
 import {establishRemoteConnection} from '$lib/core/connection';
-import {createPaymentRail} from '$lib/core/connection/remote.js';
+import {
+	createPaymentRail,
+	type PaymentRail,
+} from '$lib/core/connection/remote.js';
 import {createBalanceStore} from '$lib/core/connection/balance';
 import {createGasFeeStore} from '$lib/core/connection/gasFee';
 import {createRpcHealthStore} from '$lib/core/connection/rpcHealth';
@@ -135,20 +138,31 @@ export type CoreServices = {
  * Structural rather than an import of the game's own type, so this file has no
  * dependency on any particular game.
  */
-export type InjectedGame = {
+/**
+ * What the app's half contributes, spread into the context as-is. Named to match
+ * jolly-roger's `AppContext` so this file stays mergeable against it; the
+ * PAYLOAD is wider here, because a game contributes more than a demo does.
+ */
+export type AppContext = {
 	onchainState: Context['onchainState'];
 	viewState: Context['viewState'];
 	game: Context['game'];
 	render: Context['render'];
-	start(): () => void;
+	/** The game's own IO, begun with the context and torn down with it. */
+	start?: () => () => void;
 };
 
-export function createCoreContext(params: {
-	createGame: (services: CoreServices) => InjectedGame;
+export type AppFactory<App extends AppContext = AppContext> = (
+	core: CoreServices,
+) => App;
+
+export function createCoreContext<App extends AppContext>(params: {
+	createApp: AppFactory<App>;
 }): {
 	context: Context;
 	start: () => () => void;
 } {
+	const {createApp} = params;
 	let cleanupBurnerWallet: (() => void) | undefined;
 
 	/**
@@ -301,11 +315,7 @@ export function createCoreContext(params: {
 	// Given the same chainInfo the app connection was built from, so the payer's
 	// wallet is told about the chain exactly as the player's was, including the
 	// wallet-facing RPC override.
-	//
-	// This game keeps it because the thing that runs dry here is the SIGNER, which
-	// pays for a commit and a reveal every epoch, and no faucet aimed at the
-	// user's wallet can fix that. See the top-up flow below.
-	const payment = createPaymentRail(chainInfo, {nodeURL: PUBLIC_NODE_URL});
+	const rawPayment = createPaymentRail(chainInfo, {nodeURL: PUBLIC_NODE_URL});
 
 	// ----------------------------------------------------------------------------
 	// CHAIN CONFIGURATION
@@ -430,6 +440,28 @@ export function createCoreContext(params: {
 		}),
 	});
 
+	// THE THIRD CLIENT THAT SENDS, AND THE ONE THAT MOVES REAL MONEY.
+	//
+	// The payment rail carries a wallet client of its own, built by
+	// `createPaymentRail` from a SECOND connection with its own payer. It is a
+	// different OBJECT from the app wallet client and from the signer client, so
+	// guarding those two leaves this one uncovered, and it is the only one whose
+	// transactions the user paid for on purpose.
+	//
+	// The window is the same as everywhere else: the tab can die between the
+	// wallet returning a signature and the hash coming back, and a purchase lost
+	// there is one the app has no record of and cannot reconcile. That it needs a
+	// human at a wallet makes the window LONGER than the signer's, not shorter.
+	//
+	// Guarded here rather than inside `createPaymentRail`, because the ledger is
+	// this app's and the rail is a core building block that must not reach for
+	// one. Same reason the app wallet client is guarded at its call site.
+	const payment: PaymentRail = {
+		...rawPayment,
+		walletClient: guardDispatch(rawPayment.walletClient, inFlight),
+	};
+
+
 	// ----------------------------------------------------------------------------
 	// TRACKED WALLET CLIENT
 	// ----------------------------------------------------------------------------
@@ -543,7 +575,8 @@ export function createCoreContext(params: {
 
 	// ----------------------------------------------------------------------------
 
-	const config = {maxMessages};
+	// The app half is built further down, once the wider CoreServices this repo's
+	// game needs (executors, balances, delegation) exists. See there.
 
 	const gasFee = createGasFeeStore({
 		publicClient: publicClient,
@@ -683,7 +716,10 @@ export function createCoreContext(params: {
 		canReadChain,
 		hasAppRpc,
 	};
-	const gameContext = params.createGame(services);
+	const app = params.createApp(services);
+	// Core consumes these by name; `start` is lifecycle rather than context, so it
+	// is held back from the spread into the literal below.
+	const {onchainState, start: startApp, ...appContext} = app;
 
 	// Both chain reads that a transaction of ours can invalidate: the board, and
 	// whether the signer is still a delegate. The registration lands in a
@@ -691,7 +727,7 @@ export function createCoreContext(params: {
 	// on refusing to send until the next slow poll.
 	const onchainStateRefreshConnector = createOnchainStateRefreshConnector({
 		txObserver,
-		stores: [gameContext.onchainState, delegation],
+		stores: [onchainState, delegation],
 	});
 
 	// Health reflects whether we can read the chain right now. All inputs share
@@ -699,7 +735,7 @@ export function createCoreContext(params: {
 	// user Retry) means the RPC is up and clears the banner, without waiting for
 	// the slow gas poller to retry.
 	const rpcHealth = createRpcHealthStore({
-		inputs: [accountBalance, gasFee, gameContext.onchainState],
+		inputs: [accountBalance, gasFee, onchainState],
 	});
 
 	// Wallet nonce-cache detection. Only meaningful when the app has its OWN
@@ -725,7 +761,7 @@ export function createCoreContext(params: {
 	// Refresh every chain read at once. Used by Retry actions and the health
 	// banner so a single click heals the whole health picture, not just one store.
 	const refreshChainData = () => {
-		void gameContext.onchainState.update();
+		void onchainState.update();
 		void gasFee.update();
 		void accountBalance.update();
 		// No-op when there is no signer (the poller's gate refuses the fetch), so
@@ -817,11 +853,10 @@ export function createCoreContext(params: {
 		inFlight,
 		navigation,
 		overlays,
-		// The game half, spread in so call sites see one context.
-		onchainState: gameContext.onchainState,
-		viewState: gameContext.viewState,
-		game: gameContext.game,
-		render: gameContext.render,
+		// The app's half, spread so this file never changes when the game gains a
+		// member. See AppContext.
+		...appContext,
+		onchainState,
 	};
 
 	// Dev/debug: expose the whole context on globalThis for console access
@@ -907,10 +942,12 @@ export function createCoreContext(params: {
 						}, 5_000)
 					: undefined;
 
-			const stopGame = gameContext.start();
+			// Last, so the app can rely on everything core started above, and torn
+			// down first below for the same reason.
+			const stopApp = startApp?.();
 
 			return () => {
-				stopGame();
+				stopApp?.();
 				cleanupBurnerWallet?.();
 				trackedWalletConnector.disconnect();
 				txObserverConnector.disconnect();
