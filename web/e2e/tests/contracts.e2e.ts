@@ -238,6 +238,23 @@ describe('Contracts Page - Write Functions', () => {
 			})
 			.first();
 
+		// BOTH inputs. `addToReserve(address player, uint256 amount)` takes two, and
+		// this filled only the amount: the address stayed undefined, viem threw
+		// `InvalidAddressError` before anything was sent, and the assertion below
+		// ("no operation is pending") was then trivially true of a page on which
+		// nothing had happened. It passed for a year without executing a write.
+		const playerAddress = await page.evaluate(() => {
+			const ctx = (globalThis as any).context;
+			let account: unknown;
+			ctx.account.subscribe((v: unknown) => (account = v))();
+			return typeof account === 'string' ? account : null;
+		});
+		expect(playerAddress, 'a connected account to credit').toBeTruthy();
+		await functionSection
+			.getByPlaceholder('0x...')
+			.first()
+			.fill(playerAddress as string);
+
 		// Zero again: what is under test is that a write reaches the chain from
 		// this page and settles, not what the game does with it.
 		const amountInput = functionSection
@@ -257,7 +274,30 @@ describe('Contracts Page - Write Functions', () => {
 		// and returns quickly when none do.
 		await connectWallet(page);
 
-		// The write reached the chain and every in-flight operation settled.
+		// IT ACTUALLY HAPPENED. Asserted before waiting for it to settle, because
+		// `waitForTransaction` only checks that nothing is pending - which is also
+		// true when nothing was ever sent, and was the state this test was really
+		// in. An operation in account data is the app's own evidence that the write
+		// left the page.
+		//
+		// Not the navbar badge: that clears at Included + Success, which against an
+		// instant-mining node is a window of a few hundred milliseconds.
+		await expect
+			.poll(
+				async () =>
+					page.evaluate(() => {
+						const ctx = (globalThis as any).context;
+						let ops: Record<string, unknown> = {};
+						ctx.accountData
+							.watchField('operations')
+							.subscribe((v: Record<string, unknown>) => (ops = v))();
+						return Object.keys(ops ?? {}).length;
+					}),
+				{message: 'the write should record an operation', timeout: 30000},
+			)
+			.toBeGreaterThan(0);
+
+		// ...and every in-flight operation settled.
 		await waitForTransaction(page);
 	});
 });

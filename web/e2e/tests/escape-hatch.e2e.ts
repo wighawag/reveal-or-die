@@ -39,29 +39,11 @@ import {
  * signature is entropy for deriving the signer), and using a real key here would
  * make this fixture able to authenticate as that account elsewhere.
  */
-describe.fixme('Stopping waiting for the wallet', () => {
+describe('Stopping waiting for the wallet', () => {
 	// Sends transactions, from the stalling wallet's own account rather than a
 	// burner one (see STALLING_WALLET_ACCOUNT), so it races nothing. Serial
 	// anyway: `fullyParallel` applies to tests, and these share one account.
 	describe.configure({mode: 'serial'});
-
-	// NOT YET RUNNING HERE, and deliberately left in place rather than deleted.
-	//
-	// Arrived from the template, where it stalls a `setMessage` write on the
-	// GreetingsRegistry. This app deploys no such contract, so the suite never ran
-	// at all: it failed looking for a function that does not exist.
-	//
-	// Now pointed at `addToReserve`, which does exist and is the same write
-	// contracts.e2e.ts drives successfully. The remaining gap is that the stalling
-	// wallet never ends up holding the transaction, so there is nothing to stop
-	// waiting for. The connect-and-sign-in sequence completes; what has not been
-	// established is whether this app's write path reaches
-	// `eth_sendTransaction` for this function under a wallet that never answers.
-	//
-	// That is app-specific behaviour to establish rather than guess at, so the
-	// suite is parked with its plumbing corrected instead of being deleted or left
-	// failing. The mechanism it covers (the escape hatch) is real here and worth
-	// the port.
 
 	const nodeUrl =
 		(globalThis as any).process.env.E2E_RPC_URL ||
@@ -86,6 +68,18 @@ describe.fixme('Stopping waiting for the wallet', () => {
 	 * the WALLET never answers, not about the transaction succeeding.
 	 */
 	const WRITE_FUNCTION = 'addToReserve nonpayable';
+
+	/**
+	 * One distinctive address per test, so each proves its OWN input survived.
+	 * They are never sent anywhere: every call here is held by a wallet that does
+	 * not answer, so these are only ever bytes in a form.
+	 */
+	const ADDRESSES = {
+		copy: '0x0000000000000000000000000000000000000011',
+		staysConnected: '0x0000000000000000000000000000000000000012',
+		released: '0x0000000000000000000000000000000000000013',
+		approvedLater: '0x0000000000000000000000000000000000000014',
+	} as const;
 	const writeForm = (page: Page) =>
 		page
 			.locator('[class*="card"], [class*="function"]')
@@ -109,7 +103,7 @@ describe.fixme('Stopping waiting for the wallet', () => {
 	 * app then asks the user to confirm signing in before it asks the wallet for
 	 * anything.
 	 */
-	async function sendAndStall(page: Page, amount: string) {
+	async function sendAndStall(page: Page, player: string) {
 		await installStallingWallet(page, {nodeUrl});
 		await page.goto('/contracts');
 
@@ -133,10 +127,22 @@ describe.fixme('Stopping waiting for the wallet', () => {
 		await expect(page.getByText(WRITE_FUNCTION)).toBeVisible({
 			timeout: 30_000,
 		});
+		// BOTH inputs: `addToReserve(address player, uint256 amount)`. Filling only
+		// the amount left the address undefined and viem threw before anything
+		// reached the wallet, so there was never a held transaction to stop waiting
+		// for. The zero address is fine here - this test is about a wallet that
+		// never answers, so the call is never mined and its arguments never matter.
+		// THE AMOUNT IS ALWAYS ZERO. A real amount reverts without a token
+		// allowance, and the app declines to send a call it can see will fail, so
+		// nothing ever reaches the wallet and there is no held transaction to stop
+		// waiting for. The distinctive value this test needs (to prove the user's
+		// input survives) goes in the ADDRESS instead, which is not validated
+		// against any balance.
+		await writeForm(page).getByPlaceholder('0x...').first().fill(player);
 		await writeForm(page)
 			.getByPlaceholder('Enter number or 0x...')
 			.first()
-			.fill(amount);
+			.fill('0');
 		await executeButton(page).click();
 
 		// The wallet list is not always the first thing in the modal. With several
@@ -188,7 +194,7 @@ describe.fixme('Stopping waiting for the wallet', () => {
 	}
 
 	test('tells the truth, and never offers to cancel', async ({page}) => {
-		await sendAndStall(page, '13');
+		await sendAndStall(page, ADDRESSES.copy);
 
 		await dialog(page, 'Wallet Action Required')
 			.getByRole('button', {name: 'Stop waiting'})
@@ -211,7 +217,7 @@ describe.fixme('Stopping waiting for the wallet', () => {
 	test('releases the modal WITHOUT disconnecting the account', async ({
 		page,
 	}) => {
-		await sendAndStall(page, '14');
+		await sendAndStall(page, ADDRESSES.staysConnected);
 		await stopWaiting(page);
 
 		// The blocking modal is gone, which is what the user asked for.
@@ -241,8 +247,8 @@ describe.fixme('Stopping waiting for the wallet', () => {
 		// obligation to settle, so no amount of waiting would have fixed it.
 		// A distinctive but harmless amount, so the assertion below that it is
 		// still there is actually about this test's input.
-		const amount = '11';
-		await sendAndStall(page, amount);
+		const player = ADDRESSES.released;
+		await sendAndStall(page, player);
 
 		// The label, not the `disabled` attribute: this control stays clickable on
 		// purpose (see ContractFunction.svelte) and reports being busy in words. What
@@ -256,9 +262,9 @@ describe.fixme('Stopping waiting for the wallet', () => {
 		await expect(execute).toHaveText(/^execute$/i, {timeout: 15_000});
 		// And what they typed is still there. They have not been told anything
 		// happened, so taking their text away would be the app deciding it did.
-		await expect(
-			writeForm(page).getByPlaceholder('Enter number or 0x...').first(),
-		).toHaveValue(amount);
+		await expect(writeForm(page).getByPlaceholder('0x...').first()).toHaveValue(
+			player,
+		);
 		// Released without withdrawing anything: the wallet still has the request.
 		expect(await isHoldingTransaction(page)).toBe(true);
 	});
@@ -268,7 +274,7 @@ describe.fixme('Stopping waiting for the wallet', () => {
 	}) => {
 		// The promise the escape hatch makes, kept: "if you approve it later, it
 		// will still be sent". The app has to still be there to notice.
-		await sendAndStall(page, '12');
+		await sendAndStall(page, ADDRESSES.approvedLater);
 		await stopWaiting(page);
 
 		await approveHeldTransaction(page);

@@ -27,24 +27,29 @@ describe.fixme('Transaction inspector', () => {
 	// from that one account. Same rule, same cause, as the demo suite.
 	describe.configure({mode: 'serial'});
 
-	// NOT YET RUNNING HERE, and deliberately left in place rather than deleted.
+	// PARKED, with the ground now covered so the next attempt starts from here.
 	//
-	// This suite arrived from the template, where it submits a greeting. This app
-	// has no greeting, so it never ran: it failed at `getByPlaceholder('Enter your
-	// greeting...')`, which is not a finding about anything.
+	// It arrived from the template driving a greeting this app does not have, so
+	// it had never run. Three things were wrong underneath that, and all three are
+	// fixed and are worth having on their own:
 	//
-	// It is now pointed at THIS app's `addToReserve` write, which exists and does
-	// reach the chain (contracts.e2e.ts drives the same one). What it still lacks
-	// is a transaction that stays PENDING long enough to inspect: the local node
-	// mines immediately, so the navbar's pending badge - the signal this suite
-	// waits on, and the app's own "something is in flight" flag - can appear and
-	// clear inside a single poll interval.
+	//  - it filled ONE argument of `addToReserve(address, uint256)`, so viem threw
+	//    InvalidAddressError and nothing was ever sent. The same mistake made
+	//    contracts.e2e.ts's write test vacuous for as long as it has existed;
+	//    that one now asserts an operation and passes for real.
+	//  - it waited on the navbar PENDING BADGE, which clears at Included+Success
+	//    and against an instant-mining node is open for ~400ms. The OPERATION
+	//    persists (measured: Included/Success, final undefined), so waiting for
+	//    account data to hold one is the same intent without the race.
+	//  - the transactions page must be reached CLIENT-SIDE. A full load puts
+	//    account data back into loading and it does not come out in e2e.
 	//
-	// The honest source of a slow transaction here is the game's own commit, which
-	// has real latency, but it is phase-dependent (one open commitment per player
-	// per epoch, and it auto-commits as the phase closes), so wiring this to it is
-	// a piece of game-specific test design rather than a fix. Left as the next
-	// step, with the plumbing already done.
+	// What is left is the last step: the drawer's "Your Transactions" link takes
+	// focus and does not navigate, retries included, while the same drawer's
+	// Explorer link navigates fine in overlays.e2e.ts. That difference is the next
+	// thing to look at, and it may be an app bug rather than a test one - which is
+	// reason to leave this here rather than delete it.
+	test.setTimeout(240_000);
 
 	/**
 	 * Leave an operation in account data and land on the transactions page.
@@ -74,6 +79,18 @@ describe.fixme('Transaction inspector', () => {
 	 * authorisation flow stands in front of it. This used to submit the template's
 	 * greeting, which this app does not have, and so failed at the first line.
 	 */
+	/** The connected account, which is who the reserve is credited to. */
+	async function playerAddress(page: Page): Promise<string> {
+		const address = await page.evaluate(() => {
+			const ctx = (globalThis as any).context;
+			let account: unknown;
+			ctx.account.subscribe((v: unknown) => (account = v))();
+			return typeof account === 'string' ? account : null;
+		});
+		if (!address) throw new Error('no connected account to credit');
+		return address;
+	}
+
 	async function submitAndOpenTransactions(
 		page: Page,
 		connectWallet: (page: Page) => Promise<void>,
@@ -102,17 +119,56 @@ describe.fixme('Transaction inspector', () => {
 			.locator('[class*="card"], [class*="function"]')
 			.filter({has: writeFunctionText})
 			.first();
+		// BOTH inputs. `addToReserve(address player, uint256 amount)` takes two, and
+		// filling only the amount left the address undefined, so viem threw
+		// `InvalidAddressError` and no transaction was ever sent. That is why this
+		// suite saw no pending operation - nothing to do with how fast the node
+		// mines, which is what it looked like from the outside.
+		await form
+			.getByPlaceholder('0x...')
+			.first()
+			.fill(await playerAddress(page));
 		await form.getByPlaceholder('Enter number or 0x...').first().fill(amount);
 		await form
 			.getByRole('button', {name: /execut/i})
 			.first()
 			.click();
 
-		await expect(
-			page.locator('[data-testid="pending-operations"]'),
-			'an operation should be recorded before leaving the page',
-		).toBeVisible({timeout: 30000});
+		// THE OPERATION, not the navbar badge.
+		//
+		// The badge is `countPendingOperations`, which clears as soon as a
+		// transaction is Included + Success and deliberately ignores finality:
+		// hardhat only mines when something is sent, so an operation here never
+		// becomes final and a badge that waited for that would never clear. Against
+		// an instant-mining node the badge is therefore open for about 400ms, and
+		// waiting on it is a race this suite lost every time.
+		//
+		// The OPERATION itself persists - measured as Included/Success/final=-, so
+		// still not final, which is exactly what the inspector is for. Waiting for
+		// account data to hold one is the same intent without the race.
+		await expect
+			.poll(
+				async () =>
+					page.evaluate(() => {
+						const ctx = (globalThis as any).context;
+						let ops: Record<string, unknown> = {};
+						ctx.accountData
+							.watchField('operations')
+							.subscribe((v: Record<string, unknown>) => (ops = v))();
+						return Object.keys(ops ?? {}).length;
+					}),
+				{
+					message: 'an operation should be recorded before leaving the page',
+					timeout: 30000,
+				},
+			)
+			.toBeGreaterThan(0);
 
+		// CLIENT-SIDE, and it has to be. A full `page.goto` puts account data back
+		// into its loading state, and in e2e it does not come out of it: the
+		// transactions page then sits on "Loading transactions..." for ever and
+		// there is nothing to inspect. Reaching the page through the app is not a
+		// nicety here, it is the only route that works.
 		const drawer = page.getByRole('dialog');
 		await expect(async () => {
 			await page.getByLabel('Open menu').click();
