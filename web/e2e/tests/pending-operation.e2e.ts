@@ -27,28 +27,46 @@ describe.fixme('Transaction inspector', () => {
 	// from that one account. Same rule, same cause, as the demo suite.
 	describe.configure({mode: 'serial'});
 
-	// PARKED, with the ground now covered so the next attempt starts from here.
+	// PARKED BECAUSE IT CATCHES A REAL APP BUG, not because the test is wrong.
+	// Everything it does is now correct, and the app is what fails.
 	//
 	// It arrived from the template driving a greeting this app does not have, so
-	// it had never run. Three things were wrong underneath that, and all three are
-	// fixed and are worth having on their own:
+	// it had never run. Four things were wrong underneath that; three were test
+	// bugs and are fixed, and they were worth finding on their own:
 	//
 	//  - it filled ONE argument of `addToReserve(address, uint256)`, so viem threw
-	//    InvalidAddressError and nothing was ever sent. The same mistake made
-	//    contracts.e2e.ts's write test vacuous for as long as it has existed;
-	//    that one now asserts an operation and passes for real.
+	//    InvalidAddressError and nothing was sent. The same mistake made
+	//    contracts.e2e.ts's write test vacuous for as long as it existed; that one
+	//    now asserts an operation and passes for real.
 	//  - it waited on the navbar PENDING BADGE, which clears at Included+Success
-	//    and against an instant-mining node is open for ~400ms. The OPERATION
-	//    persists (measured: Included/Success, final undefined), so waiting for
-	//    account data to hold one is the same intent without the race.
-	//  - the transactions page must be reached CLIENT-SIDE. A full load puts
-	//    account data back into loading and it does not come out in e2e.
+	//    and ignores finality, so against an instant-mining node it is open for
+	//    ~400ms. The OPERATION persists (measured: Included/Success, `final`
+	//    undefined), so it now waits for account data to hold one.
+	//  - it took the drawer with `page.getByRole('dialog')`, which matches every
+	//    dialog in every layer, so the visibility check was a strict-mode
+	//    violation rather than a wait. Scoped to `#--layer-drawer`, as
+	//    overlays.e2e.ts always has been.
 	//
-	// What is left is the last step: the drawer's "Your Transactions" link takes
-	// focus and does not navigate, retries included, while the same drawer's
-	// Explorer link navigates fine in overlays.e2e.ts. That difference is the next
-	// thing to look at, and it may be an app bug rather than a test one - which is
-	// reason to leave this here rather than delete it.
+	// THE FOURTH IS THE APP. Reaching /transactions/ after a write whose ARGS
+	// CONTAIN A NUMBER throws, uncaught:
+	//
+	//     TypeError: Do not know how to serialize a BigInt
+	//
+	// The URL changes, and then nothing renders and the drawer never closes.
+	// Measured, with and without the preceding write:
+	//
+	//     no write:   +500ms url=/transactions/ heading=1   (fine)
+	//     after write:+3000ms url=/transactions/ heading=0  + the TypeError
+	//
+	// So the link works - it was driven by hand too, and it navigates. What breaks
+	// is rendering that page while an operation carries a bigint, which the
+	// template's own demo never does because `setMessage(string)` has no numeric
+	// argument. AccountData's storage serializer handles bigints correctly, so it
+	// is not persistence; and `core/utils/format/json.ts` exports `bigIntReplacer`
+	// and `toPlainJson` for exactly this and is imported by NOTHING, which suggests
+	// the fix was written and never wired in.
+	//
+	// Un-park this when that is fixed; it should then pass as written.
 	test.setTimeout(240_000);
 
 	/**
@@ -169,11 +187,25 @@ describe.fixme('Transaction inspector', () => {
 		// transactions page then sits on "Loading transactions..." for ever and
 		// there is nothing to inspect. Reaching the page through the app is not a
 		// nicety here, it is the only route that works.
-		const drawer = page.getByRole('dialog');
-		await expect(async () => {
-			await page.getByLabel('Open menu').click();
-			await expect(drawer).toBeVisible({timeout: 2000});
-		}).toPass({timeout: 30000});
+		// SCOPED TO ITS LAYER, which is the whole reason this used to fail.
+		//
+		// `page.getByRole('dialog')` matches EVERY dialog in every layer. Once more
+		// than one is on screen - and by this point in the flow that is normal -
+		// `expect(drawer).toBeVisible()` is a strict-mode violation rather than a
+		// wait, so the retry below kept firing, and each retry clicked "Open menu"
+		// again and TOGGLED the drawer shut. The link then took focus on a panel
+		// that was closing and the page never moved, which looks exactly like a
+		// broken link and is not one: driven by hand, it navigates fine.
+		//
+		// overlays.e2e.ts has always scoped by layer, which is why its drawer-link
+		// test passes while this one did not.
+		const drawer = page.locator('#--layer-drawer [role="dialog"]');
+		if (!(await drawer.isVisible().catch(() => false))) {
+			await expect(async () => {
+				await page.getByLabel('Open menu').click();
+				await expect(drawer).toBeVisible({timeout: 2000});
+			}).toPass({timeout: 30000});
+		}
 		await drawer.getByRole('link', {name: /your transactions/i}).click();
 
 		await expect(page.getByRole('heading', {name: 'Transactions'})).toBeVisible(
