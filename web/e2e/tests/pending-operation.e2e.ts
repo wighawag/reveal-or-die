@@ -12,7 +12,7 @@ import {test, expect, describe} from '../fixtures/test';
  * route the page is showing, so the app read a URL without the param it had
  * just written and closed the overlay it had just opened.
  */
-describe.fixme('Transaction inspector', () => {
+describe('Transaction inspector', () => {
 	// Sends transactions, so it takes its own burner account: files run in
 	// parallel workers and two sending from the same account race for a nonce.
 	//
@@ -27,9 +27,6 @@ describe.fixme('Transaction inspector', () => {
 	// from that one account. Same rule, same cause, as the demo suite.
 	describe.configure({mode: 'serial'});
 
-	// PARKED BECAUSE IT CATCHES A REAL APP BUG, not because the test is wrong.
-	// Everything it does is now correct, and the app is what fails.
-	//
 	// It arrived from the template driving a greeting this app does not have, so
 	// it had never run. Four things were wrong underneath that; three were test
 	// bugs and are fixed, and they were worth finding on their own:
@@ -47,8 +44,8 @@ describe.fixme('Transaction inspector', () => {
 	//    violation rather than a wait. Scoped to `#--layer-drawer`, as
 	//    overlays.e2e.ts always has been.
 	//
-	// THE FOURTH IS THE APP. Reaching /transactions/ after a write whose ARGS
-	// CONTAIN A NUMBER throws, uncaught:
+	// THE FOURTH WAS THE APP, and it is fixed. Reaching /transactions/ after a
+	// write whose ARGS CONTAIN A NUMBER threw, uncaught:
 	//
 	//     TypeError: Do not know how to serialize a BigInt
 	//
@@ -62,11 +59,12 @@ describe.fixme('Transaction inspector', () => {
 	// is rendering that page while an operation carries a bigint, which the
 	// template's own demo never does because `setMessage(string)` has no numeric
 	// argument. AccountData's storage serializer handles bigints correctly, so it
-	// is not persistence; and `core/utils/format/json.ts` exports `bigIntReplacer`
-	// and `toPlainJson` for exactly this and is imported by NOTHING, which suggests
-	// the fix was written and never wired in.
+	// was not persistence; `core/utils/format/json.ts` had exported
+	// `bigIntReplacer` and `toPlainJson` for exactly this the whole time and was
+	// imported by nothing.
 	//
-	// Un-park this when that is fixed; it should then pass as written.
+	// OperationCard now stringifies with `bigIntReplacer`, and this suite is what
+	// proves it: without that fix these three fail on a page that never renders.
 	test.setTimeout(240_000);
 
 	/**
