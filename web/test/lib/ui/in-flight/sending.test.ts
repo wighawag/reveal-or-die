@@ -43,7 +43,11 @@ describe('the sending banner state', () => {
 		const s = createSendingState(
 			writable(state({dispatching: 1, requests: [request('a', 'a move')]})),
 		);
-		expect(get(s)).toMatchObject({sending: true, count: 1, description: 'a move'});
+		expect(get(s)).toMatchObject({
+			sending: true,
+			count: 1,
+			description: 'a move',
+		});
 	});
 
 	it('stays dark for records that are unreconciled but no longer awaited', () => {
@@ -61,7 +65,10 @@ describe('the sending banner state', () => {
 			writable(
 				state({
 					dispatching: 1,
-					requests: [request('old', 'the settled one'), request('new', 'a move')],
+					requests: [
+						request('old', 'the settled one'),
+						request('new', 'a move'),
+					],
 					outcomes: {old: {kind: 'nonce-consumed'} as never},
 				}),
 			),
