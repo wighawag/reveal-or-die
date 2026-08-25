@@ -42,9 +42,13 @@ export type HudModel = {
 	 */
 	planningForNextRound: boolean;
 	/**
-	 * Set when this deployment has no hosted sign-in, so every move has to be
-	 * signed in the wallet. Said once, up front, rather than discovered one
-	 * prompt at a time.
+	 * Set when this build has NO LOCAL SIGNER, so every move has to be signed in
+	 * the wallet. Said once, up front, rather than discovered one prompt at a
+	 * time.
+	 *
+	 * Nothing to do with hosted sign-in, which is a separate axis entirely: see
+	 * core/connection/mode.ts, where TARGET_STEP decides whether a signer exists
+	 * and PUBLIC_WALLET_HOST decides only whether email and social are offered.
 	 */
 	walletSigningNotice?: string;
 	/**
@@ -274,9 +278,22 @@ export function createHud(context: Context): Readable<HudModel> {
 				// saying to someone who cannot play at all yet.
 				planningForNextRound: !playable && !needsSetup,
 				setup: needsSetup,
+				// `hasLocalSigner` is `TARGET_STEP === 'SignedIn'`, and NOTHING ELSE.
+				// It is not about hosted sign-in, and core says so where it is
+				// defined: "Deliberately NOT 'is PUBLIC_WALLET_HOST set': a
+				// wallet-only sign-in has no host and still derives a signer, so
+				// testing the host would get it wrong."
+				//
+				// This notice used to say the opposite - that no hosted sign-in was
+				// configured, and that setting PUBLIC_WALLET_HOST would give the
+				// player a local signing key. Both halves were wrong, and together
+				// they sent anyone who read it to configure a wallet host and still
+				// have no signer: a signer is derived from a wallet signature with no
+				// service involved, so `SignedIn` + wallet-only is complete and
+				// backend-free. The knob is TARGET_STEP, which is code, not env.
 				walletSigningNotice: context.hasLocalSigner
 					? undefined
-					: 'No hosted sign-in is configured, so every commit and reveal needs a wallet signature. Set PUBLIC_WALLET_HOST to play with a local signing key instead.',
+					: "This build does not sign in, so there is no local signing key and every commit and reveal needs a wallet signature. Set TARGET_STEP to 'SignedIn' in core/connection/mode.ts to play with one.",
 
 				plannedCount: $count,
 				costLabel: `${formatBalance($cost)} TOK`,

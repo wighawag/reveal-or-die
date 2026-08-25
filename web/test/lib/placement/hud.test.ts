@@ -89,9 +89,9 @@ describe('what the HUD says about a failed round', () => {
 });
 
 /** A context with only the parts `createHud` reads. */
-function fakeContext(round: State) {
+function fakeContext(round: State, hasLocalSigner = true) {
 	return {
-		hasLocalSigner: true,
+		hasLocalSigner,
 		game: {
 			twoPhase: writable({phase: 'play', timeLeft: 10, duration: 20}),
 			round: writable(round),
@@ -135,5 +135,46 @@ describe('the remedy the HUD offers', () => {
 		);
 
 		expect(model.outOfGas).toBeUndefined();
+	});
+});
+
+describe('what the HUD says when there is no local signer', () => {
+	/**
+	 * `hasLocalSigner` is `TARGET_STEP === 'SignedIn'`, and NOTHING ELSE.
+	 *
+	 * This notice used to read "No hosted sign-in is configured... Set
+	 * PUBLIC_WALLET_HOST to play with a local signing key instead", which was
+	 * wrong twice: hosted sign-in is a different axis entirely, and setting a
+	 * wallet host does not produce a signer. A signer is derived from a wallet
+	 * signature with no service involved, so signing in with no host at all is a
+	 * complete configuration - core/connection/mode.ts says exactly that, and
+	 * says of this very predicate "Deliberately NOT 'is PUBLIC_WALLET_HOST set'".
+	 *
+	 * Anyone who followed the old advice would have configured a wallet host and
+	 * still had no signer. Pinned because it is a STRING: nothing else would
+	 * catch it going wrong again.
+	 */
+	it('names the knob that actually controls it', () => {
+		const model = get(
+			createHud(fakeContext({step: 'Idle'} as unknown as State, false)),
+		);
+		expect(model.walletSigningNotice).toBeDefined();
+		expect(model.walletSigningNotice).toContain('TARGET_STEP');
+		expect(model.walletSigningNotice).toMatch(/does not sign in/i);
+	});
+
+	it('never blames hosted sign-in, which is a different axis', () => {
+		const model = get(
+			createHud(fakeContext({step: 'Idle'} as unknown as State, false)),
+		);
+		expect(model.walletSigningNotice).not.toMatch(/PUBLIC_WALLET_HOST/);
+		expect(model.walletSigningNotice).not.toMatch(/hosted/i);
+	});
+
+	it('says nothing at all when the app does sign in', () => {
+		const model = get(
+			createHud(fakeContext({step: 'Idle'} as unknown as State)),
+		);
+		expect(model.walletSigningNotice).toBeUndefined();
 	});
 });
