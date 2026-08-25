@@ -20,7 +20,6 @@ const PLANNED_COLOUR = 0xffd166;
 export class CellObject extends Container {
 	private readonly body: Graphics;
 	private readonly outline: Graphics;
-	private lastKey = '';
 
 	constructor(
 		private readonly cellSize: number,
@@ -34,15 +33,19 @@ export class CellObject extends Container {
 		this.update(cell);
 	}
 
+	/**
+	 * Called only when something visible actually changed.
+	 *
+	 * Redrawing a `Graphics` on every state emit is the easy way to make a pixi
+	 * scene slow, so this used to guard itself with a hand-built key string
+	 * (`${stake}:${claimants}:${planned}`). That guard now lives in the renderer
+	 * as a typed comparison, which is the same idea without the failure mode:
+	 * a field left out of a key string is silent, and shows up as a cell that
+	 * simply never updates.
+	 */
 	update(cell: CellView) {
 		this.x = cell.position.x * this.cellSize;
 		this.y = cell.position.y * this.cellSize;
-
-		// Redrawing a Graphics every frame is the easy way to make a pixi scene
-		// slow, so it only happens when something visible actually changed.
-		const key = `${cell.totalStake}:${cell.numClaimants}:${cell.planned}`;
-		if (key === this.lastKey) return;
-		this.lastKey = key;
 
 		const size = this.cellSize;
 		const half = size / 2;

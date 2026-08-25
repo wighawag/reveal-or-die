@@ -173,16 +173,80 @@ export type CommitRevealAdapter<TIdentity extends PlayerIdentity, TAction> = {
 // ----------------------------------------------------------------------------
 
 /**
+ * Where the camera is and how far it is zoomed in.
+ *
+ * Declared here rather than in `$lib/game/render` because it is part of the
+ * RENDER CONTRACT: it is what `Frame` carries, so a renderer depends on it.
+ * Keeping it here means `game/core` needs nothing from `game/render`, and the
+ * dependency runs one way. `view-transform.ts` holds the arithmetic over it.
+ *
+ * Two conventions, and confusing them is the only way to be wrong with these:
+ * a WORLD unit is a GAME unit (a cell, not a pixel), and `scale` is CSS PIXELS
+ * PER WORLD UNIT.
+ */
+export type ViewTransform = {
+	/** World point at the centre of the screen. */
+	centerX: number;
+	centerY: number;
+	/** CSS pixels per world unit. Always > 0 once a surface has a size. */
+	scale: number;
+};
+
+/** A surface's size in CSS pixels. */
+export type ScreenSize = {width: number; height: number};
+
+/**
+ * What a renderer is told on every frame.
+ *
+ * Carries the clock AND the view transform, because the two rendering styles
+ * this template supports need different halves of it and neither should have to
+ * reach for a store to get it:
+ *
+ * - an IMMEDIATE renderer redraws from scratch each frame, so it needs the
+ *   transform in order to draw anything at all.
+ * - a STATEFUL renderer usually has the transform applied for it by the host,
+ *   but still reads the scale for anything resolution-dependent (level of
+ *   detail, a grid that fades out as you zoom away, line widths that must not
+ *   scale).
+ */
+export type Frame = {
+	/** Milliseconds since the surface started. */
+	time: number;
+	/** Milliseconds since the previous tick. Zero on the first. */
+	delta: number;
+	/** What the surface is drawing with this frame. Game units, CSS pixels. */
+	transform: ViewTransform;
+	/** The surface size in CSS pixels. */
+	screen: ScreenSize;
+	/**
+	 * Backing-store pixels per CSS pixel, as the host has ACTUALLY configured
+	 * its buffer. For a renderer that sizes things in device pixels (a crisp
+	 * hairline, a texture atlas choice).
+	 *
+	 * Not necessarily `window.devicePixelRatio`: a host may deliberately render
+	 * at CSS resolution, and the pixi one does, because the art is pixelated and
+	 * upscaling it defeats the point. What this reports is the buffer the
+	 * renderer is drawing into, which is the only number it can act on.
+	 */
+	devicePixelRatio: number;
+};
+
+/**
  * The render seam.
  *
  * Not tied to a rendering library: the pixi games and the WebGL one both fit,
  * because all the framework does is start it, stop it, and let it tick. What a
- * "surface" is (a pixi Container, a WebGL context) is the renderer's business,
- * so it is the renderer's own type parameter.
+ * "surface" is (a pixi Container, a 2D context, a WebGL context) is the
+ * renderer's business, so it is the renderer's own type parameter.
+ *
+ * The template ships three ways to fill this seam, in `$lib/game/render`:
+ * `createStatefulRenderer` (scene graph, diffed), `createImmediateRenderer`
+ * (redraw per frame), and nothing at all for a Svelte-rendered game, which
+ * subscribes to the view state like any other component. See the README there.
  */
 export type GameRenderer<TSurface> = {
 	onAppStarted(surface: TSurface): void;
 	onAppStopped(): void;
-	/** Per-frame hook, for animation that does not come from state changes. */
-	tick(): void;
+	/** Per-frame hook. The only entry point an immediate renderer needs. */
+	tick(frame: Frame): void;
 };

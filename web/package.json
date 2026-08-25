@@ -30,7 +30,6 @@
 		"mode-watcher": "^1.1.0",
 		"named-logs": "^0.4.1",
 		"observator": "^0.3.0",
-		"pixi-viewport": "^6.0.3",
 		"pixi.js": "^8.19.0",
 		"playwright": "^1.62.1",
 		"prettier": "^3.9.6",

@@ -12,6 +12,8 @@
 	import {getAppContext} from '$lib';
 	import DefaultHead from '$lib/metadata/DefaultHead.svelte';
 	import GameHud from '$lib/placement/ui/GameHud.svelte';
+	import {loadCanvasComponent} from '$lib/placement/render';
+	import {gridTileCells} from '$lib/game/render/grid';
 
 	const {render, game} = getAppContext();
 
@@ -19,22 +21,25 @@
 	 * The canvas is loaded dynamically, and only in the browser.
 	 *
 	 * A static import would put it in the SERVER's module graph, and it renders
-	 * only in the browser anyway (pixi needs a real canvas and a WebGL context),
-	 * so the server would be paying to evaluate a renderer it can never use. It
-	 * cannot, in fact: `pixi-viewport` ships no `exports` field, so resolution
-	 * falls back to its UMD build, and SSR fails with "Named export 'Viewport'
-	 * not found ... is a CommonJS module". The page 500s in dev.
+	 * only in the browser anyway (a canvas host needs a real canvas), so the
+	 * server would be paying to evaluate a renderer it can never use. It also
+	 * keeps the rendering library out of the bundle for every route that is not
+	 * the game.
 	 *
-	 * Worth knowing that `pnpm build` does NOT catch this - prerendering resolves
-	 * the dependency differently and succeeds - so it only ever shows up in
-	 * `pnpm web:dev`. Fixing it here rather than with `ssr.noExternal` in the vite
-	 * config, because the point is that this module has no business on the server,
-	 * not that the server should try harder to load it. It also keeps pixi out of
-	 * the bundle for every route that is not the game.
+	 * This used to be load-bearing for a sharper reason: `pixi-viewport` shipped
+	 * no `exports` field, so SSR resolved its UMD build and the page 500d in dev
+	 * with "Named export 'Viewport' not found". That dependency is gone, so the
+	 * failure is gone with it, but the two reasons above are not, and a renderer
+	 * is exactly the kind of dependency that acquires such a problem again.
+	 * Worth knowing if it ever recurs: `pnpm build` does NOT catch it, because
+	 * prerendering resolves dependencies differently and succeeds. It shows up
+	 * only in `pnpm web:dev`.
+	 *
+	 * WHICH canvas is not decided here: `$lib/placement/render` names it, next to
+	 * the renderer that has to match it. Both hosts take the same props, so this
+	 * page is identical whichever is chosen.
 	 */
-	const canvasModule = browser
-		? import('$lib/game/render/pixi/PixiCanvas.svelte')
-		: undefined;
+	const canvasModule = browser ? loadCanvasComponent() : undefined;
 </script>
 
 <DefaultHead />
@@ -59,12 +64,13 @@
 	<!-- pixi needs a real canvas and a WebGL context, so it only mounts in the
 	     browser; the page still prerenders (see ADR-0002). -->
 	{#if canvasModule}
-		{#await canvasModule then { default: PixiCanvas }}
-			<PixiCanvas
+		{#await canvasModule then { default: GameCanvas }}
+			<GameCanvas
 				cameraControl={render.cameraControl}
 				renderer={render.gameRenderer}
 				eventEmitter={render.eventEmitter}
 				cellSize={game.config.cellSize}
+				gridCells={gridTileCells(game.config.camera.limits)}
 			/>
 		{:catch error}
 			<!--

@@ -35,14 +35,13 @@ import {
 import {
 	createCanvasEventEmitter,
 	type CanvasEventEmitter,
-} from '$lib/game/render/pixi/events';
+} from '$lib/game/render/events';
 import type {GameRenderer} from '$lib/game/core/seams';
 import {
 	createPollingOnchainState,
 	type OnchainStateStore,
 } from '$lib/onchain/state';
 import {createViewState, type ViewStateStore} from '$lib/view';
-import type {Container} from 'pixi.js';
 
 // ---------------------------------------------------------------------------
 // The game itself. Everything below is what a descendant replaces; everything
@@ -77,7 +76,7 @@ import {
 	type BoardState,
 } from '$lib/placement/state';
 import {mergeBoardView, type BoardView} from '$lib/placement/view';
-import {createBoardRenderer} from '$lib/placement/render/board-renderer';
+import {createGameRenderer, type GameSurface} from '$lib/placement/render';
 import {cellID} from '$lib/placement/cells';
 
 export type Game = {
@@ -140,7 +139,13 @@ export type SetupNeeded =
 export type Render = {
 	camera: CameraWatcher;
 	cameraControl: CameraControl;
-	gameRenderer: GameRenderer<Container>;
+	/**
+	 * `GameSurface` is the game's own choice of rendering library, named in one
+	 * place (`$lib/placement/render`). Nothing in the framework mentions pixi,
+	 * which is what lets a descendant swap the renderer without touching the
+	 * context.
+	 */
+	gameRenderer: GameRenderer<GameSurface>;
 	eventEmitter: CanvasEventEmitter;
 };
 
@@ -286,7 +291,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 	const threePhase = createThreePhase(epochInfo);
 
-	const {camera, cameraControl} = createCamera();
+	const {camera, cameraControl} = createCamera(config.camera);
 	const eventEmitter = createCanvasEventEmitter();
 
 	const onchainState = createPollingOnchainState<BoardState>({
@@ -377,7 +382,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		merge: mergeBoardView,
 	});
 
-	const gameRenderer = createBoardRenderer({
+	const gameRenderer = createGameRenderer({
 		viewState,
 		cellSize: config.cellSize,
 	});
@@ -431,7 +436,11 @@ export function createGameContext(core: CoreServices): GameContext {
 		const onClicked = (position: {x: number; y: number}) => {
 			// Ignore clicks until the player could actually commit them.
 			if (!get(readyToPlay)) return;
-			planning.toggle(cellID(position.x, position.y));
+			// The canvas reports WHERE, in game units and unsnapped; which cell that
+			// is, is this game's rule. Rounded rather than floored because cells are
+			// centred on their integer coordinate (the cell at 3,4 spans 2.5..3.5),
+			// which is what `CellObject` and the grid are both drawn with.
+			planning.toggle(cellID(Math.round(position.x), Math.round(position.y)));
 		};
 		eventEmitter.on('clicked', onClicked);
 
