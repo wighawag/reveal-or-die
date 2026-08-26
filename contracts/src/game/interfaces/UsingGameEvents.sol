@@ -6,13 +6,9 @@ import "./UsingGameTypes.sol";
 interface UsingGameEvents is UsingGameTypes {
     /// @notice An avatar has been deposited, ready to enter
     /// @param avatarID the id of the NFT being deposited
-    /// @param owner the account authorized to get the avatar back
-    /// @param controller the account authorized to control the avatar in-game
-    event AvatarDeposited(
-        uint256 indexed avatarID,
-        address indexed owner,
-        address controller
-    );
+    /// @param owner the account that owns the avatar: the only one that can
+    ///        withdraw it, and the one a delegate plays on behalf of
+    event AvatarDeposited(uint256 indexed avatarID, address indexed owner);
 
     /// @notice A avatar has been withdrawn
     /// @param avatarID the id of the NFT being transfered out

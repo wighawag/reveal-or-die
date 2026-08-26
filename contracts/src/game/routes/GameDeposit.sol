@@ -11,10 +11,13 @@ contract GameDeposit is IGameDeposit, UsingGameInternal, IERC721Receiver {
     // TODO deposit via permit
     function deposit(
         uint256 avatarID,
-        address controller,
         address payable payee
     ) external payable {
-        _deposit(avatarID, msg.sender, controller);
+        // The depositor is the owner. No `controller` argument any more: who
+        // may PLAY this avatar is decided by delegation (GameDelegation),
+        // account-wide and granted by the owner's own signature, rather than
+        // named here one avatar at a time.
+        _deposit(avatarID, msg.sender);
 
         // transfer Character to the game
         AVATARS.transferFrom(msg.sender, address(this), avatarID);
@@ -25,23 +28,53 @@ contract GameDeposit is IGameDeposit, UsingGameInternal, IERC721Receiver {
         }
     }
 
+    /// @notice Accept an avatar sent straight into the game, and record who
+    ///         owns it.
+    ///
+    /// Two ways in, and only one of them can be proved.
+    ///
+    /// A TRANSFER (`from != 0`) proves its own consent: the sender held the
+    /// NFT and gave it up, so `from` IS the owner and the payload is ignored
+    /// entirely. This used to trust a `(owner, controller)` payload here too,
+    /// which let anyone name a victim as owner.
+    ///
+    /// A MINT (`from == 0`) proves nothing. It exists for the one-transaction
+    /// entry (buy, deposit and fund the signer in a single confirmation), where
+    /// `AvatarsSale` mints straight to this contract and puts the buyer in
+    /// `data`. That is only as trustworthy as the minter, and right now it is
+    /// not trustworthy at all: `Avatars.mint` has NO ACCESS CONTROL, so anyone
+    /// can mint an avatar to this contract naming anyone as owner.
+    ///
+    /// Delegation does NOT close that: it decides who may act for an account,
+    /// not who the account is. Closing it means restricting who may mint, which
+    /// is the open decision recorded in Avatars.sol and in
+    /// docs/plans/identity-without-consent.md. Until then the mint path is
+    /// accepted on the minter's word.
+    ///
+    /// It is a smaller hole than it was: an attacker can still create an avatar
+    /// attributed to a victim, but can no longer take one the victim already
+    /// owns, and cannot make themselves able to play it, because playing needs
+    /// a delegation the victim would have had to sign.
     function onERC721Received(
         address, // operator
-        address, // from
+        address from,
         uint256 tokenID,
         bytes calldata data
     ) external override returns (bytes4) {
         if (msg.sender != address(AVATARS)) {
             revert OnlyAvatarsAreAccepted();
         }
-        if (data.length != 64) {
+
+        if (from != address(0)) {
+            _deposit(tokenID, from);
+            return IERC721Receiver.onERC721Received.selector;
+        }
+
+        if (data.length != 32) {
             revert UsingGameErrors.InvalidData();
         }
-        (address owner, address controller) = abi.decode(
-            data,
-            (address, address)
-        );
-        _deposit(tokenID, owner, controller);
+        address owner = abi.decode(data, (address));
+        _deposit(tokenID, owner);
         return IERC721Receiver.onERC721Received.selector;
     }
 

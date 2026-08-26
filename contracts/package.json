@@ -1,6 +1,9 @@
 {
 	"name": "reveal-or-die-contracts",
 	"version": "0.0.0",
+	"dependencies": {
+		"@etherplay/delegation": "^0.1.0"
+	},
 	"type": "module",
 	"exports": {
 		".": {
@@ -19,9 +22,6 @@
 		"src",
 		"deployments"
 	],
-	"dependencies": {
-		"@etherplay/delegation": "^0.1.0"
-	},
 	"devDependencies": {
 		"@nomicfoundation/hardhat-keystore": "^3.0.13",
 		"@nomicfoundation/hardhat-network-helpers": "^3.0.11",

@@ -77,10 +77,10 @@ describe('Game', function () {
 			args: [
 				Game.address,
 				subID,
-				encodeAbiParameters(
-					[{type: 'address'}, {type: 'address'}],
-					[unnamedAccounts[0], unnamedAccounts[0]],
-				),
+				// The mint-to-game payload is just the OWNER now. There is no
+				// controller to name: who may play is delegation, account-wide,
+				// granted by the owner's signature rather than at deposit time.
+				encodeAbiParameters([{type: 'address'}], [unnamedAccounts[0]]),
 				zeroAddress,
 				0n,
 				zeroAddress,
@@ -158,5 +158,87 @@ describe('Game', function () {
 
 		expect(after_avatars[0][0].position).toEqual(pos(0n, 2n));
 		// console.log(after_avatars);
+	});
+
+	it('lets a delegate play, and only after the owner says so', async function () {
+		const {env, Game, AvatarsSale, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const owner = unnamedAccounts[0];
+		const delegate = unnamedAccounts[1];
+
+		const {epoch: initialEpoch} = getEpoch(await getTimestamp());
+		const subID = 0n;
+		const avatarID = (BigInt(owner) << 96n) + subID;
+
+		await env.execute(AvatarsSale, {
+			account: owner,
+			functionName: 'purchase',
+			args: [
+				Game.address,
+				subID,
+				encodeAbiParameters([{type: 'address'}], [owner]),
+				zeroAddress,
+				0n,
+				zeroAddress,
+			],
+			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+		});
+
+		await advanceToEpoch(initialEpoch + 2);
+
+		const secret =
+			'0x0000000000000000000000000000000000000000000000000000000000000000';
+		const actions: Action[] = [{actionType: 0, data: 0n}];
+		const hash = commitmentHash(secret, actions);
+
+		// A stranger cannot move someone else's avatar. This is the whole point
+		// of the check: without it, anyone could commit on an avatar they do not
+		// own and strand it with a commitment only they can reveal.
+		let rejection = '';
+		try {
+			await env.execute(Game, {
+				account: delegate,
+				functionName: 'commit',
+				args: [avatarID, hash, zeroAddress],
+			});
+		} catch (e) {
+			rejection = String(e);
+		}
+		// the REASON matters: any thrown error would satisfy a bare `threw`
+		// check, including one caused by getting the arguments wrong, which
+		// would leave this asserting nothing at all.
+		expect(rejection.includes('NotDelegate')).toEqual(true);
+
+		// The owner authorises the delegate. Note what is NOT passed: no avatar
+		// id. Authority is ACCOUNT-WIDE, so this one grant covers every avatar
+		// this owner holds, now and later.
+		await env.execute(Game, {
+			account: owner,
+			functionName: 'registerDelegate',
+			args: [delegate, zeroAddress],
+		});
+
+		// It is recorded on the PROXY, which is also what proves the Delegation
+		// route is actually routed - a missing route would fail here rather than
+		// at some later, stranger point.
+		const status = await env.read(Game, {
+			functionName: 'delegationStatus',
+			args: [owner, delegate],
+		});
+		expect(status[0]).toEqual(true);
+
+		// and now the same call the stranger could not make.
+		await env.execute(Game, {
+			account: delegate,
+			functionName: 'commit',
+			args: [avatarID, hash, zeroAddress],
+		});
+
+		const commitment = await env.read(Game, {
+			functionName: 'getCommitment',
+			args: [avatarID],
+		});
+		expect(commitment.hash).toEqual(hash);
 	});
 });

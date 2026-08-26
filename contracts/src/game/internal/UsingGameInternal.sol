@@ -7,6 +7,7 @@ import "../interfaces/UsingGameErrors.sol";
 import "../../utils/PositionUtils.sol";
 import "../../utils/StringUtils.sol";
 import "./GameUtils.sol";
+import {Delegation} from "@etherplay/delegation/contracts/Delegation.sol";
 
 abstract contract UsingGameInternal is
     UsingGameStore,
@@ -18,18 +19,37 @@ abstract contract UsingGameInternal is
     //-------------------------------------------------------------------------
     // ENTRY POINTS
     //-------------------------------------------------------------------------
-    function _deposit(
-        uint256 avatarID,
-        address owner,
-        address controller
-    ) internal {
-        _players[avatarID] = Player({owner: owner, controller: controller});
+    function _deposit(uint256 avatarID, address owner) internal {
+        _players[avatarID] = Player({owner: owner});
 
         uint256 length = _ownedAvatars[owner].length;
         _ownedAvatars[owner].push(avatarID);
         _ownedAvatarsIndex[avatarID] = length;
 
-        emit AvatarDeposited(avatarID, owner, controller);
+        emit AvatarDeposited(avatarID, owner);
+    }
+
+    /// @notice The account whose avatar this is, having checked `sender` may
+    ///         act for it.
+    /// @dev The delegation LIBRARY rather than inheriting {UsingDelegation}: a
+    ///      router maps one selector to one route, and that contract carries
+    ///      six external functions which belong to {GameDelegation}. Having
+    ///      them on a second route would collide at deploy time. The library
+    ///      reads no `msg.sender` of its own, which is what makes it usable
+    ///      here.
+    ///
+    ///      Authority is ACCOUNT-WIDE: a delegate authorised by the owner may
+    ///      do anything at this game that the owner could, for every avatar
+    ///      that owner holds. It is bound to this contract and this chain, so
+    ///      it is worthless at any other game. Withdrawal is deliberately NOT
+    ///      routed through here (see {_withdraw}): a local signer may play with
+    ///      the stake, never take it.
+    function _requireAccountForAvatar(
+        address sender,
+        uint256 avatarID
+    ) internal view returns (address owner) {
+        owner = _players[avatarID].owner;
+        Delegation.requireAccountFor(sender, owner);
     }
 
     function _withdraw(address owner, uint256 avatarID, address to) internal {
@@ -61,13 +81,11 @@ abstract contract UsingGameInternal is
     }
 
     function _makeCommitment(
-        address controller,
+        address sender,
         uint256 avatarID,
         bytes24 commitmentHash
     ) internal {
-        if (_players[avatarID].controller != controller) {
-            revert UsingGameErrors.NotAuthorizedController(controller);
-        }
+        _requireAccountForAvatar(sender, avatarID);
 
         (uint64 epoch, bool commiting) = _epoch();
 
@@ -97,10 +115,8 @@ abstract contract UsingGameInternal is
         emit CommitmentMade(avatarID, epoch, commitmentHash);
     }
 
-    function _cancelCommitment(address controller, uint256 avatarID) internal {
-        if (_players[avatarID].controller != controller) {
-            revert UsingGameErrors.NotAuthorizedController(controller);
-        }
+    function _cancelCommitment(address sender, uint256 avatarID) internal {
+        _requireAccountForAvatar(sender, avatarID);
 
         (uint64 epoch, bool commiting) = _epoch();
         if (!commiting) {

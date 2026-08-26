@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "./UsingGameTypes.sol";
 import "./UsingGameEvents.sol";
 import "./UsingGameErrors.sol";
+import {IDelegation} from "@etherplay/delegation/contracts/IDelegation.sol";
 
 interface IGameCommit is UsingGameTypes {
     function commit(
@@ -65,7 +66,6 @@ interface IGameGetters is UsingGameTypes {
 interface IGameDeposit is UsingGameTypes {
     function deposit(
         uint256 avatarID,
-        address controller,
         address payable payee
     ) external payable;
     function withdraw(uint256 avatarID, address to) external;
@@ -76,11 +76,17 @@ interface IGameDeposit is UsingGameTypes {
     ) external view returns (PublicAvatar[] memory avatarIDs, bool more);
 }
 
+/// @dev Composes {IDelegation} so the delegation selectors appear in the ABI
+///      the client is generated from. The route implementing them
+///      ({GameDelegation}) deliberately does not declare `is IDelegation`; that
+///      agreement is checked by asserting each selector is ROUTED on the
+///      deployed proxy, which is the level at which it can actually break.
 interface IGame is
     UsingGameEvents,
     UsingGameErrors,
     IGameCommit,
     IGameReveal,
     IGameGetters,
-    IGameDeposit
+    IGameDeposit,
+    IDelegation
 {}

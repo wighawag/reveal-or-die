@@ -8,7 +8,6 @@ interface UsingGameErrors is UsingGameTypes {
     error GameNotStarted();
 
     /// @notice happen when an unauthorized account attempt to control an avatar
-    error NotAuthorizedController(address account);
 
     /// @notice happen when an unauthorized account attempt to withdraw an avatar
     error NotAuthorizedOwner(address account);

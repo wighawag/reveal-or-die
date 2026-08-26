@@ -69,9 +69,18 @@ interface UsingGameTypes {
     // STORAGE TYPES
     // ------------------------------------------------------------------------
 
+    /// @notice Who an avatar belongs to.
+    ///
+    /// There is no `controller` here any more. Authority to MOVE an avatar is
+    /// not a second address stored per avatar; it is delegation, held by
+    /// {GameDelegation} in its own namespaced storage and granted by the owner
+    /// signing for it. So authority is per ACCOUNT and covers every avatar that
+    /// account owns, rather than being granted one avatar at a time.
+    ///
+    /// `owner` still means exactly what it did: the only address that can get
+    /// the NFT back out. A delegate may play, never withdraw.
     struct Player {
         address owner;
-        address controller;
     }
 
     struct Avatar {
