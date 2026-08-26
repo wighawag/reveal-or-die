@@ -45,22 +45,32 @@
 <DefaultHead />
 
 <!--
-	The game fills the space the app shell leaves below the navbar, rather than the
-	whole viewport: it is a route inside the template, not a replacement for it.
+	The game fills the space the app shell leaves, rather than the whole viewport:
+	it is a route inside the template, not a replacement for it.
 
-	It stays in NORMAL FLOW to do that. `absolute inset-0` looks like the obvious
-	way to fill the page and is wrong here: with no positioned ancestor it pins to
-	the viewport, so the canvas slides up underneath the sticky `z-50` navbar,
-	which then covers the top of the HUD. The casualty is the phase clock, which is
-	exactly the thing a player needs to see, and the canvas looks fine while it
-	happens, so nothing about it reads as broken until you look.
+	`h-full`, and that is the whole calculation now. The shell (ADR-0007,
+	`core/ui/AppShell.svelte`) renders every page into a region that is EXACTLY the
+	viewport minus whatever chrome is up, so `100%` here means the screen minus the
+	navbar minus however many condition bars are live, without this file knowing
+	which bars exist or how tall they are.
 
-	Staying in flow also means the banners (offline, RPC health) push the game down
-	instead of being drawn over.
+	IT USED TO SAY `h-[calc(100dvh-3rem)]`, with a comment that `3rem` was the
+	navbar's own `h-12` and there was no variable to track. Both halves were the
+	bug. The number was a fourth spelling of the navbar's height, and subtracting
+	the navbar ALONE is right for zero bars and wrong for every other case: with
+	offline, no-RPC, a stale nonce cache or a dispatch in flight, this box was one
+	bar taller than the space it had, the document grew a scrollbar this
+	`overflow-hidden` could not absorb, and `GameHud` below is `absolute inset-0
+	... justify-between`, so its BOTTOM row went under the fold. The casualty was
+	the phase clock, which is the thing a player needs to see, and nothing looked
+	broken until a condition fired.
 
-	`3rem` is the navbar's own `h-12`; there is no variable for it to track.
+	It stays in NORMAL FLOW. `absolute inset-0` looks like the obvious way to fill
+	the page and is wrong here: with no positioned ancestor it pins to the
+	viewport, so the canvas slides up underneath the `z-50` navbar, which then
+	covers the top of the HUD. Same casualty, reached from the other direction.
 -->
-<div class="relative h-[calc(100dvh-3rem)] w-full overflow-hidden">
+<div class="relative h-full w-full overflow-hidden">
 	<!-- pixi needs a real canvas and a WebGL context, so it only mounts in the
 	     browser; the page still prerenders (see ADR-0002). -->
 	{#if canvasModule}
