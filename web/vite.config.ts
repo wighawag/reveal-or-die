@@ -148,20 +148,12 @@ export default defineConfig(({mode}) => {
 
 	return {
 		plugins,
-		define: {
-			// ethereumjs reaches for process.* inside the embedded-chain worker
-			'process.env': '{}',
-			process: '{}',
-		},
 		build: {
 			emptyOutDir: true,
 			minify: true, // shrink chunks so large files don't stall on slow /
 			// throttled connections (an unminified single bundle hung under
 			// Chrome's request-level throttling)
 			sourcemap: true,
-		},
-		worker: {
-			format: 'es',
 		},
 		ssr: {
 			// DROP with the renderer port: pixi-viewport goes away with it
