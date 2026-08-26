@@ -45,9 +45,21 @@ If two clients do pick the same avatar, the failure is a lost turn rather than a
 ## Order
 
 1. ~~**Board reader and view.**~~ **DONE**, `lib/world/state.ts` and `lib/world/view.ts`, with 15 tests. `zoneID` went into the contracts js package because it has to match `PositionUtils.getZone` exactly, and is pinned from both sides. Not wired into the context yet, so the error count did not move.
-2. **The renderer.** This game's pixi objects become a `createStatefulRenderer` over `Container`, replacing `placement/render`. Take the four fixes noted below while moving, and drop `pixi-viewport` with the `ssr.noExternal` entry in `vite.config.ts` that exists only for it.
-3. **The adapter.** `writes.ts` becomes `CommitRevealAdapter`. Two things must change here regardless: the deposit payload is now a single `owner` rather than `(owner, controller)`, and the faucet path that signs with `PUBLIC_FAUCET_PRIVATE_KEY` goes, replaced by the template's `PUBLIC_FAUCET_API` and top-up flow.
-4. **Wire `context/game.ts`**, satisfy the `Game` type, delete `lib/placement/` in the same commit.
+2. ~~**The renderer.**~~ **DONE**, `lib/world/render/`. Still to do when `pixi-viewport` finally goes: drop the `ssr.noExternal` entry in `vite.config.ts` that exists only for it.
+3. ~~**The adapter.**~~ **DONE**, `lib/world/commit-reveal.ts`, with the packing in the contracts package so the contract tests exercise it.
+4. **Wire `context/game.ts`**, satisfy the `Game` type, delete `lib/placement/` in the same commit. THIS IS THE NEXT STEP and it is the one that finally moves the error count, because it is the first that deletes rather than adds.
+
+### What step 4 still needs
+
+`context/game.ts` imports eleven things from `$lib/placement`. Five have replacements (`commit-reveal`, `errors`, `render`, `state`, `view`); `cells` has no equivalent and goes. The remaining five have to be written, about 690 lines of template code to re-express, and three of them carry real design content rather than being transcription:
+
+- **`config.ts`** (76 lines). Mostly mechanical: epoch config plus `cellSize`, reading `Game.linkedData`. Note the current failure is exactly this: `resolvePlacementConfig` reads `placementCost` and `tokens`, which this game's Game does not have.
+- **`storage.ts`** (108 lines). `RoundStorage<Action>`. The key MUST include the avatar id, or switching active avatar loads the previous one's planned actions and commits them for the new one.
+- **`planning.ts`** (83 lines). Clicks into planned actions. Genuinely different here: the template plans a SET of cells, this game plans an ORDERED PATH of orthogonally adjacent steps, bounded by `numMoves`, and the first action of a fresh avatar is an `Enter` anywhere rather than a `Move`. Wants its own tests.
+- **`reserve.ts`** (246 lines). No equivalent as written. The template's reserve is an ERC-20 balance bonded per round; this game's stake is a deposited NFT. What the context actually needs from it is "can this player take a turn", which here means "they have an avatar in the game", so this becomes a deposited-avatars store over `avatarsPerOwner`. Note `avatarsPerOwner`'s `more` flag is INVERTED in the contract; do not trust it.
+- **`missed-reveal.ts`** (179 lines). The template forfeits a bond. This game forfeits nothing today (`_acknowledgeMissedReveal` has two TODOs), but the store is still needed, because re-enabling `PreviousCommitmentNotRevealed` means an unrevealed commitment now BLOCKS the next one until acknowledged. So this is about unblocking play, not about reporting a loss.
+
+Also needed while wiring: `Game.identity` becomes the active avatar id, and something has to choose it. See the active-avatar decision above.
 5. **The UI**, which is the long tail: `getUserContext` is `getAppContext` now, and the legacy modals under `core/ui/modal/legacy-*.svelte` go when their callers do.
 
 ## What the renderer port fixes on the way
@@ -68,6 +80,7 @@ These are things this game has and the template lacks, which a sibling would wan
 - Keyboard and gamepad as intent recognisers, in the shape `gestures.ts` already uses.
 - Zoom-aware grid alpha, which `seams.ts:220` already says the template wants.
 - Cursor pagination `(startIndex, limit) -> (items, more)` on unbounded getters. The template's `GameGetters._cellsInZones` is unbounded and its own comment records the previous version blowing the `eth_call` cap. Write the arithmetic fresh: this repo's version has the `more` flag inverted.
+- `SignerOutOfFundsError` and the `send()` funnel in `commit-reveal.ts`. Nothing in either is about a particular game: one names the single failure a player can act on (the local signer is out of gas, so top up the SIGNER and not the wallet), the other is the wait-for-inclusion plus classify-once boundary every write goes through. Both were copied out of `placement/` verbatim, which is the signal: a second descendant would copy them again.
 
 ## Known failing while this is mid-flight
 
