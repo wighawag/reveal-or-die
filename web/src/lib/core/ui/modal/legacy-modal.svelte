@@ -1,3 +1,15 @@
+<!--
+	SUPERSEDED by core/ui/modal/modal.svelte, which is the template's and is ahead of
+	this on everything that matters: the ADR-0004 overlay layers, the portal
+	target fix (this one portals to document.body), and focus restore on
+	close. Kept only until the callers below move, which happens with the
+	game-layer port; their APIs differ (this takes a `title` snippet, the
+	template's takes a `layer` and exposes Title from $ui/dialog).
+
+	Renamed off `Modal.svelte`/`BasicModal.svelte` because those differed
+	from the template's files only in CASE, which is a hard error for
+	TypeScript and an outright filename collision on macOS and Windows.
+-->
 <script lang="ts">
 	import {Dialog, Separator} from 'bits-ui';
 	import {type Snippet} from 'svelte';

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {getUserContext} from '$lib';
 	import Button from '$lib/core/ui/ethereum/generic/Button.svelte';
-	import Modal from '$lib/core/ui/modal/Modal.svelte';
+	import Modal from '$lib/core/ui/modal/legacy-modal.svelte';
 
 	const {connection, purchaseFlow} = getUserContext();
 </script>

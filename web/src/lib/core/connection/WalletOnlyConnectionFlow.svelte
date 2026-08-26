@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Address from '$lib/core/ui/ethereum/Address.svelte';
 	import Button from '$lib/core/ui/ethereum/generic/Button.svelte';
-	import BasicModal from '$lib/core/ui/modal/BasicModal.svelte';
-	import Modal from '$lib/core/ui/modal/Modal.svelte';
+	import BasicModal from '$lib/core/ui/modal/legacy-basic-modal.svelte';
+	import Modal from '$lib/core/ui/modal/legacy-modal.svelte';
 	import type {
 		ConnectionStore,
 		UnderlyingEthereumProvider,

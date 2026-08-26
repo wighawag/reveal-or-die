@@ -3,10 +3,13 @@
 	"title": "reveal-or-die",
 	"description": "reveal-or-die",
 	"canonicalURL": "https://example.com",
+	"repoURL": "https://github.com/wighawag/reveal-or-die",
+	"communityURL": "",
 	"ENSName": null,
 	"themeColor": "#000000",
 	"appleStatusBarStyle": "black-translucent",
 	"icon": "static/icon.png",
+	"preview": "static/preview.png",
 	"maskableIcons": [
 		{
 			"src": "../maskable_icon_512x512.png",

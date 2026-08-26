@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Modal from '$lib/core/ui/modal/Modal.svelte';
+	import Modal from '$lib/core/ui/modal/legacy-modal.svelte';
 	import {type AvatarViewEntity} from '$lib/view';
 
 	import {getUserContext} from '$lib';

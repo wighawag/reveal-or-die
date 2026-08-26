@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/core/ui/ethereum/generic/Button.svelte';
-	import Modal from '$lib/core/ui/modal/Modal.svelte';
+	import Modal from '$lib/core/ui/modal/legacy-modal.svelte';
 	import {getUserContext} from '$lib';
 
 	const {
