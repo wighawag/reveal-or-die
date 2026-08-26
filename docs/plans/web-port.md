@@ -49,15 +49,21 @@ If two clients do pick the same avatar, the failure is a lost turn rather than a
 3. ~~**The adapter.**~~ **DONE**, `lib/world/commit-reveal.ts`, with the packing in the contracts package so the contract tests exercise it.
 4. **Wire `context/game.ts`**, satisfy the `Game` type, delete `lib/placement/` in the same commit. THIS IS THE NEXT STEP and it is the one that finally moves the error count, because it is the first that deletes rather than adds.
 
-### What step 4 still needs
+### Step 4a is DONE: the five modules exist
+
+`lib/world/` now holds `config.ts`, `storage.ts`, `planning.ts`, `deposited.ts` and `missed-reveal.ts` alongside `state.ts`, `view.ts`, `commit-reveal.ts`, `errors.ts` and `render/`. Nothing is wired, so the tree is green at 54 errors and 40 `lib/world` tests pass.
+
+**What is left is 4b, the wiring, and it is one commit because it is the one that deletes.** In order: rewrite `context/game.ts` below its line against the modules above, satisfy the exported `Game` type (which changes shape here: no `reserve` or `cost`, but an `activeAvatarID` and a `deposited`), update `context/types.ts`, point `routes/play/+page.svelte` at the new renderer, delete `lib/placement/` and its four test files, and then fix this game's old UI components, which is the long tail: `GameClock`, `TopBar`, `GameInfo`, `EnterFlow`, `PurchaseFlow`, `Tutorial` and `GameScreen` all read a context shape that no longer exists. Deleting `lib/placement` is what clears the 6 failing context tests, and deleting `lib/core/time` clears the last framework-boundary failure.
+
+### What step 4 needed (for reference)
 
 `context/game.ts` imports eleven things from `$lib/placement`. Five have replacements (`commit-reveal`, `errors`, `render`, `state`, `view`); `cells` has no equivalent and goes. The remaining five have to be written, about 690 lines of template code to re-express, and three of them carry real design content rather than being transcription:
 
-- **`config.ts`** (76 lines). Mostly mechanical: epoch config plus `cellSize`, reading `Game.linkedData`. Note the current failure is exactly this: `resolvePlacementConfig` reads `placementCost` and `tokens`, which this game's Game does not have.
-- **`storage.ts`** (108 lines). `RoundStorage<Action>`. The key MUST include the avatar id, or switching active avatar loads the previous one's planned actions and commits them for the new one.
-- **`planning.ts`** (83 lines). Clicks into planned actions. Genuinely different here: the template plans a SET of cells, this game plans an ORDERED PATH of orthogonally adjacent steps, bounded by `numMoves`, and the first action of a fresh avatar is an `Enter` anywhere rather than a `Move`. Wants its own tests.
-- **`reserve.ts`** (246 lines). No equivalent as written. The template's reserve is an ERC-20 balance bonded per round; this game's stake is a deposited NFT. What the context actually needs from it is "can this player take a turn", which here means "they have an avatar in the game", so this becomes a deposited-avatars store over `avatarsPerOwner`. Note `avatarsPerOwner`'s `more` flag is INVERTED in the contract; do not trust it.
-- **`missed-reveal.ts`** (179 lines). The template forfeits a bond. This game forfeits nothing today (`_acknowledgeMissedReveal` has two TODOs), but the store is still needed, because re-enabling `PreviousCommitmentNotRevealed` means an unrevealed commitment now BLOCKS the next one until acknowledged. So this is about unblocking play, not about reporting a loss.
+- ~~**`config.ts`**~~ done.
+- ~~**`storage.ts`**~~ done. The key includes the avatar, and `data` persists as a STRING because a packed position exceeds `Number.MAX_SAFE_INTEGER` once y is non-zero.
+- ~~**`planning.ts`**~~ done, with 17 tests. It mirrors the contract's rules, including that nothing may follow an `Enter` and that an obstacle step is refused before it can silently drop the rest of the turn.
+- ~~**`reserve.ts`**~~ done as `deposited.ts`. It ignores the contract's `more` flag and terminates on an empty page instead, which is correct whichever way the flag lies.
+- ~~**`missed-reveal.ts`**~~ done. About unblocking play rather than reporting a loss, since acknowledging currently forfeits nothing.
 
 Also needed while wiring: `Game.identity` becomes the active avatar id, and something has to choose it. See the active-avatar decision above.
 5. **The UI**, which is the long tail: `getUserContext` is `getAppContext` now, and the legacy modals under `core/ui/modal/legacy-*.svelte` go when their callers do.
