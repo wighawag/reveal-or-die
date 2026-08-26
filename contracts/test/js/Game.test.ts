@@ -14,6 +14,9 @@ const {deployAll} = setupFixtures(provider);
 
 type Action = {actionType: number; data: bigint};
 
+/** A packed board position, as the contract stores it: `y << 32 | x`. */
+const pos = (x: bigint, y: bigint) => (y << 32n) | x;
+
 /**
  * The commitment the contract will recompute at reveal:
  * `bytes24(keccak256(abi.encode(secret, actions)))`, see
@@ -123,7 +126,6 @@ describe('Game', function () {
 		// obstacle - _enter does not check the destination (`TODO check valid
 		// entry`), so an avatar can stand inside a wall. Of its four
 		// neighbours, only (0,1) is free.
-		const pos = (x: bigint, y: bigint) => (y << 32n) | x;
 		const moveActions: Action[] = [
 			{actionType: 1, data: pos(0n, 1n)},
 			{actionType: 1, data: pos(0n, 2n)},
@@ -240,5 +242,145 @@ describe('Game', function () {
 			args: [avatarID],
 		});
 		expect(commitment.hash).toEqual(hash);
+	});
+
+	/**
+	 * The property that makes commit-reveal worth doing.
+	 *
+	 * Reveals arrive in whatever order the mempool delivers them, so the board
+	 * after a set of commitments must not depend on that order. If it does,
+	 * whoever pays the most gas decides the outcome and committing bought
+	 * nothing.
+	 *
+	 * It is easy to break by accident. "The first to arrive takes the cell" and
+	 * "reject a cell that is already occupied" both read as reasonable movement
+	 * rules and both violate this. Today _isValidMove consults only walls and
+	 * adjacency, never another avatar, which is why two avatars may share a
+	 * cell; that is the property, not an oversight, so it is asserted rather
+	 * than trusted to survive the next rule change.
+	 *
+	 * The zone listing is compared as a SET on purpose. _addToZone appends to a
+	 * per-zone array, so the ORDER of that array does depend on which reveal
+	 * landed first. What must not differ is its membership, or any avatar's
+	 * position.
+	 */
+	it('reaches the same board whichever order the reveals arrive in', async function () {
+		async function boardAfterRevealsInOrder(revealFirst: 'A' | 'B') {
+			const {
+				env,
+				Game,
+				AvatarsSale,
+				unnamedAccounts,
+				advanceToEpoch,
+				advanceToRevealPhase,
+				getEpoch,
+				getTimestamp,
+			} = await networkHelpers.loadFixture(deployAll);
+
+			const playerA = unnamedAccounts[0];
+			const playerB = unnamedAccounts[1];
+			const avatarA = (BigInt(playerA) << 96n) + 0n;
+			const avatarB = (BigInt(playerB) << 96n) + 0n;
+			const secretA =
+				'0x00000000000000000000000000000000000000000000000000000000000000aa' as const;
+			const secretB =
+				'0x00000000000000000000000000000000000000000000000000000000000000bb' as const;
+
+			for (const player of [playerA, playerB]) {
+				await env.execute(AvatarsSale, {
+					account: player,
+					functionName: 'purchase',
+					args: [
+						Game.address,
+						0n,
+						encodeAbiParameters([{type: 'address'}], [player]),
+						zeroAddress,
+						0n,
+						zeroAddress,
+					],
+					value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+				});
+			}
+
+			const order: ('A' | 'B')[] =
+				revealFirst === 'A' ? ['A', 'B'] : ['B', 'A'];
+			const account = {A: playerA, B: playerB};
+			const avatar = {A: avatarA, B: avatarB};
+			const secret = {A: secretA, B: secretB};
+
+			async function round(
+				epoch: number,
+				actions: {A: Action[]; B: Action[]},
+			) {
+				await advanceToEpoch(epoch);
+				for (const who of ['A', 'B'] as const) {
+					await env.execute(Game, {
+						account: account[who],
+						functionName: 'commit',
+						args: [
+							avatar[who],
+							commitmentHash(secret[who], actions[who]),
+							zeroAddress,
+						],
+					});
+				}
+				await advanceToRevealPhase(epoch);
+				for (const who of order) {
+					await env.execute(Game, {
+						account: account[who],
+						functionName: 'reveal',
+						args: [avatar[who], actions[who], secret[who], zeroAddress],
+					});
+				}
+			}
+
+			const {epoch: start} = getEpoch(await getTimestamp());
+
+			// They enter either side of the cell they will contest. (0,1), (0,2)
+			// and (0,3) are all walkable in the single generated area; (0,0) is
+			// not, which is why nobody starts there.
+			await round(start + 2, {
+				A: [{actionType: 0, data: pos(0n, 1n)}],
+				B: [{actionType: 0, data: pos(0n, 3n)}],
+			});
+
+			// and now both step onto the SAME cell, blind to each other.
+			await round(start + 3, {
+				A: [{actionType: 1, data: pos(0n, 2n)}],
+				B: [{actionType: 1, data: pos(0n, 2n)}],
+			});
+
+			const [a, b] = [
+				await env.read(Game, {functionName: 'getAvatar', args: [avatarA]}),
+				await env.read(Game, {functionName: 'getAvatar', args: [avatarB]}),
+			];
+			const inZone = await env.read(Game, {
+				functionName: 'getAvatarsInZone',
+				args: [0n, 0n, 100n],
+			});
+
+			return {
+				positionA: a.position,
+				positionB: b.position,
+				lifeA: a.life,
+				lifeB: b.life,
+				listed: inZone[0]
+					.map((x: {avatarID: bigint}) => x.avatarID.toString())
+					.sort(),
+			};
+		}
+
+		const aFirst = await boardAfterRevealsInOrder('A');
+		const bFirst = await boardAfterRevealsInOrder('B');
+
+		// the contest actually happened: both are on the cell they both asked for
+		expect(aFirst.positionA).toEqual(pos(0n, 2n));
+		expect(aFirst.positionB).toEqual(pos(0n, 2n));
+
+		expect(bFirst.positionA).toEqual(aFirst.positionA);
+		expect(bFirst.positionB).toEqual(aFirst.positionB);
+		expect(bFirst.lifeA).toEqual(aFirst.lifeA);
+		expect(bFirst.lifeB).toEqual(aFirst.lifeB);
+		expect(bFirst.listed).toEqual(aFirst.listed);
 	});
 });
