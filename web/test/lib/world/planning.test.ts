@@ -28,6 +28,7 @@ const START: Position = {x: 0, y: 1};
 function fakeRound(initial: Action[] = []) {
 	const state = writable<RoundState<Action>>({
 		step: 'Planning',
+		epoch: 1,
 		actions: initial,
 	} as RoundState<Action>);
 	let value: RoundState<Action> = get(state);
@@ -39,7 +40,11 @@ function fakeRound(initial: Action[] = []) {
 			return value;
 		},
 		plan(actions: readonly Action[]) {
-			state.set({step: 'Planning', actions: [...actions]} as RoundState<Action>);
+			state.set({
+				step: 'Planning',
+				epoch: 1,
+				actions: [...actions],
+			} as RoundState<Action>);
 		},
 		commit: async () => {},
 		reveal: async () => {},
@@ -74,7 +79,7 @@ describe('planning: entering', () => {
 	it('plans an entry for an avatar that is not in the world', () => {
 		const {planning, round} = setup({at: undefined});
 		expect(planning.enterAt({x: 0, y: 1})).toBe(true);
-		const actions = (round.value as {actions: Action[]}).actions;
+		const actions = (round.value as unknown as {actions: Action[]}).actions;
 		expect(actions).toHaveLength(1);
 		expect(actions[0].actionType).toEqual(ActionType.Enter);
 	});
@@ -97,7 +102,7 @@ describe('planning: stepping', () => {
 	it('appends an adjacent, walkable step', () => {
 		const {planning, round} = setup();
 		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
-		expect(positionsOf((round.value as {actions: Action[]}).actions)).toEqual([
+		expect(positionsOf((round.value as unknown as {actions: Action[]}).actions)).toEqual([
 			{x: 0, y: 2},
 		]);
 	});
@@ -106,7 +111,7 @@ describe('planning: stepping', () => {
 		const {planning, round} = setup();
 		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
 		expect(planning.stepTo({x: 0, y: 3})).toBe(true);
-		expect(positionsOf((round.value as {actions: Action[]}).actions)).toEqual([
+		expect(positionsOf((round.value as unknown as {actions: Action[]}).actions)).toEqual([
 			{x: 0, y: 2},
 			{x: 0, y: 3},
 		]);
@@ -134,7 +139,7 @@ describe('planning: stepping', () => {
 		expect(get(planning.movesLeft)).toEqual(0);
 		// numMoves is 3, and the contract silently ignores the rest
 		expect(planning.stepTo({x: 2, y: 3})).toBe(false);
-		expect((round.value as {actions: Action[]}).actions).toHaveLength(3);
+		expect((round.value as unknown as {actions: Action[]}).actions).toHaveLength(3);
 	});
 
 	it('refuses to step after an entry, which ends the reveal', () => {
@@ -156,7 +161,7 @@ describe('planning: undo, clear and reporting', () => {
 		planning.stepTo({x: 0, y: 2});
 		planning.stepTo({x: 0, y: 3});
 		planning.undo();
-		expect(positionsOf((round.value as {actions: Action[]}).actions)).toEqual([
+		expect(positionsOf((round.value as unknown as {actions: Action[]}).actions)).toEqual([
 			{x: 0, y: 2},
 		]);
 	});
@@ -165,7 +170,7 @@ describe('planning: undo, clear and reporting', () => {
 		const {planning, round} = setup();
 		planning.stepTo({x: 0, y: 2});
 		planning.clear();
-		expect((round.value as {actions: Action[]}).actions).toHaveLength(0);
+		expect((round.value as unknown as {actions: Action[]}).actions).toHaveLength(0);
 	});
 
 	it('reports the plan in the shape the view merge wants', () => {
@@ -178,7 +183,7 @@ describe('planning: undo, clear and reporting', () => {
 
 	it('refuses everything once the round is no longer plannable', () => {
 		const {planning, state} = setup();
-		state.set({step: 'Committed'} as RoundState<Action>);
+		state.set({step: 'Committed'} as unknown as RoundState<Action>);
 		expect(get(planning.canPlan)).toBe(false);
 		expect(planning.stepTo({x: 0, y: 2})).toBe(false);
 		expect(planning.enterAt({x: 0, y: 2})).toBe(false);
