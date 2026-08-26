@@ -23,6 +23,20 @@ export type WorldConfig = {
 	/** The avatar NFT, which is what a player has at stake. */
 	avatarsAddress: `0x${string}`;
 	/**
+	 * Where an avatar is bought, and what it costs.
+	 *
+	 * Read off the SALE's own `linkedData` rather than the Game's, because the
+	 * price is the sale contract's to state: `SaleViaNativePayment.purchase`
+	 * reverts with `WrongPaymentAmount` unless `msg.value` matches `PAYMENT_AMOUNT`
+	 * exactly, so a number copied anywhere else is a number that can drift into
+	 * reverting every purchase.
+	 */
+	sale: {
+		address: `0x${string}`;
+		/** In the chain's native currency, exact. Not a minimum. */
+		price: bigint;
+	};
+	/**
 	 * Pixels per cell at 1:1 zoom.
 	 *
 	 * Only a scene-graph renderer cares: it is the unit pixi content is authored
@@ -55,15 +69,24 @@ type GameLinkedData = {
 	avatars: unknown;
 };
 
-export function resolveWorldConfig(
-	deployments: TypedDeployments,
-): WorldConfig {
+type SaleLinkedData = {
+	paymentAmount: unknown;
+};
+
+export function resolveWorldConfig(deployments: TypedDeployments): WorldConfig {
 	const linkedData = deployments.contracts.Game.linkedData as GameLinkedData;
+
+	const AvatarsSale = deployments.contracts.AvatarsSale;
+	const saleData = AvatarsSale.linkedData as SaleLinkedData;
 
 	return {
 		epoch: resolveEpochConfig(linkedData),
 		numMoves: Number(linkedData.numMoves as string | number | bigint),
 		avatarsAddress: linkedData.avatars as `0x${string}`,
+		sale: {
+			address: AvatarsSale.address,
+			price: BigInt(saleData.paymentAmount as string | number | bigint),
+		},
 		cellSize: 10,
 		camera: {
 			initialVisible: {width: 24, height: 24},

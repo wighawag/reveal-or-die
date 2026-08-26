@@ -26,6 +26,7 @@
 	const planning = game.planning;
 	const missedReveal = game.missedReveal;
 	const activeAvatarID = game.activeAvatarID;
+	const purchase = game.purchase;
 	// One shared flow, built in the context, so the account panel and a blocked
 	// move cannot open two top-ups at once.
 	const topUp = context.topUp;
@@ -127,6 +128,24 @@
 				<Button size="sm" class="mt-3" onclick={() => topUp.start()}>
 					Authorise and carry on
 				</Button>
+			{:else if $hud.setup.action === 'buy'}
+				<!--
+					Spends the player's own money, so it prompts the wallet, unlike
+					every move. `purchase.buy()` also refuses to run twice at once:
+					a disabled button is a suggestion, and `subID` is random, so a
+					second run would buy a SECOND avatar rather than colliding.
+				-->
+				<Button
+					size="sm"
+					class="mt-3"
+					disabled={$hud.setup.busy}
+					onclick={() => purchase.buy()}
+				>
+					{$hud.setup.busy ? 'Buying...' : $hud.setup.actionLabel}
+				</Button>
+				{#if $hud.setup.error}
+					<p class="mt-2 max-w-sm text-xs text-red-400">{$hud.setup.error}</p>
+				{/if}
 			{/if}
 		{:else}
 			<p class="text-sm {toneClass[$hud.roundTone]}">{$hud.roundLabel}</p>

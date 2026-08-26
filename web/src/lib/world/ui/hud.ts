@@ -21,7 +21,9 @@ import type {Action} from '../commit-reveal';
 import type {DepositedState} from '../deposited';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import {SignerOutOfFundsError} from '../errors';
-import type {SetupNeeded} from '$lib/context/game';
+import type {SetupAction, SetupNeeded} from '$lib/context/game';
+import type {PurchaseState} from '../purchase';
+import {formatBalance} from '$lib/core/utils/format/balance';
 
 /** One avatar the player could switch to. */
 export type AvatarChoice = {
@@ -68,7 +70,17 @@ export type HudModel = {
 	 * invites them to lay out a whole turn that cannot be committed, and the
 	 * failure only arrives when the round is already closing.
 	 */
-	setup?: {headline: string; detail: string; action?: 'authorise'};
+	setup?: {
+		headline: string;
+		detail: string;
+		action?: SetupAction;
+		/** The words on the button, which for a purchase carry the price. */
+		actionLabel?: string;
+		/** The purchase is in flight, so the button says so and does nothing. */
+		busy?: boolean;
+		/** Set when the last attempt failed, in words the player can act on. */
+		error?: string;
+	};
 
 	/** Which avatar this client is playing, and which others it could play. */
 	avatarLabel?: string;
@@ -228,6 +240,7 @@ export function describeMissedReveal(
 /** What the player has to do before they can take a turn. */
 export function describeSetup(
 	setup: SetupNeeded | undefined,
+	options?: {priceLabel?: string},
 ): HudModel['setup'] {
 	if (!setup) return undefined;
 	switch (setup.step) {
@@ -250,13 +263,18 @@ export function describeSetup(
 			};
 		case 'deposit':
 			return {
-				headline: 'You need an avatar in the game',
-				// NO ACTION, deliberately, and it is a gap rather than a decision:
-				// buying and depositing an avatar went through `onchain/writes.ts` and
-				// the AvatarsSale contract, which this port has not carried across
-				// yet. Saying so is better than a button that cannot work.
+				headline: 'You need an avatar to play',
+				// Says where the avatar GOES, because "buy" suggests it lands in the
+				// player's wallet and it does not: `AvatarsSale.purchase` mints it
+				// straight into the Game, which is what having something at stake
+				// means here. Somebody expecting to see an NFT appear in their wallet
+				// should be told beforehand rather than go looking.
 				detail:
-					'The game holds your avatar while you play, and moving it is what you have at stake. Getting one is not wired into this build yet: mint from Avatars and deposit it into the Game contract, and it will show up here.',
+					'The game holds your avatar while you play, and losing it is what you have at stake. Buying one puts it straight into the game, ready to move: it will not appear in your wallet, and you can withdraw it whenever it is not in the world.',
+				action: 'buy',
+				actionLabel: options?.priceLabel
+					? `Buy an avatar for ${options.priceLabel}`
+					: 'Buy an avatar',
 			};
 	}
 }
@@ -276,6 +294,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.epochInfo,
 			game.missedReveal,
 			game.setup,
+			game.purchase,
 		],
 		([
 			$phase,
@@ -288,6 +307,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			$epoch,
 			$missedReveal,
 			$setup,
+			$purchase,
 		]): HudModel => {
 			const round = describeRound($round);
 			const deposited = $deposited as DepositedState;
@@ -298,7 +318,19 @@ export function createHud(context: Context): Readable<HudModel> {
 			const duration = 'duration' in $phase ? $phase.duration : 0;
 			const playable = $phase.phase === 'play';
 
-			const needsSetup = describeSetup($setup as SetupNeeded | undefined);
+			const purchase = $purchase as PurchaseState;
+			const needsSetup = describeSetup($setup as SetupNeeded | undefined, {
+				// The price is EXACT, not a minimum, so it is worth putting on the
+				// button rather than leaving the player to discover it in the wallet.
+				priceLabel: `${formatBalance(game.config.sale.price)} ${
+					context.deployments.get().chain.nativeCurrency.symbol
+				}`,
+			});
+			if (needsSetup?.action === 'buy') {
+				needsSetup.busy = purchase.step === 'Purchasing';
+				needsSetup.error =
+					purchase.step === 'Error' ? purchase.message : undefined;
+			}
 
 			const avatars =
 				deposited.step === 'Loaded' ? deposited.avatars : ([] as const);

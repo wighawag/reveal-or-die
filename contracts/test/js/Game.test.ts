@@ -4,11 +4,8 @@ import {network} from 'hardhat';
 import {setupFixtures} from './utils/index.js';
 import {zoneID, isObstacle, isValidMove} from '../../js/zones.js';
 import {commitmentHash, type Action} from '../../js/commitment.js';
-import {
-	decodeEventLog,
-	encodeAbiParameters,
-	zeroAddress,
-} from 'viem';
+import {avatarIDFor, purchaseArgs} from '../../js/avatar-id.js';
+import {decodeEventLog, encodeAbiParameters, zeroAddress} from 'viem';
 
 const {provider, networkHelpers, viem} = await network.connect();
 const {deployAll} = setupFixtures(provider);
@@ -42,21 +39,20 @@ describe('Game', function () {
 			getEpoch(timestamp);
 
 		const subID = 0n;
-		const avatarID = (BigInt(unnamedAccounts[0]) << 96n) + subID;
+		const avatarID = avatarIDFor(unnamedAccounts[0], subID);
 		await env.execute(AvatarsSale, {
 			account: env.unnamedAccounts[0],
 			functionName: 'purchase',
-			args: [
-				Game.address,
+			// The SAME function the app calls (web/src/lib/world/purchase.ts), so
+			// this test is what pins the argument order and the mint-to-game
+			// payload against a real chain. The payload is just the OWNER: who may
+			// play is delegation, account-wide, granted by the owner's signature
+			// rather than fixed at deposit time.
+			args: purchaseArgs({
+				gameAddress: Game.address,
+				owner: unnamedAccounts[0],
 				subID,
-				// The mint-to-game payload is just the OWNER now. There is no
-				// controller to name: who may play is delegation, account-wide,
-				// granted by the owner's signature rather than at deposit time.
-				encodeAbiParameters([{type: 'address'}], [unnamedAccounts[0]]),
-				zeroAddress,
-				0n,
-				zeroAddress,
-			],
+			}),
 			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
 		});
 
@@ -65,9 +61,7 @@ describe('Game', function () {
 		const secret =
 			'0x0000000000000000000000000000000000000000000000000000000000000000';
 
-		const enterActions: Action[] = [
-			{actionType: 0, data: entrancePosition},
-		];
+		const enterActions: Action[] = [{actionType: 0, data: entrancePosition}];
 		await env.execute(Game, {
 			account: env.unnamedAccounts[0],
 			functionName: 'commit',
@@ -132,15 +126,22 @@ describe('Game', function () {
 	});
 
 	it('lets a delegate play, and only after the owner says so', async function () {
-		const {env, Game, AvatarsSale, unnamedAccounts, advanceToEpoch, getEpoch, getTimestamp} =
-			await networkHelpers.loadFixture(deployAll);
+		const {
+			env,
+			Game,
+			AvatarsSale,
+			unnamedAccounts,
+			advanceToEpoch,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
 
 		const owner = unnamedAccounts[0];
 		const delegate = unnamedAccounts[1];
 
 		const {epoch: initialEpoch} = getEpoch(await getTimestamp());
 		const subID = 0n;
-		const avatarID = (BigInt(owner) << 96n) + subID;
+		const avatarID = avatarIDFor(owner, subID);
 
 		await env.execute(AvatarsSale, {
 			account: owner,
@@ -277,10 +278,7 @@ describe('Game', function () {
 			const avatar = {A: avatarA, B: avatarB};
 			const secret = {A: secretA, B: secretB};
 
-			async function round(
-				epoch: number,
-				actions: {A: Action[]; B: Action[]},
-			) {
+			async function round(epoch: number, actions: {A: Action[]; B: Action[]}) {
 				await advanceToEpoch(epoch);
 				for (const who of ['A', 'B'] as const) {
 					await env.execute(Game, {
@@ -369,15 +367,30 @@ describe('Game', function () {
 	 * when writing it.
 	 */
 	it('computes the same zone id as the contract, west of the origin', async function () {
-		const {env, Game, AvatarsSale, unnamedAccounts, advanceToEpoch, advanceToRevealPhase, getEpoch, getTimestamp} =
-			await networkHelpers.loadFixture(deployAll);
+		const {
+			env,
+			Game,
+			AvatarsSale,
+			unnamedAccounts,
+			advanceToEpoch,
+			advanceToRevealPhase,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
 
 		const player = unnamedAccounts[0];
-		const avatarID = (BigInt(player) << 96n) + 0n;
+		const avatarID = avatarIDFor(player, 0n);
 		await env.execute(AvatarsSale, {
 			account: player,
 			functionName: 'purchase',
-			args: [Game.address, 0n, encodeAbiParameters([{type: 'address'}], [player]), zeroAddress, 0n, zeroAddress],
+			args: [
+				Game.address,
+				0n,
+				encodeAbiParameters([{type: 'address'}], [player]),
+				zeroAddress,
+				0n,
+				zeroAddress,
+			],
 			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
 		});
 
@@ -385,11 +398,13 @@ describe('Game', function () {
 		// what makes both packed halves negative
 		const entryX = -20;
 		const entryY = -20;
-		const entry = (BigInt.asUintN(32, BigInt(entryY)) << 32n) |
+		const entry =
+			(BigInt.asUintN(32, BigInt(entryY)) << 32n) |
 			BigInt.asUintN(32, BigInt(entryX));
 
 		const {epoch: start} = getEpoch(await getTimestamp());
-		const secret = '0x00000000000000000000000000000000000000000000000000000000000000cc' as const;
+		const secret =
+			'0x00000000000000000000000000000000000000000000000000000000000000cc' as const;
 		const actions: Action[] = [{actionType: 0, data: entry}];
 
 		await advanceToEpoch(start + 2);
@@ -435,15 +450,30 @@ describe('Game', function () {
 	 * hand-computed constants.
 	 */
 	it('agrees with the contract about what can be stood on', async function () {
-		const {env, Game, AvatarsSale, unnamedAccounts, advanceToEpoch, advanceToRevealPhase, getEpoch, getTimestamp} =
-			await networkHelpers.loadFixture(deployAll);
+		const {
+			env,
+			Game,
+			AvatarsSale,
+			unnamedAccounts,
+			advanceToEpoch,
+			advanceToRevealPhase,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
 
 		const player = unnamedAccounts[0];
-		const avatarID = (BigInt(player) << 96n) + 0n;
+		const avatarID = avatarIDFor(player, 0n);
 		await env.execute(AvatarsSale, {
 			account: player,
 			functionName: 'purchase',
-			args: [Game.address, 0n, encodeAbiParameters([{type: 'address'}], [player]), zeroAddress, 0n, zeroAddress],
+			args: [
+				Game.address,
+				0n,
+				encodeAbiParameters([{type: 'address'}], [player]),
+				zeroAddress,
+				0n,
+				zeroAddress,
+			],
 			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
 		});
 
@@ -454,7 +484,8 @@ describe('Game', function () {
 		expect(isValidMove({x: 0, y: 1}, {x: 1, y: 0})).toEqual(false); // diagonal
 		expect(isValidMove({x: 0, y: 1}, {x: 0, y: 0})).toEqual(false); // obstacle
 
-		const secret = '0x00000000000000000000000000000000000000000000000000000000000000dd' as const;
+		const secret =
+			'0x00000000000000000000000000000000000000000000000000000000000000dd' as const;
 		const {epoch: start} = getEpoch(await getTimestamp());
 
 		async function round(epoch: number, actions: Action[]) {
@@ -470,7 +501,10 @@ describe('Game', function () {
 				functionName: 'reveal',
 				args: [avatarID, actions, secret, zeroAddress],
 			});
-			const a = await env.read(Game, {functionName: 'getAvatar', args: [avatarID]});
+			const a = await env.read(Game, {
+				functionName: 'getAvatar',
+				args: [avatarID],
+			});
 			return a.position;
 		}
 
@@ -478,14 +512,17 @@ describe('Game', function () {
 		await round(start + 2, [{actionType: 0, data: pos(0n, 1n)}]);
 
 		// the chain accepts the step the js calls valid
-		expect(await round(start + 3, [{actionType: 1, data: pos(0n, 2n)}])).toEqual(
-			pos(0n, 2n),
-		);
+		expect(
+			await round(start + 3, [{actionType: 1, data: pos(0n, 2n)}]),
+		).toEqual(pos(0n, 2n));
 
 		// and refuses the one it calls invalid: (0,1) -> (0,0) is an obstacle, so
 		// the avatar does not move
-		expect(await round(start + 4, [{actionType: 1, data: pos(0n, 1n)}, {actionType: 1, data: pos(0n, 0n)}])).toEqual(
-			pos(0n, 1n),
-		);
+		expect(
+			await round(start + 4, [
+				{actionType: 1, data: pos(0n, 1n)},
+				{actionType: 1, data: pos(0n, 0n)},
+			]),
+		).toEqual(pos(0n, 1n));
 	});
 });

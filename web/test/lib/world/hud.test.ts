@@ -139,14 +139,23 @@ describe('what the setup gate asks for', () => {
 		expect(describeSetup({step: 'sign-in'})?.action).toBeUndefined();
 	});
 
-	it('does not offer a button it cannot honour for the avatar step', () => {
-		// Buying and depositing an avatar went through the pre-port
-		// `onchain/writes.ts` and the AvatarsSale contract, and this port has not
-		// carried that across. A button that opened a flow which does not exist
-		// would be worse than the sentence saying so.
-		const setup = describeSetup({step: 'deposit'});
-		expect(setup?.action).toBeUndefined();
-		expect(setup?.detail).toMatch(/not wired into this build yet/);
+	it('offers the purchase for the avatar step, with the price on it', () => {
+		// The price is EXACT, not a minimum: `SaleViaNativePayment.purchase`
+		// reverts with `WrongPaymentAmount` on anything else, including too much.
+		// Worth putting on the button rather than leaving to the wallet.
+		const setup = describeSetup({step: 'deposit'}, {priceLabel: '0.00001 ETH'});
+		expect(setup?.action).toBe('buy');
+		expect(setup?.actionLabel).toBe('Buy an avatar for 0.00001 ETH');
+	});
+
+	it('says the avatar will NOT arrive in the wallet', () => {
+		// "Buy" suggests an NFT lands in your wallet. It does not: purchase mints
+		// straight into the Game, which is what having it at stake means. Someone
+		// expecting to see it in their wallet should be told beforehand rather
+		// than go looking for it.
+		const detail = describeSetup({step: 'deposit'})?.detail ?? '';
+		expect(detail).toMatch(/straight into the game/i);
+		expect(detail).toMatch(/not appear in your wallet/i);
 	});
 
 	it('never promises the avatar can be taken away', () => {
@@ -177,6 +186,8 @@ function fakeContext(
 		activeAvatarID?: bigint;
 		currentPosition?: {x: number; y: number};
 		currentEpoch?: number;
+		setup?: {step: 'sign-in' | 'authorise' | 'deposit'};
+		purchase?: {step: string; message?: string};
 	} = {},
 ) {
 	return {
@@ -196,8 +207,11 @@ function fakeContext(
 			currentPosition: writable(overrides.currentPosition),
 			epochInfo: writable({currentEpoch: overrides.currentEpoch ?? 3}),
 			missedReveal: writable({step: 'Clear'}),
-			setup: writable(undefined),
+			setup: writable(overrides.setup),
+			purchase: writable(overrides.purchase ?? {step: 'Idle'}),
+			config: {sale: {price: 10000000000n}},
 		},
+		deployments: {get: () => ({chain: {nativeCurrency: {symbol: 'ETH'}}})},
 	} as unknown as Context;
 }
 
@@ -331,5 +345,59 @@ describe('what the HUD says when there is no local signer', () => {
 	it('says nothing at all when the app does sign in', () => {
 		const model = get(createHud(fakeContext({step: 'Idle'})));
 		expect(model.walletSigningNotice).toBeUndefined();
+	});
+});
+
+describe('buying an avatar, through the HUD', () => {
+	it('reports the purchase in flight on the button itself', () => {
+		// The player is being asked to sign in their wallet, which happens
+		// somewhere this page cannot see. Without this the button looks idle and
+		// invites a second press, and `subID` is random, so a second press buys a
+		// SECOND avatar and charges again.
+		const model = get(
+			createHud(
+				fakeContext(
+					{step: 'Idle'},
+					{setup: {step: 'deposit'}, purchase: {step: 'Purchasing'}},
+				),
+			),
+		);
+		expect(model.setup?.action).toBe('buy');
+		expect(model.setup?.busy).toBe(true);
+	});
+
+	it('surfaces a failed purchase where the button is', () => {
+		const model = get(
+			createHud(
+				fakeContext(
+					{step: 'Idle'},
+					{
+						setup: {step: 'deposit'},
+						purchase: {step: 'Error', message: 'user rejected'},
+					},
+				),
+			),
+		);
+		expect(model.setup?.busy).toBe(false);
+		expect(model.setup?.error).toBe('user rejected');
+	});
+
+	it('says nothing about a purchase on a step that is not the avatar one', () => {
+		// `busy` and `error` belong to the buy button. Leaking them onto the
+		// authorise step would show a purchase error over an unrelated demand.
+		const model = get(
+			createHud(
+				fakeContext(
+					{step: 'Idle'},
+					{
+						setup: {step: 'authorise'},
+						purchase: {step: 'Error', message: 'user rejected'},
+					},
+				),
+			),
+		);
+		expect(model.setup?.action).toBe('authorise');
+		expect(model.setup?.error).toBeUndefined();
+		expect(model.setup?.busy).toBeUndefined();
 	});
 });

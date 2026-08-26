@@ -72,6 +72,7 @@ import {
 	createMissedReveal,
 	type MissedRevealStore,
 } from '$lib/world/missed-reveal';
+import {createPurchase, type PurchaseStore} from '$lib/world/purchase';
 import {
 	createWorldReader,
 	emptyWorld,
@@ -127,6 +128,13 @@ export type Game = {
 	 */
 	deposited: DepositedStore;
 	/**
+	 * Buying an avatar, which mints it straight into the game.
+	 *
+	 * The remedy for the `deposit` step of the setup gate, and the only thing here
+	 * that spends the player's own money rather than the signer's gas.
+	 */
+	purchase: PurchaseStore;
+	/**
 	 * An unrevealed commitment from a past epoch, which blocks all further play
 	 * until the player acknowledges it.
 	 */
@@ -165,6 +173,9 @@ export type Game = {
  */
 export type SetupNeeded =
 	{step: 'sign-in'} | {step: 'authorise'} | {step: 'deposit'};
+
+/** What a setup step can be acted on with, where anything can be. */
+export type SetupAction = 'authorise' | 'buy';
 
 export type Render = {
 	camera: CameraWatcher;
@@ -345,6 +356,15 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	const deposited = createDeposited({deps: core, owner: gameIdentity});
+
+	const purchase = createPurchase({
+		deps: core,
+		config,
+		owner: gameIdentity,
+		// The avatar is in the contract's custody the moment the purchase lands, so
+		// re-reading is what takes the player past the setup gate and onto the board.
+		onPurchased: () => void deposited.update(),
+	});
 
 	const activeAvatarID = createActiveAvatar({
 		deposited,
@@ -595,6 +615,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			round,
 			planning,
 			deposited,
+			purchase,
 			missedReveal,
 			currentPosition,
 			readyToPlay,
