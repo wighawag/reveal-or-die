@@ -112,9 +112,21 @@ describe('Game', function () {
 
 		await advanceToEpoch(initialEpoch + 3);
 
+		// A Move's `data` is an ABSOLUTE packed position (y << 32 | x), not a
+		// direction and not a distance, and _isValidMove only accepts a target
+		// that is ORTHOGONALLY ADJACENT to where the avatar currently is and is
+		// not an obstacle. A rejected move sets stopProcessing, so the rest of
+		// the actions in the same reveal are dropped too.
+		//
+		// The avatar entered at (0,0). Zones are centred (ZONE_OFFSET 8), so
+		// (0,0) is local (8,8) of the single generated area, which is an 'x'
+		// obstacle - _enter does not check the destination (`TODO check valid
+		// entry`), so an avatar can stand inside a wall. Of its four
+		// neighbours, only (0,1) is free.
+		const pos = (x: bigint, y: bigint) => (y << 32n) | x;
 		const moveActions: Action[] = [
-			{actionType: 1, data: 4n},
-			{actionType: 1, data: 4n},
+			{actionType: 1, data: pos(0n, 1n)},
+			{actionType: 1, data: pos(0n, 2n)},
 		];
 		await env.execute(Game, {
 			account: env.unnamedAccounts[0],
@@ -144,7 +156,7 @@ describe('Game', function () {
 			],
 		});
 
-		expect(after_avatars[0][0].position).toEqual(4n);
+		expect(after_avatars[0][0].position).toEqual(pos(0n, 2n));
 		// console.log(after_avatars);
 	});
 });
