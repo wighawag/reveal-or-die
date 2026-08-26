@@ -4,7 +4,6 @@ pragma solidity ^0.8.0;
 import "../interfaces/UsingGameTypes.sol";
 import "../../utils/PositionUtils.sol";
 import "../data/generated/Areas.sol";
-import "hardhat/console.sol";
 
 library GameUtils {
     function computeArea(

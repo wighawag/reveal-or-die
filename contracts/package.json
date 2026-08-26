@@ -1,5 +1,5 @@
 {
-	"name": "template-commit-reveal-contracts",
+	"name": "reveal-or-die-contracts",
 	"version": "0.0.0",
 	"type": "module",
 	"exports": {
@@ -42,9 +42,11 @@
 		"abitype": "^1.3.0",
 		"as-soon": "^0.1.6",
 		"earl": "^2.0.0",
+		"eip-1193": "^0.6.5",
 		"expand-vars": "^0.1.0",
 		"faucet-server": "^0.2.0",
 		"forge-std": "github:foundry-rs/forge-std#v1.9.4",
+		"handlebars": "^4.7.8",
 		"hardhat": "^3.13.0",
 		"hardhat-deploy": "^2.0.24",
 		"hardhat-external-artifacts": "^0.0.6",
@@ -52,6 +54,7 @@
 		"prettier": "^3.9.6",
 		"prettier-plugin-solidity": "^2.4.1",
 		"purgatory": "^0.0.8",
+		"remote-procedure-call": "^0.1.1",
 		"rocketh": "^0.19.19",
 		"set-defaults": "^0.0.5",
 		"slippy": "^0.3.1",
@@ -63,7 +66,7 @@
 		"zellij-launcher": "^0.0.1"
 	},
 	"scripts": {
-		"prepare": "set-defaults .vscode && pnpm compile",
+		"prepare": "set-defaults .vscode && pnpm generate_areas && pnpm compile",
 		"---------------------- INTERNAL ----------------------": "",
 		":deploy:dev+export": "expand-vars pnpm hardhat --network $MODE deploy --no-compile --skip-prompts && expand-vars rocketh-export -e $MODE",
 		"---------------------- DEV ---------------------- ": "",
@@ -73,7 +76,7 @@
 		"compile": "hardhat compile",
 		"compile:watch": "as-soon -w src pnpm compile",
 		"fork:execute": "ldenv tsx @=HARDHAT_FORK=@@MODE @@",
-		"fork:deploy": "ldenv pnpm @=HARDHAT_FORK=@@MODE hardhat --network fork deploy --report-gas-used @@",
+		"fork:deploy": "pnpm compile --build-profile production && ldenv pnpm @=HARDHAT_FORK=@@MODE hardhat --network fork deploy --report-gas-used @@",
 		"deploy:dev": "ldenv -d localhost pnpm :deploy:dev+export @@",
 		"deploy:watch": "wait-on ./generated && ldenv -m localhost pnpm as-soon -w generated -w deploy pnpm run deploy:dev @@MODE @@",
 		"test": "hardhat --network test test",
@@ -86,12 +89,13 @@
 		"---------------------- PRODUCTION ---------------------- ": "",
 		"docgen": "ldenv -m default pnpm run deploy @@MODE --save-deployments true --skip-prompts ~~ pnpm rocketh-doc -e @@MODE --except-suffix _Implementation,_Proxy,_Router,_Route ~~ @@",
 		"execute": "ldenv -n HARDHAT_NETWORK tsx @@",
-		"deploy": "ldenv hardhat --network @@MODE deploy @@",
+		"deploy": "pnpm compile --build-profile production && ldenv hardhat --network @@MODE deploy @@",
 		"verify": "ldenv rocketh-verify -e @@MODE @@",
 		"export": "ldenv rocketh-export -e @@MODE @@",
 		"typescript": "tsc && tsc -p test/js",
 		"---------------------- START ---------------------- ": "",
 		"stop": "zellij kill-session $npm_package_name",
-		"start": "zellij-launcher a $npm_package_name || zellij -n zellij.kdl -s $npm_package_name"
+		"start": "zellij-launcher a $npm_package_name || zellij -n zellij.kdl -s $npm_package_name",
+		"generate_areas": "tsx scripts/asciiAreaToStruct.ts ./data/demo_areas"
 	}
 }
