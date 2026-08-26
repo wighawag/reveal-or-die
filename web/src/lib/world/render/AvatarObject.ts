@@ -10,7 +10,7 @@
  * for free when the avatar is.
  */
 import {AnimatedSprite, Container, Graphics, Texture} from 'pixi.js';
-import {LoadingSprite} from '$lib/core/render/elements/LoadingSprite';
+import {LoadingSprite} from './LoadingSprite';
 import {Blockie} from '$lib/core/utils/ethereum/blockie';
 import type {AvatarView} from '../view';
 import {sprites, spritesReady} from './assets';
