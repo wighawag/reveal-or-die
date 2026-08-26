@@ -30,7 +30,17 @@ It is the only worked example of every seam below, and it is small enough to rea
 
 `PlayerIdentity = bigint | \`0x${string}\`` (`seams.ts:34`), and `createRound<TIdentity extends PlayerIdentity, TAction>`. The template's game is keyed by account address; this one commits per avatar, so it is `RoundStore<bigint, Action>` keyed by avatar id. Nothing needs widening.
 
-**Open question, and it needs answering before the round is wired:** an account can own several avatars, and the round is per identity. So either the app holds one round per avatar (several commitments per epoch, several bonds), or it picks an "active avatar" and plays that one. The contract is happy either way, since `commit` takes an avatar id. The UI is not: the second is much simpler and is probably right for now, but it should be a decision rather than a default that falls out of the first thing wired.
+**Decided: one active avatar per client.** `Game.identity` is the active avatar id, undefined until one is chosen, and the round is keyed by it. A player who wants to run two avatars opens a second browser.
+
+Three consequences follow, and the second one is the one that will bite.
+
+**The round storage key must include the avatar id.** Switching the active avatar in one browser would otherwise load the previous avatar's planned actions and commit them for the new one.
+
+**Nothing on chain partitions authority per avatar, so "one at a time" is a client convention and not a guarantee.** That is the direct consequence of choosing account-wide delegation: `_requireAccountForAvatar` resolves the avatar's owner and asks whether the sender may act for that ACCOUNT, so every signer the account has delegated can move every avatar it owns. Two browsers signed into the same account therefore hold two signers that are each fully authorised over both avatars, and only the client's choice keeps them apart.
+
+If two clients do pick the same avatar, the failure is a lost turn rather than anything unsound. Verified against a local chain: a second `commit` for the same avatar in the same epoch REPLACES the first, because `_makeCommitment` only rejects a commitment left over from a DIFFERENT epoch. So the later client's commitment stands, and the earlier client then fails its reveal with `CommitmentHashNotMatching`, since the stored hash is no longer the one its secret matches. With `autoCommit` on this repeats every epoch. A client can detect it cheaply (`getCommitment(avatarID).epoch` is the current epoch but the hash does not match anything it planned) and should say so rather than silently losing turns.
+
+**Two browsers on two DIFFERENT accounts need none of this.** Each account owns its own avatars and the two never touch: separate delegations, separate commitments, separate storage. If the point is simply to play two avatars at once, that is the clean way to do it, and it is the only one the contract actually enforces.
 
 ## Order
 
