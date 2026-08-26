@@ -1,4 +1,5 @@
-import {defineConfig, type Plugin, type ResolvedConfig} from 'vitest/config';
+import {defineConfig} from 'vitest/config';
+import type {Plugin, ResolvedConfig} from 'vite';
 import {playwright} from '@vitest/browser-playwright';
 import tailwindcss from '@tailwindcss/vite';
 import {execSync} from 'node:child_process';
