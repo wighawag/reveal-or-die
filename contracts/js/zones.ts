@@ -62,6 +62,38 @@ export function wallAt(
 	// return ((walls >> (127n - i)) & 1n) == 1n;
 }
 
+/**
+ * Whether world `(x, y)` cannot be stood on.
+ *
+ * Mirrors `GameUtils.obstacleAt`: the area is looked up from the zone hash, the
+ * coordinates are made zone-local, and cell types 1 (`#`) and 2 (`x`) are
+ * obstacles while 0 and 3 are not.
+ *
+ * Worth having on the client rather than only in Solidity. `_isValidMove`
+ * refuses a move onto an obstacle and `_move` then sets `stopProcessing`, which
+ * DROPS every remaining action in the same reveal. So a single unwalkable step
+ * planned by mistake silently discards the rest of the turn, and the player is
+ * told nothing. Checking here is what stops that being plannable at all.
+ */
+export function isObstacle(x: number, y: number): boolean {
+	const area = areaAt(x, y);
+	const xx = zoneLocalCoord(x);
+	const yy = zoneLocalCoord(y);
+	const cellType = area.cells[yy * ZONE_SIZE + xx];
+	return cellType === 1 || cellType === 2;
+}
+
+/** Orthogonally adjacent and walkable, which is what `_isValidMove` allows. */
+export function isValidMove(
+	from: {x: number; y: number},
+	to: {x: number; y: number},
+): boolean {
+	if (isObstacle(to.x, to.y)) return false;
+	const dx = Math.abs(from.x - to.x);
+	const dy = Math.abs(from.y - to.y);
+	return dx + dy === 1;
+}
+
 const areaCache: Map<string, {cells: readonly number[]; size: number}> =
 	new Map();
 export function areaAt(x: number, y: number) {

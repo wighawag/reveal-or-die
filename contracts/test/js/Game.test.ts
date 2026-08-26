@@ -2,7 +2,7 @@ import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
 import {setupFixtures} from './utils/index.js';
-import {zoneID} from '../../js/zones.js';
+import {zoneID, isObstacle, isValidMove} from '../../js/zones.js';
 import {commitmentHash, type Action} from '../../js/commitment.js';
 import {
 	decodeEventLog,
@@ -420,5 +420,72 @@ describe('Game', function () {
 			args: [zoneID(0, 0), 0n, 100n],
 		});
 		expect(origin[0].length).toEqual(0);
+	});
+
+	/**
+	 * The client's walkability check must agree with the contract's.
+	 *
+	 * It matters more than it looks. `_isValidMove` refusing a move sets
+	 * `stopProcessing`, which DROPS every remaining action in the same reveal, so
+	 * one unwalkable step planned by mistake silently discards the rest of the
+	 * turn and says nothing. The client refuses to plan such a step, and that
+	 * refusal is only as good as this agreement.
+	 *
+	 * Asserted by having the CHAIN judge the same moves, rather than against
+	 * hand-computed constants.
+	 */
+	it('agrees with the contract about what can be stood on', async function () {
+		const {env, Game, AvatarsSale, unnamedAccounts, advanceToEpoch, advanceToRevealPhase, getEpoch, getTimestamp} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const player = unnamedAccounts[0];
+		const avatarID = (BigInt(player) << 96n) + 0n;
+		await env.execute(AvatarsSale, {
+			account: player,
+			functionName: 'purchase',
+			args: [Game.address, 0n, encodeAbiParameters([{type: 'address'}], [player]), zeroAddress, 0n, zeroAddress],
+			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+		});
+
+		// what the js believes about the cells around the origin
+		expect(isObstacle(0, 0)).toEqual(true);
+		expect(isObstacle(0, 1)).toEqual(false);
+		expect(isValidMove({x: 0, y: 1}, {x: 0, y: 2})).toEqual(true);
+		expect(isValidMove({x: 0, y: 1}, {x: 1, y: 0})).toEqual(false); // diagonal
+		expect(isValidMove({x: 0, y: 1}, {x: 0, y: 0})).toEqual(false); // obstacle
+
+		const secret = '0x00000000000000000000000000000000000000000000000000000000000000dd' as const;
+		const {epoch: start} = getEpoch(await getTimestamp());
+
+		async function round(epoch: number, actions: Action[]) {
+			await advanceToEpoch(epoch);
+			await env.execute(Game, {
+				account: player,
+				functionName: 'commit',
+				args: [avatarID, commitmentHash(secret, actions), zeroAddress],
+			});
+			await advanceToRevealPhase(epoch);
+			await env.execute(Game, {
+				account: player,
+				functionName: 'reveal',
+				args: [avatarID, actions, secret, zeroAddress],
+			});
+			const a = await env.read(Game, {functionName: 'getAvatar', args: [avatarID]});
+			return a.position;
+		}
+
+		// enter at (0,1), which the js says is walkable
+		await round(start + 2, [{actionType: 0, data: pos(0n, 1n)}]);
+
+		// the chain accepts the step the js calls valid
+		expect(await round(start + 3, [{actionType: 1, data: pos(0n, 2n)}])).toEqual(
+			pos(0n, 2n),
+		);
+
+		// and refuses the one it calls invalid: (0,1) -> (0,0) is an obstacle, so
+		// the avatar does not move
+		expect(await round(start + 4, [{actionType: 1, data: pos(0n, 1n)}, {actionType: 1, data: pos(0n, 0n)}])).toEqual(
+			pos(0n, 1n),
+		);
 	});
 });
