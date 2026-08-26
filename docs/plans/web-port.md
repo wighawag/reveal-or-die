@@ -66,7 +66,13 @@ Also needed while wiring: `Game.identity` becomes the active avatar id, and some
 
 From the audit, all verified in the current source. Adopting the template's layer removes four live bugs rather than merely relocating code: `viewport.resize()` called with no arguments, the `setTimeout(..., 10)` drag/click hack, the `($camera.y + y || 0)` precedence bug in `core/render/camera.ts:43`, and a scene that never clears on state reset. Three files are already dead and should not be carried across: `WallRenderer.ts`, `world.epochSeen` (written, never read), and the grid built in `PixiCanvas.svelte` and never added to the stage.
 
-Two things will block it and are worth knowing before starting. There is no asset-readiness gate: this game reads textures synchronously in constructors and waits for `Assets.loadBundle` before starting, while the template calls `onAppStarted` immediately. And `render/renderer.ts` currently constructs `createOperations` plus keyboard and gamepad handling inside the renderer; the seam cannot express that, so all three move to the context's `start()`.
+One thing will block it and is worth knowing before starting: `render/renderer.ts` currently constructs `createOperations` plus keyboard and gamepad handling inside the renderer, and the seam cannot express that, so all three move to the context's `start()`.
+
+### Assets are the APP's problem, not the framework's
+
+The template calls `onAppStarted` the moment the app is ready and loads nothing, because it has nothing to load. That is correct and is not a gap to backport: `template-commit-reveal` is a commit-reveal framework, and an app built on it need not be a game with art at all, so a game-asset gate does not belong there.
+
+So the gate is app-level here, the shape `bomber-world` already uses: `lib/world/render/assets.ts` owns the bundle and publishes progress, `lib/ui/loading/` presents it, and `+layout.svelte` covers the app until it completes. The scene objects still build texture-dependent parts lazily, because the splash hides the window rather than removing it: the canvas mounts underneath, so an object CAN be created before the bundle lands, it just cannot be seen.
 
 One silent-failure risk: `markAsPlayerControlled` runs on every emission today, but the template's stateful renderer only calls `update` when the diff says something changed. "Which avatar is mine" is not part of the entity, so unless it becomes one, the player's own avatar can render as somebody else's indefinitely.
 
@@ -74,7 +80,6 @@ One silent-failure risk: `markAsPlayerControlled` runs on every emission today, 
 
 These are things this game has and the template lacks, which a sibling would want. They belong upstream, at `template-commit-reveal`, not here.
 
-- An asset-readiness gate before `onAppStarted` (high value; it blocks this port outright).
 - `Reconciler` iteration: `reconcile.ts` exposes no `values()`, yet `game/render/README.md` sells the stateful renderer for per-object animation.
 - Object pooling, as an optional recycle seam on the reconciler rather than a pool class, so `reconcile.ts` stays pure and pixi-free.
 - Keyboard and gamepad as intent recognisers, in the shape `gestures.ts` already uses.

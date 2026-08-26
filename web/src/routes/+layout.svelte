@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SplashScreen from '$lib/ui/loading/SplashScreen.svelte';
 	import '../app.css';
 
 	import {version} from '$app/environment';
@@ -104,6 +105,20 @@
 		<AcrossPages />
 	</Context>
 {/if}
+
+<!--
+	The splash, over everything, until this game's art has arrived.
+
+	Outside the layer list below on purpose. Those layers rank overlays against
+	EACH OTHER while the app is running; this one covers the app itself, including
+	them, and stops covering it exactly once. Ranking it with the others would
+	invite a modal to open on top of a loading screen, which is a state nobody
+	wants to design for.
+
+	It is an OVERLAY rather than a gate: the app mounts underneath and the canvas
+	starts, which is what makes the wait useful rather than merely decorative.
+-->
+<SplashScreen />
 
 <!--
 	OVERLAY LAYERS.

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import {browser} from '$app/environment';
-	import {url} from '$lib/core/utils/web/path';
+	import {browser} from '$lib/kit/environment';
+	import {url} from '$lib/kit/paths';
 	import {onMount} from 'svelte';
 	import {fade} from 'svelte/transition';
 	import {splash} from './splash';

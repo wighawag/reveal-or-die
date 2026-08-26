@@ -1,9 +1,6 @@
-import {browser} from '$app/environment';
-import {params} from '$lib/core/config';
-import manifest from '$lib/manifest.json';
-import {Assets, TextureStyle} from 'pixi.js';
+import {params} from '$lib';
+import {assetProgress} from '$lib/world/render/assets';
 import {writable, type Readable} from 'svelte/store';
-TextureStyle.defaultOptions.scaleMode = 'nearest';
 
 const MAX_STAGE = 2;
 const LOCAL_STORAGE_KEY = `__visited`;
@@ -125,30 +122,20 @@ export function createSplashStore(loadingStore?: Readable<number> | undefined) {
 	};
 }
 
-let progress = 0;
-const assetLoading = writable(progress);
-if (browser) {
-	console.log(`loading assets...`);
-	Assets.init({manifest}).then(() => {
-		Assets.loadBundle('default', (progress) => {
-			assetLoading.set(progress);
-		}).then((assets) => {
-			assetLoading.set(1);
-			console.log(`Assets Loaded`, assets);
-		});
-	});
-} else {
-	const loadingInterval = setInterval(() => {
-		progress += 0.1; // Increment by 2%
-		assetLoading.set(Math.min(1, progress));
-
-		if (progress >= 1) {
-			clearInterval(loadingInterval);
-		}
-	}, 100); // Update every 100ms
-}
-
-export const splash = createSplashStore(assetLoading);
+/**
+ * The splash, fed by the GAME's asset loading.
+ *
+ * The bundle is not loaded here. It belongs to the renderer that needs it
+ * (`lib/world/render/assets.ts`), which starts it at module scope and publishes
+ * progress; this file only decides what the player looks at meanwhile. Keeping
+ * it that way means the splash has no opinion about what is being loaded, and
+ * the game has no opinion about how waiting is presented.
+ *
+ * Note this is an OVERLAY and not a gate: the app mounts underneath it, so
+ * scene objects can still be built before the bundle lands. They just cannot be
+ * seen. The renderer builds texture-dependent parts lazily for that reason.
+ */
+export const splash = createSplashStore(assetProgress);
 
 if (typeof window !== 'undefined') {
 	(window as any).splash = splash;

@@ -41,6 +41,10 @@ export const {isParentRoute, isSameRoute, route, params} = createRouteHandler(
 			'eruda',
 			'tx-observer',
 			'burner',
+			// `?logo` holds the splash on its current stage instead of advancing,
+			// so the title art can be looked at (and screenshotted) rather than
+			// flashing past. See lib/ui/loading/splash.ts.
+			'logo',
 		] as const,
 		// Dynamic routes that need hash-based URLs on path-based IPFS gateways
 		dynamicRoutes: [
