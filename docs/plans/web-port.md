@@ -60,7 +60,7 @@ If two clients do pick the same avatar, the failure is a lost turn rather than a
 | `ui/flows/enter/` | the avatar picker and the `instruction` line in `GameHud` | its whole state machine (sign in, have avatars, deposit, ready) is `setupNeeded` plus `deposited` |
 | `ui/structure/TopBar.svelte` | the template's `ui/navbar/` | superseded. It was a second `fixed top-0 z-50 h-12` bar, so it would have sat ON TOP of the navbar. Its one unique thing, the moves counter, is in the HUD |
 | `screens/GameScreen*.svelte` | `routes/play/+page.svelte` + `core/ui/AppShell.svelte` | superseded |
-| `ui/flows/purchase/` | nothing yet | see Follow-ups |
+| `ui/flows/purchase/` | `world/purchase.ts` plus the `buy` action on the setup gate | rewritten, not ported: the old one branched over a faucet key and a payment rail, and one `AvatarsSale.purchase` call replaces both |
 
 ### Step 4b is DONE: the context plays this game
 
@@ -134,11 +134,12 @@ Both groups were consequences of the contracts already being this game's while t
 
 None of these blocks playing. In rough order of what a player would miss first.
 
-- **Getting an avatar.** Buying and depositing went through `onchain/writes.ts` and `AvatarsSale`, both of which the port did not carry across: `writes.ts` was built on the pre-port connection API (`deployments.current`, `gasFee.value`, a faucet private key in `$env/static/public`) and rewriting it against the executor/balance-check seams is its own piece of work. Until then the `deposit` step of the setup gate says so in words rather than offering a button that cannot work, and an avatar has to be minted from `Avatars` and deposited into `Game` by hand. `Avatars.mint` has no access control, which is a separate open question below.
+- ~~**Getting an avatar.**~~ **DONE**, `lib/world/purchase.ts`, wired to the `deposit` step of the setup gate. This was estimated as "its own piece of work" on the strength of how big the pre-port `onchain/writes.ts` version was; that turned out to be wrong, and the reason is worth remembering. What made the old one big was the faucet private key and the payment-rail branching, neither of which is needed: `AvatarsSale.purchase` mints straight into the Game in ONE transaction, and `contracts/test/js/Game.test.ts` had been calling it correctly the whole time. Reading the passing test was the whole investigation. The id packing and the argument order live in the contracts package for the usual reason, and the contract test now exercises both.
 - **Keyboard, gamepad and the on-screen D-pad.** Deleted with the pre-port renderer. `docs/audits/03-renderer.md` 3.4 wants them rebuilt as intent recognisers in the shape `gestures.ts` uses, and names four defects not to carry over, including `stopListening()` calling `removeAllListeners()` on an emitter the canvas also uses, which would deafen the click handler.
 - **The reveal animation.** Needs a `CommitmentRevealed` log feed, which `lib/world/state.ts` deliberately does not do: it reads standing avatars out of storage, and history is a different question.
 - **Drop `pixi-viewport`**, along with the `ssr.noExternal` entry in `web/vite.config.ts` that exists only for it. Nothing imports it any more. `gsap`, `pretty-ms` and `@pixi/devtools` went unreferenced with the old renderer too and can go in the same pass.
-- **Withdrawing an avatar**, which is the only thing to do with a dead one. `DeathNotice` says to do it and offers no button.
+- **Withdrawing an avatar**, which is the only thing to do with a dead one. `DeathNotice` says to do it and offers no button. `Game.withdraw(avatarID, to)` is the call; it is the mirror of the purchase and should sit beside it in `lib/world/purchase.ts`.
+- **`contracts/js/avatars.ts` is dead**, and exported from the package index. It is the pre-port camera reader, superseded by `lib/world/state.ts`, and it still contains the inverted `more` flag this repo's version was written to avoid. Nothing imports it from anywhere: web, tests or scripts. Delete it, but check no sibling repo has picked it up from the package first.
 
 ## Still open, not part of this
 
