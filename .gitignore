@@ -11,3 +11,6 @@ database.sql
 
 .kilocode/
 
+# agent scratch (subagent transcripts and artifacts)
+.pi-subagents/
+
