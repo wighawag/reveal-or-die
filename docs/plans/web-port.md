@@ -1,36 +1,38 @@
 # Porting this game's web layer onto the template
 
-Status: plan. The contracts are done; this is what is left. 57 `svelte-check` errors, and the count is a poor guide to the work, because about twenty of them are one deletion and the rest are one connected rewrite.
+Status: the web port is DONE. `svelte-check` is at 0 errors (from 57 when this was written), the whole suite passes, and `pnpm build localhost` succeeds. What is left is listed under "Follow-ups" at the bottom, and none of it blocks playing.
 
 ## The shape of it, in one paragraph
 
-`web/src/lib/context/game.ts` has a literal line in it that says "everything below is what a descendant replaces; everything above is the framework it plugs into". Above the line: chain time, epochs, the round, the camera, canvas events, onchain state, view state. Below the line: imports from `$lib/placement/*`, which is the template's own demo game. The port is to replace those imports with this game's equivalents and satisfy the exported `Game` type. That is the whole job stated correctly, and it is why the work cannot be done in slices: the renderer needs the view state, which needs the board reader, which needs the onchain state, so they land together or not at all.
+`web/src/lib/context/game.ts` has a literal line in it that says "everything below is what a descendant replaces; everything above is the framework it plugs into". Above the line: chain time, epochs, the round, the camera, canvas events, onchain state, view state. Below the line used to be imports from `$lib/placement/*`, the template's own demo game; they are `$lib/world/*` now. The port was to replace those imports with this game's equivalents and satisfy the exported `Game` type. That is the whole job stated correctly, and it is why it could not be done in slices: the renderer needs the view state, which needs the board reader, which needs the onchain state, so they landed together.
 
 ## Do not delete `lib/placement/` first
 
-It is the only worked example of every seam below, and it is small enough to read in full (`commit-reveal.ts` 235 lines, `state.ts` 129, `view.ts` 67, `render/board-renderer.ts` 71, `render/index.ts` 95). Port against it with both open, and delete it in the same commit that replaces it. It is recoverable afterwards with `git show stem/main:web/src/lib/placement/...`, but reading it from a dead ref while writing its replacement is worse than having it on disk.
+**Done, and it worked.** It was the only worked example of every seam below, and it was small enough to read in full (`commit-reveal.ts` 235 lines, `state.ts` 129, `view.ts` 67, `render/board-renderer.ts` 71, `render/index.ts` 95). It went in the same commit that replaced it, and it is recoverable with `git show stem/main:web/src/lib/placement/...`.
 
 ## The mapping
 
-| this game, today | what it must become | seam |
+| this game, before the port | what it became | seam |
 |---|---|---|
 | `lib/onchain/writes.ts` | `CommitRevealAdapter<bigint, Action>` | `game/core/seams.ts:109` |
 | `lib/onchain/zones-fetcher.ts`, `direct-read.ts` | board reader + `zonesForCamera` | cf. `placement/state.ts` |
-| `lib/onchain/avatars.ts` | the deposited-avatar store | cf. `placement/reserve.ts` |
+| `lib/onchain/avatars.ts` | `lib/world/deposited.ts` | cf. `placement/reserve.ts` |
 | `lib/private/localState.ts` | `RoundStorage<Action>` | `game/core/round.ts:136` |
 | `lib/private/auto-commit-reveal.ts` | the round's `autoCommit` / `autoReveal` | `game/core/round.ts:143` |
 | `lib/render/*`, `lib/core/render/*` | `GameRenderer<Container>` via `createStatefulRenderer` | `game/render/stateful.ts:85` |
-| `lib/core/epoch/*` | delete; use `game/core/epoch` | |
-| `lib/core/time/*` | delete; use `game/core/chain-time` | |
+| `lib/core/epoch/*` | deleted; `game/core/epoch` | |
+| `lib/core/time/*` | deleted; `game/core/chain-time` | |
 | `lib/view/index.ts` (this game's, now replaced) | a `mergeView` producing the renderer's view | cf. `placement/view.ts` |
-| `lib/ui/flows/purchase/*` | the template's `ui/credits` top-up flow | it is a strict superset |
+| `lib/ui/flows/purchase/*` | nothing yet, see Follow-ups | this was wrong: `ui/credits` tops up GAS, and the purchase bought an NFT |
 | `lib/screens/*`, `lib/ui/*` | `routes/play` plus context members | |
 
 ### The identity is the avatar, and the seam already allows it
 
 `PlayerIdentity = bigint | \`0x${string}\`` (`seams.ts:34`), and `createRound<TIdentity extends PlayerIdentity, TAction>`. The template's game is keyed by account address; this one commits per avatar, so it is `RoundStore<bigint, Action>` keyed by avatar id. Nothing needs widening.
 
-**Decided: one active avatar per client.** `Game.identity` is the active avatar id, undefined until one is chosen, and the round is keyed by it. A player who wants to run two avatars opens a second browser.
+**Decided: one active avatar per client.** A player who wants to run two avatars opens a second browser.
+
+The decision stands; only where it is READ changed while wiring. `Game.identity` stayed as the account address, because the account/signer distinction is a separate thing the UI has to be able to ask about, and the avatar id is `Game.activeAvatarID`. That is what the round, the commitment and the storage key are keyed by, undefined until one is chosen, and `lib/world/active-avatar.ts` is what chooses and remembers it.
 
 Three consequences follow, and the second one is the one that will bite.
 
@@ -45,15 +47,44 @@ If two clients do pick the same avatar, the failure is a lost turn rather than a
 ## Order
 
 1. ~~**Board reader and view.**~~ **DONE**, `lib/world/state.ts` and `lib/world/view.ts`, with 15 tests. `zoneID` went into the contracts js package because it has to match `PositionUtils.getZone` exactly, and is pinned from both sides. Not wired into the context yet, so the error count did not move.
-2. ~~**The renderer.**~~ **DONE**, `lib/world/render/`. Still to do when `pixi-viewport` finally goes: drop the `ssr.noExternal` entry in `vite.config.ts` that exists only for it.
+2. ~~**The renderer.**~~ **DONE**, `lib/world/render/`.
 3. ~~**The adapter.**~~ **DONE**, `lib/world/commit-reveal.ts`, with the packing in the contracts package so the contract tests exercise it.
-4. **Wire `context/game.ts`**, satisfy the `Game` type, delete `lib/placement/` in the same commit. THIS IS THE NEXT STEP and it is the one that finally moves the error count, because it is the first that deletes rather than adds.
+4. ~~**Wire `context/game.ts`**~~ **DONE**, both halves. 4a added the five modules; 4b did the wiring, deleted `lib/placement/` and then deleted the whole pre-port app behind it.
+5. ~~**The UI**~~ **DONE**, as part of 4b. Where each pre-port component went:
+
+| pre-port | now | why |
+|---|---|---|
+| `ui/GameClock.svelte` | `world/ui/GameClock.svelte` | kept, as a props-only dial. It used to read `twoPhase`, `localState` and `deployments` itself; everything it decided is in `world/ui/hud.ts` |
+| `ui/GameInfo.svelte` | `world/ui/DeathNotice.svelte` | kept, asking a question that can actually be true |
+| `ui/tutorial/` | `world/ui/{Tutorial.svelte,tutorial.ts}` | kept. The `seen` flag was the last thing left on `private/localState.ts` |
+| `ui/flows/enter/` | the avatar picker and the `instruction` line in `GameHud` | its whole state machine (sign in, have avatars, deposit, ready) is `setupNeeded` plus `deposited` |
+| `ui/structure/TopBar.svelte` | the template's `ui/navbar/` | superseded. It was a second `fixed top-0 z-50 h-12` bar, so it would have sat ON TOP of the navbar. Its one unique thing, the moves counter, is in the HUD |
+| `screens/GameScreen*.svelte` | `routes/play/+page.svelte` + `core/ui/AppShell.svelte` | superseded |
+| `ui/flows/purchase/` | nothing yet | see Follow-ups |
+
+### Step 4b is DONE: the context plays this game
+
+`context/game.ts` below its line is `$lib/world` throughout, `context/types.ts` points at `WorldState`/`WorldView`, and `routes/play/+page.svelte` mounts this game's renderer and HUD. `lib/placement/` and its four test files are gone, and so is `lib/core/time/`, which was the last `framework-boundary` offender.
+
+**The `Game` type changed shape, and the shape follows what is at stake.** No `reserve` and no `cost`: this game bonds nothing per round, it stakes an AVATAR the contract already holds. So `deposited` answers the question `reserve` answered, the per-round price disappears rather than being renamed to zero, and the setup gate's third step is `deposit` rather than `stake`. `identity` stays as the ACCOUNT, because the account/signer split is still the safety property of the design; `activeAvatarID` is what the round, the commitment and the storage key are keyed by.
+
+Two decisions in the wiring are not transcription:
+
+- **`currentPosition` comes from `avatarsPerOwner`, not from the board.** The board is camera-scoped, so a player who panned away from their own avatar would have it read as "not in the world" and their next click would be planned as an entry rather than a step.
+- **The click handler branches on it**, because the contract makes the two irreversibly different. `_enter` sets `stopProcessing`, so an Enter is the whole turn; a refused Move sets it too and silently drops the REST of the turn. `enterAt` replaces the plan and `stepTo` refuses an illegal step for exactly those reasons.
+
+**The pre-port app was then deleted whole**, because it hung off `screens/GameScreen.svelte`, which nothing had imported since the wiring landed. `lib/world/active-avatar.ts` was the one module 4a had not anticipated: something has to choose the avatar and remember the choice.
+
+Two defects were found while porting rather than fixed in passing:
+
+- The old "your avatar died" modal asked whether the ACTIVE avatar had run out of life. It could never have fired, because nothing sane picks a dead avatar to play, so the question was false from the instant it became true. It now asks about the account's avatars.
+- The tour pointed at `#arena`, an id nothing has ever had, so that step silently did nothing.
 
 ### Step 4a is DONE: the five modules exist
 
-`lib/world/` now holds `config.ts`, `storage.ts`, `planning.ts`, `deposited.ts` and `missed-reveal.ts` alongside `state.ts`, `view.ts`, `commit-reveal.ts`, `errors.ts` and `render/`. Nothing is wired, so the tree is green at 54 errors and 40 `lib/world` tests pass.
+`lib/world/` holds `config.ts`, `storage.ts`, `planning.ts`, `deposited.ts` and `missed-reveal.ts` alongside `state.ts`, `view.ts`, `commit-reveal.ts`, `errors.ts` and `render/`. Nothing was wired at the end of 4a, so the tree was green at 54 errors with 40 `lib/world` tests passing.
 
-**What is left is 4b, the wiring, and it is one commit because it is the one that deletes.** In order: rewrite `context/game.ts` below its line against the modules above, satisfy the exported `Game` type (which changes shape here: no `reserve` or `cost`, but an `activeAvatarID` and a `deposited`), update `context/types.ts`, point `routes/play/+page.svelte` at the new renderer, delete `lib/placement/` and its four test files, and then fix this game's old UI components, which is the long tail: `GameClock`, `TopBar`, `GameInfo`, `EnterFlow`, `PurchaseFlow`, `Tutorial` and `GameScreen` all read a context shape that no longer exists. Deleting `lib/placement` is what clears the 6 failing context tests, and deleting `lib/core/time` clears the last framework-boundary failure.
+4b then wired them, and is written up above.
 
 ### What step 4 needed (for reference)
 
@@ -65,14 +96,13 @@ If two clients do pick the same avatar, the failure is a lost turn rather than a
 - ~~**`reserve.ts`**~~ done as `deposited.ts`. It ignores the contract's `more` flag and terminates on an empty page instead, which is correct whichever way the flag lies.
 - ~~**`missed-reveal.ts`**~~ done. About unblocking play rather than reporting a loss, since acknowledging currently forfeits nothing.
 
-Also needed while wiring: `Game.identity` becomes the active avatar id, and something has to choose it. See the active-avatar decision above.
-5. **The UI**, which is the long tail: `getUserContext` is `getAppContext` now, and the legacy modals under `core/ui/modal/legacy-*.svelte` go when their callers do.
+Also needed while wiring, and correctly predicted: something has to choose the avatar. That became `lib/world/active-avatar.ts`, the sixth module. See the active-avatar decision above.
 
-## What the renderer port fixes on the way
+## What the renderer port fixed on the way
 
-From the audit, all verified in the current source. Adopting the template's layer removes four live bugs rather than merely relocating code: `viewport.resize()` called with no arguments, the `setTimeout(..., 10)` drag/click hack, the `($camera.y + y || 0)` precedence bug in `core/render/camera.ts:43`, and a scene that never clears on state reset. Three files are already dead and should not be carried across: `WallRenderer.ts`, `world.epochSeen` (written, never read), and the grid built in `PixiCanvas.svelte` and never added to the stage.
+From the audit, all verified against the pre-port source before it was deleted. Adopting the template's layer removed four live bugs rather than merely relocating code: `viewport.resize()` called with no arguments, the `setTimeout(..., 10)` drag/click hack, the `($camera.y + y || 0)` precedence bug in `core/render/camera.ts:43`, and a scene that never cleared on state reset. Three files were already dead and were not carried across: `WallRenderer.ts`, `world.epochSeen` (written, never read), and the grid built in `PixiCanvas.svelte` and never added to the stage.
 
-One thing will block it and is worth knowing before starting: `render/renderer.ts` currently constructs `createOperations` plus keyboard and gamepad handling inside the renderer, and the seam cannot express that, so all three move to the context's `start()`.
+The blocker the audit named was real: `render/renderer.ts` constructed `createOperations` plus keyboard and gamepad handling INSIDE the renderer, and the seam cannot express that. Click handling moved to the context's `start()` as planned. Keyboard and gamepad did not move, they went: see Follow-ups.
 
 ### Assets are the APP's problem, not the framework's
 
@@ -93,12 +123,22 @@ These are things this game has and the template lacks, which a sibling would wan
 - Cursor pagination `(startIndex, limit) -> (items, more)` on unbounded getters. The template's `GameGetters._cellsInZones` is unbounded and its own comment records the previous version blowing the `eth_call` cap. Write the arithmetic fresh: this repo's version has the `more` flag inverted.
 - `SignerOutOfFundsError` and the `send()` funnel in `commit-reveal.ts`. Nothing in either is about a particular game: one names the single failure a player can act on (the local signer is out of gas, so top up the SIGNER and not the wallet), the other is the wait-for-inclusion plus classify-once boundary every write goes through. Both were copied out of `placement/` verbatim, which is the signal: a second descendant would copy them again.
 
-## Known failing while this is mid-flight
+## Known failing while this was mid-flight, all resolved
 
-Both groups are consequences of the contracts already being this game's while the web is still the template's, and both resolve when `lib/placement/` goes.
+Both groups were consequences of the contracts already being this game's while the web was still the template's, and both went with `lib/placement/`.
 
-- **6 context tests** (`fatal.test.ts`, `ssr-context.test.ts`): `resolvePlacementConfig` reads `Game.linkedData.placementCost` and `linkedData.tokens`, which belong to the template's game.
-- **`framework-boundary.test.ts`**: `core/time/index.ts`, `core/ui/loading/SplashScreen.svelte` and `core/ui/loading/splash.ts` import `$app/*` outside `lib/kit`. `core/time` is already marked for deletion above; the splash screen needs to move behind the kit seam or be added to `KNOWN_LEAKS` with a reason.
+- ~~**6 context tests**~~ (`fatal.test.ts`, `ssr-context.test.ts`): `resolvePlacementConfig` read `Game.linkedData.placementCost` and `linkedData.tokens`, which belong to the template's game.
+- ~~**`framework-boundary.test.ts`**~~: `core/time/index.ts` was the last file importing `$app/*` outside `lib/kit`. The splash moved to `lib/ui/loading/` earlier in the port, so `KNOWN_LEAKS` is still empty.
+
+## Follow-ups
+
+None of these blocks playing. In rough order of what a player would miss first.
+
+- **Getting an avatar.** Buying and depositing went through `onchain/writes.ts` and `AvatarsSale`, both of which the port did not carry across: `writes.ts` was built on the pre-port connection API (`deployments.current`, `gasFee.value`, a faucet private key in `$env/static/public`) and rewriting it against the executor/balance-check seams is its own piece of work. Until then the `deposit` step of the setup gate says so in words rather than offering a button that cannot work, and an avatar has to be minted from `Avatars` and deposited into `Game` by hand. `Avatars.mint` has no access control, which is a separate open question below.
+- **Keyboard, gamepad and the on-screen D-pad.** Deleted with the pre-port renderer. `docs/audits/03-renderer.md` 3.4 wants them rebuilt as intent recognisers in the shape `gestures.ts` uses, and names four defects not to carry over, including `stopListening()` calling `removeAllListeners()` on an emitter the canvas also uses, which would deafen the click handler.
+- **The reveal animation.** Needs a `CommitmentRevealed` log feed, which `lib/world/state.ts` deliberately does not do: it reads standing avatars out of storage, and history is a different question.
+- **Drop `pixi-viewport`**, along with the `ssr.noExternal` entry in `web/vite.config.ts` that exists only for it. Nothing imports it any more. `gsap`, `pretty-ms` and `@pixi/devtools` went unreferenced with the old renderer too and can go in the same pass.
+- **Withdrawing an avatar**, which is the only thing to do with a dead one. `DeathNotice` says to do it and offers no button.
 
 ## Still open, not part of this
 
