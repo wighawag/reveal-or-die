@@ -24,9 +24,11 @@ type GameRenderer<TSurface> = {
 
 If you are unsure, the answer is reactive until it is slow, then immediate. Stateful is the right answer when the library you want is retained-mode, which pixi and three.js are.
 
+Only the last two are `GameRenderer`s, and only they are swapped by editing `$lib/placement/render/index.ts`. Reactive is a different shape: no surface, no frame loop, nothing to hand to `onAppStarted`. It is listed here as a peer because it is a real choice, not because it is the same kind of change.
+
 ### Reactive
 
-Nothing to fill in. The view state is a Svelte store, so a component subscribes to it like any other:
+The view state is a Svelte store, so a component subscribes to it like any other:
 
 ```svelte
 {#each [...$viewState.cells.values()] as cell (cell.cellID)}
@@ -34,7 +36,14 @@ Nothing to fill in. The view state is a Svelte store, so a component subscribes 
 {/each}
 ```
 
-Delete `render` from the app context and the canvas from the page. Keep the camera only if the state layer still needs it to decide what to load, which it does whenever the world is bigger than the screen.
+Delete `$lib/placement/render` and drop `gameRenderer` from the context; there is no renderer to point anywhere.
+
+**The camera is not free, and getting this wrong is silent.** The poller is camera-scoped and refuses to fetch while the camera reports no size (`onchain/state.ts`). A component that only subscribes to `viewState` never calls `cameraControl.resize`, so the board stays empty forever with no failed request and no warning: it looks like a game with nothing in it yet. Pick one deliberately:
+
+- **Keep the camera.** Have the component report its own size and drive pan/zoom into `cameraControl`. `connectSurfaceInput` takes any `HTMLElement`, not just a canvas, so this is a few lines.
+- **Drop camera scoping.** Give `createPollingOnchainState` a fixed scope instead. Right whenever the world fits on one screen, which is most games that want to render in Svelte in the first place.
+
+The template ships no reactive example. The two canvas paths are the ones with working code and tests behind them.
 
 ### Immediate
 
