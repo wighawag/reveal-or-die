@@ -1,14 +1,17 @@
 import {defineConfig} from 'vitest/config';
-import type {Plugin, ResolvedConfig} from 'vite';
 import {playwright} from '@vitest/browser-playwright';
 import tailwindcss from '@tailwindcss/vite';
 import {execSync} from 'node:child_process';
 import devtoolsJson from 'vite-plugin-devtools-json';
 import {sveltekit} from '@sveltejs/kit/vite';
 import basicSsl from '@vitejs/plugin-basic-ssl';
-import {AssetPack, type AssetPackConfig} from '@assetpack/core';
-import {pixiPipes} from '@assetpack/core/pixi';
-import {readFileSync, writeFileSync, existsSync} from 'fs';
+import {existsSync} from 'fs';
+import {
+	ASSETS_FOLDER,
+	MANIFEST_PATH,
+	assetpackPlugin,
+	writeEmptyManifest,
+} from './vite.assetpack';
 import {hookup} from 'named-logs-console';
 
 hookup();
@@ -25,97 +28,6 @@ try {
 	console.error(e);
 }
 
-// ---------------------------------------------------------------------------
-// Sprite pipeline. This is reveal-or-die's own: the template has no art build,
-// so nothing upstream owns it. It turns ../assets into static/assets plus a
-// manifest the pixi renderer loads as a bundle.
-// ---------------------------------------------------------------------------
-const assetsFolder = '../assets';
-const manifestSrcPath = './src/lib/manifest.json';
-
-function assetpackPlugin(): Plugin {
-	const apConfig: AssetPackConfig = {
-		entry: assetsFolder,
-		logLevel: 'verbose',
-		strict: true,
-		pipes: [
-			...pixiPipes({
-				resolutions: {default: 1},
-				compression: {png: true, jpg: true, webp: false},
-				manifest: {
-					output: manifestSrcPath,
-					includeFileSizes: 'raw',
-					includeMetaData: true,
-					trimExtensions: true,
-				},
-			}),
-		],
-		assetSettings: [
-			{
-				files: ['**/sprites'],
-				metaData: {
-					tps: true,
-				},
-			},
-		],
-	};
-	let mode: ResolvedConfig['command'];
-	let ap: AssetPack | undefined;
-
-	function fixManifest() {
-		// works around https://github.com/pixijs/assetpack/issues/148 : the
-		// manifest records paths relative to the output folder, but the app
-		// loads them from the site root.
-		const content = readFileSync(manifestSrcPath, 'utf-8');
-		const jsonContent = JSON.parse(content);
-		function transform(value: string | {src: string}): string | {src: string} {
-			if (typeof value === 'string') {
-				if (value.startsWith('/')) {
-					return value;
-				}
-				return `/assets/${value}`;
-			} else {
-				if (value.src.startsWith('/')) {
-					return value;
-				}
-				value.src = `/assets/${value.src}`;
-				return value;
-			}
-		}
-		for (const bundle of jsonContent.bundles) {
-			for (const asset of bundle.assets) {
-				asset.src = asset.src.map(transform);
-			}
-		}
-		writeFileSync(manifestSrcPath, JSON.stringify(jsonContent, null, 2));
-	}
-
-	return {
-		name: 'assetpack',
-		configResolved: (resolvedConfig) => {
-			mode = resolvedConfig.command;
-		},
-		buildStart: async () => {
-			if (mode === 'serve') {
-				if (ap) return;
-				ap = new AssetPack(apConfig);
-				void ap.watch(() => {
-					fixManifest();
-				});
-			} else {
-				await new AssetPack(apConfig).run();
-				fixManifest();
-			}
-		},
-		buildEnd: async () => {
-			if (ap) {
-				await ap.stop();
-				ap = undefined;
-			}
-		},
-	};
-}
-
 const env = process.env;
 
 export default defineConfig(({mode}) => {
@@ -125,14 +37,18 @@ export default defineConfig(({mode}) => {
 		sveltekit(),
 	];
 
-	if (existsSync(assetsFolder)) {
+	// The manifest is generated and gitignored, so a fresh clone does not have
+	// one, and neither `svelte-check` nor `vitest` ever runs the pipeline that
+	// would write it. Both resolve `$lib/manifest.json` as a module, so it has to
+	// exist before anything decides whether to build the real one.
+	if (!existsSync(MANIFEST_PATH)) writeEmptyManifest();
+
+	// NOT under vitest. Nothing in the suite reads the manifest's CONTENT, and
+	// running it there was actively harmful: each vitest project spins up its own
+	// plugin instance, and their `fixManifest` read-modify-writes raced on one
+	// file until it came out empty. See ./vite.assetpack.ts.
+	if (existsSync(ASSETS_FOLDER) && !process.env.VITEST) {
 		plugins.push(assetpackPlugin());
-	} else {
-		// keep the import in src/ resolvable when the art folder is absent
-		writeFileSync(
-			manifestSrcPath,
-			JSON.stringify({bundles: [{name: 'default', assets: []}]}),
-		);
 	}
 
 	if (env.USE_LOCALHOST_SSL) {
