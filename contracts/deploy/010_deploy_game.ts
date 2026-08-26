@@ -25,11 +25,23 @@ export default deployScript(
 			{name: 'Reveal', artifact: artifacts.GameReveal, args: [config]},
 		];
 
-		// NOTE: do not forward the proxy's `options` as a 4th argument to
-		// deployViaRouter. Under rocketh 0.19 that argument sets
-		// skipIfAlreadyDeployed on the ROUTER alone, so a changed route deploys to
-		// a new address while the router keeps pointing at the old one and is
-		// never rewired - a silent half-upgrade.
+		// DO NOT pass a 4th argument to deployViaRouter until rocketh is fixed.
+		//
+		// Passing ANY options object - the content is irrelevant - silently
+		// disables the router's change detection. @rocketh/router computes
+		// `skipIfAlreadyDeployed = alwaysOverride ? false : true` and forces it
+		// onto the ROUTER's options only (dist/index.js:11,23); the routes get an
+		// options object built from scratch that omits the flag. In
+		// @rocketh/deploy, skipIfAlreadyDeployed:true returns any existing
+		// deployment of that NAME without comparing bytecode or args at all
+		// (dist/index.js:384). When options are omitted entirely, optionsForRouter
+		// is undefined and the router compares normally, which is correct.
+		//
+		// So: change a route, and the route redeploys to a new address while the
+		// router is skipped and keeps pointing at the OLD one. No error. Verified
+		// against a local node: the router's args referenced 0x8a79... while the
+		// live Commit route was 0xa51c..., so the new code was unreachable through
+		// the proxy.
 		await deployViaProxy<Abi_IGame>(
 			'Game',
 			{
