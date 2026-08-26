@@ -44,7 +44,7 @@ If two clients do pick the same avatar, the failure is a lost turn rather than a
 
 ## Order
 
-1. **Board reader and view.** `zonesForCamera` plus a reader over `getAvatarsInMultipleZones`, then a merge into the view the renderer consumes. Nothing else can be tested until state flows.
+1. ~~**Board reader and view.**~~ **DONE**, `lib/world/state.ts` and `lib/world/view.ts`, with 15 tests. `zoneID` went into the contracts js package because it has to match `PositionUtils.getZone` exactly, and is pinned from both sides. Not wired into the context yet, so the error count did not move.
 2. **The renderer.** This game's pixi objects become a `createStatefulRenderer` over `Container`, replacing `placement/render`. Take the four fixes noted below while moving, and drop `pixi-viewport` with the `ssr.noExternal` entry in `vite.config.ts` that exists only for it.
 3. **The adapter.** `writes.ts` becomes `CommitRevealAdapter`. Two things must change here regardless: the deposit payload is now a single `owner` rather than `(owner, controller)`, and the faucet path that signs with `PUBLIC_FAUCET_PRIVATE_KEY` goes, replaced by the template's `PUBLIC_FAUCET_API` and top-up flow.
 4. **Wire `context/game.ts`**, satisfy the `Game` type, delete `lib/placement/` in the same commit.
@@ -68,6 +68,13 @@ These are things this game has and the template lacks, which a sibling would wan
 - Keyboard and gamepad as intent recognisers, in the shape `gestures.ts` already uses.
 - Zoom-aware grid alpha, which `seams.ts:220` already says the template wants.
 - Cursor pagination `(startIndex, limit) -> (items, more)` on unbounded getters. The template's `GameGetters._cellsInZones` is unbounded and its own comment records the previous version blowing the `eth_call` cap. Write the arithmetic fresh: this repo's version has the `more` flag inverted.
+
+## Known failing while this is mid-flight
+
+Both groups are consequences of the contracts already being this game's while the web is still the template's, and both resolve when `lib/placement/` goes.
+
+- **6 context tests** (`fatal.test.ts`, `ssr-context.test.ts`): `resolvePlacementConfig` reads `Game.linkedData.placementCost` and `linkedData.tokens`, which belong to the template's game.
+- **`framework-boundary.test.ts`**: `core/time/index.ts`, `core/ui/loading/SplashScreen.svelte` and `core/ui/loading/splash.ts` import `$app/*` outside `lib/kit`. `core/time` is already marked for deletion above; the splash screen needs to move behind the kit seam or be added to `KNOWN_LEAKS` with a reason.
 
 ## Still open, not part of this
 
