@@ -1,18 +1,20 @@
 <!--
-	The template's game.
+	reveal-or-die.
 
-	A grid of shared cells: click to plan placements, the round commits as the
-	phase closes, and reveals in the reveal phase. It exists to prove the seams
-	in `$lib/game/core/seams.ts` fit together - the state store, the
-	commit-reveal adapter, the view merge and the renderer are all exercised
-	here, against a real chain.
+	A shared world of avatars: click to plan where yours appears or which way it
+	steps, the round commits as the phase closes, and reveals in the reveal
+	phase. The seams in `$lib/game/core/seams.ts` are what it plugs into - the
+	state store, the commit-reveal adapter, the view merge and the renderer are
+	all filled by `$lib/world`, against a real chain.
 -->
 <script lang="ts">
 	import {browser} from '$app/environment';
 	import {getAppContext} from '$lib';
 	import DefaultHead from '$lib/metadata/DefaultHead.svelte';
-	import GameHud from '$lib/placement/ui/GameHud.svelte';
-	import {loadCanvasComponent} from '$lib/placement/render';
+	import GameHud from '$lib/world/ui/GameHud.svelte';
+	import DeathNotice from '$lib/world/ui/DeathNotice.svelte';
+	import Tutorial from '$lib/world/ui/Tutorial.svelte';
+	import {loadCanvasComponent} from '$lib/world/render';
 	import {gridTileCells} from '$lib/game/render/grid';
 
 	const {render, game} = getAppContext();
@@ -35,7 +37,7 @@
 	 * prerendering resolves dependencies differently and succeeds. It shows up
 	 * only in `pnpm web:dev`.
 	 *
-	 * WHICH canvas is not decided here: `$lib/placement/render` names it, next to
+	 * WHICH canvas is not decided here: `$lib/world/render` names it, next to
 	 * the renderer that has to match it. Both hosts take the same props, so this
 	 * page is identical whichever is chosen.
 	 */
@@ -98,5 +100,10 @@
 			</div>
 		{/await}
 		<GameHud />
+		<!-- Both are surfaces over the board rather than parts of it, and both are
+		     inside the `{#if}` because neither means anything without a canvas
+		     under it. -->
+		<DeathNotice />
+		<Tutorial />
 	{/if}
 </div>

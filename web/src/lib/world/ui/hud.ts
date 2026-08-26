@@ -3,19 +3,35 @@
  *
  * The components that show this are deliberately logic-less: they take a
  * finished model and lay it out. All the deciding - which phase label to show,
- * whether committing is still possible, what the round costs - happens here, in
+ * whether committing is still possible, what a failure means - happens here, in
  * plain TypeScript that can be read and tested without a browser.
+ *
+ * Ported from the template's `placement/ui/hud.ts`, and the differences are all
+ * the same difference: what is at stake here is an AVATAR the contract holds,
+ * not a token reserve bonded per round. So there is no cost and no reserve
+ * line, the setup gate ends in "deposit" rather than "stake", and a missed
+ * reveal is reported as something that BLOCKS play rather than as a forfeit,
+ * because `_acknowledgeMissedReveal` currently burns nothing.
  */
 import {derived, type Readable} from 'svelte/store';
-import {formatBalance} from '$lib/core/utils/format/balance';
 import type {Context} from '$lib/context/types';
 import type {RoundState} from '$lib/game/core/round';
 
-import type {Placement} from '../commit-reveal';
-import type {ReserveState} from '../reserve';
+import type {Action} from '../commit-reveal';
+import type {DepositedState} from '../deposited';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import {SignerOutOfFundsError} from '../errors';
 import type {SetupNeeded} from '$lib/context/game';
+
+/** One avatar the player could switch to. */
+export type AvatarChoice = {
+	avatarID: bigint;
+	/** Short enough to fit on a button: an avatar id is an address plus 96 bits. */
+	label: string;
+	inGame: boolean;
+	life: number;
+	active: boolean;
+};
 
 export type HudModel = {
 	phaseLabel: string;
@@ -26,13 +42,12 @@ export type HudModel = {
 	 * third slice at the end of the commit phase where moves are locked so the
 	 * commitment has time to land. Three states is one more than the player has
 	 * a decision about: what they need to know is whether this round is still
-	 * theirs to change. `commit` and `reveal` are both "wait", and bomber-world
-	 * shows the same thing this way.
+	 * theirs to change.
 	 */
 	phase: 'play' | 'wait';
 	/** Seconds left in the phase, already rounded for display. */
 	secondsLeft: number;
-	/** How far through the phase, 0..1, for a progress bar. */
+	/** How far through the phase, 0..1, for a progress dial. */
 	progress: number;
 	epoch: number;
 	/**
@@ -45,25 +60,41 @@ export type HudModel = {
 	 * Set when this build has NO LOCAL SIGNER, so every move has to be signed in
 	 * the wallet. Said once, up front, rather than discovered one prompt at a
 	 * time.
-	 *
-	 * Nothing to do with hosted sign-in, which is a separate axis entirely: see
-	 * core/connection/mode.ts, where TARGET_STEP decides whether a signer exists
-	 * and PUBLIC_WALLET_HOST decides only whether email and social are offered.
 	 */
 	walletSigningNotice?: string;
 	/**
 	 * Set while the player cannot take a turn yet. The HUD shows THIS instead of
-	 * the planning controls: offering "plan your moves" to someone with nothing
-	 * staked invites them to lay out a whole turn that cannot be committed, and
-	 * the failure only arrives when the round is already closing.
+	 * the planning controls: offering "plan your moves" to someone with no avatar
+	 * invites them to lay out a whole turn that cannot be committed, and the
+	 * failure only arrives when the round is already closing.
 	 */
-	setup?: {headline: string; detail: string; action?: 'stake' | 'authorise'};
+	setup?: {headline: string; detail: string; action?: 'authorise'};
 
+	/** Which avatar this client is playing, and which others it could play. */
+	avatarLabel?: string;
+	avatarChoices: readonly AvatarChoice[];
+	/** In the world already, so a click is a step rather than a spawn. */
+	inWorld: boolean;
+	/**
+	 * One of this account's avatars has been killed and is still standing in the
+	 * world.
+	 *
+	 * NOT "the active avatar died", which is what the pre-port UI asked. It cannot
+	 * be: `chooseActiveAvatar` refuses a dead avatar, so by the time the death is
+	 * readable the active one has already moved on and the question answers itself
+	 * negatively forever. Asked about the ACCOUNT instead, which is the fact that
+	 * is actually true and stays true until the body is withdrawn.
+	 *
+	 * Read from the account's own avatars rather than off the board, which is
+	 * camera-scoped: a player who panned away would not be told.
+	 */
+	died?: {label: string};
+
+	/** How many actions are planned, and how many moves the turn has left. */
 	plannedCount: number;
-	costLabel: string;
-	reserveLabel: string;
-	/** Set when the plan costs more than the reserve can cover. */
-	warning?: string;
+	movesLeft: number;
+	/** What a click will do right now, in one line. */
+	instruction: string;
 
 	roundLabel: string;
 	roundTone: 'idle' | 'busy' | 'good' | 'bad';
@@ -78,9 +109,8 @@ export type HudModel = {
 	outOfGas?: {detail: string};
 
 	/**
-	 * Set when an unrevealed commitment is blocking play. Holds what was lost and
-	 * what the player has to do about it: acknowledging forfeits the bond, so it
-	 * is offered rather than done for them.
+	 * Set when an unrevealed commitment is blocking play, with what has to be
+	 * done about it.
 	 */
 	missedReveal?: {
 		headline: string;
@@ -90,7 +120,12 @@ export type HudModel = {
 	};
 };
 
-export function describeRound(state: RoundState<Placement>): {
+/** An avatar id is an address shifted left 96 bits; show the tail of it. */
+export function avatarLabel(avatarID: bigint): string {
+	return `#${(avatarID & 0xffffffffn).toString(16).padStart(8, '0')}`;
+}
+
+export function describeRound(state: RoundState<Action>): {
 	label: string;
 	tone: HudModel['roundTone'];
 } {
@@ -106,15 +141,14 @@ export function describeRound(state: RoundState<Placement>): {
 		case 'Revealing':
 			return {label: 'Revealing...', tone: 'busy'};
 		case 'Revealed':
-			return {
-				label: 'Revealed. Your placements are on the board.',
-				tone: 'good',
-			};
+			return {label: 'Revealed. Your avatar has moved.', tone: 'good'};
 		case 'Missed':
 			return {
-				// The one message that costs the player money, so it says what
-				// happened rather than just that something went wrong.
-				label: `Missed the reveal for epoch ${state.epoch}. The bond is forfeit.`,
+				// NOT "the bond is forfeit", which is what the template says here.
+				// This game bonds nothing per round, so claiming a loss would be a
+				// lie; what it actually costs is the turn AND the next one, until the
+				// commitment is acknowledged. That is the part worth stating.
+				label: `Missed the reveal for epoch ${state.epoch}. Those moves are lost, and the next round is blocked until you acknowledge it.`,
 				tone: 'bad',
 			};
 		case 'Error':
@@ -124,15 +158,12 @@ export function describeRound(state: RoundState<Placement>): {
 			// answer the app already committed to, and could disagree with it.
 			if (state.error instanceof SignerOutOfFundsError) {
 				return {
-					// NOT `INSUFFICIENT_FUNDS_SUMMARY`, though the barrel now exports it
-					// and it says the same thing about the same failure. Upstream's
-					// sentence is "this account does not have enough funds", which is
-					// exactly right for a transaction the player initiated from their
-					// wallet and wrong here: the account is a signer they were never
-					// told about, so "this account" reads as their wallet, which is
-					// probably funded. They would go looking at a balance that is fine.
-					// The remedy is to top up the SIGNER, so the message has to point at
-					// it ("gas left to play with", spelled out in `outOfGas` below).
+					// NOT `INSUFFICIENT_FUNDS_SUMMARY`, though the barrel exports it and
+					// it says the same thing about the same failure. Upstream's sentence
+					// is "this account does not have enough funds", which is exactly
+					// right for a transaction the player initiated from their wallet and
+					// wrong here: the account is a signer they were never told about, so
+					// "this account" reads as their wallet, which is probably funded.
 					// Upstream names the failure; the game names whose it is.
 					label:
 						state.during === 'commit'
@@ -154,17 +185,18 @@ export function describeRound(state: RoundState<Placement>): {
 /**
  * What to tell the player about a commitment they never revealed.
  *
- * Phrased as a statement of what happened and what it cost, not as an error:
- * the stake is already gone by the time this is shown, and the only remaining
- * choice is whether to settle it on chain and carry on playing.
+ * Phrased as a blockage rather than a loss, which is the honest reading of this
+ * contract: `_acknowledgeMissedReveal` carries a `TODO burn / stake` and
+ * forfeits nothing, so the only consequence is that `_makeCommitment` keeps
+ * rejecting new commitments with `PreviousCommitmentNotRevealed` until it is
+ * called. If a forfeit is added, this sentence is where it gets said.
  */
 export function describeMissedReveal(
 	state: MissedRevealState,
 ): HudModel['missedReveal'] {
 	if (state.step === 'Clear' || state.step === 'Unknown') return undefined;
 
-	const lost = `${formatBalance(state.bond)} TOK`;
-	const headline = `You missed the reveal for epoch ${state.epoch}.`;
+	const headline = `You never revealed your moves for epoch ${state.epoch}.`;
 
 	if (state.step === 'Acknowledging') {
 		return {
@@ -177,14 +209,17 @@ export function describeMissedReveal(
 	if (state.step === 'Failed') {
 		return {
 			headline,
-			detail: `Could not acknowledge it: ${state.message}`,
+			// The commitment is exactly where it was, so this is still a blockage
+			// and the button still has something to do.
+			detail: 'That could not be acknowledged. Try again.',
 			busy: false,
 			canAcknowledge: true,
 		};
 	}
 	return {
 		headline,
-		detail: `Your bond of ${lost} is forfeit, and you cannot commit again until you acknowledge it.`,
+		detail:
+			'Those moves are gone, and the contract will refuse every new commitment until the old one is cleared.',
 		busy: false,
 		canAcknowledge: true,
 	};
@@ -206,19 +241,22 @@ export function describeSetup(
 			return {
 				headline: 'Let this browser play for you',
 				// Says what it does AND what it does not do, because "authorise" is
-				// the word every drainer uses. What is being granted is narrow and
-				// the contract enforces it: the key can commit and reveal, and it
-				// cannot withdraw the reserve, which only this account can do.
+				// the word every drainer uses. What is granted is narrow and the
+				// contract enforces it: the key can commit and reveal for avatars this
+				// account owns, and it cannot withdraw them.
 				detail:
-					'Your moves are signed here by a key this browser made, so no round needs a wallet prompt. Authorising lets it play as you and pays it some gas. It can never take your stake out, and you can withdraw the permission at any time.',
+					'Your moves are signed here by a key this browser made, so no round needs a wallet prompt. Authorising lets it play as you and pays it some gas. It can never withdraw your avatars, and you can take the permission back at any time.',
 				action: 'authorise',
 			};
-		case 'stake':
+		case 'deposit':
 			return {
-				headline: 'Stake before you play',
+				headline: 'You need an avatar in the game',
+				// NO ACTION, deliberately, and it is a gap rather than a decision:
+				// buying and depositing an avatar went through `onchain/writes.ts` and
+				// the AvatarsSale contract, which this port has not carried across
+				// yet. Saying so is better than a button that cannot work.
 				detail:
-					'A commitment bonds tokens from your reserve, and they are forfeit if you never reveal. That is what makes a commitment worth anything, so there is nothing to play with until you have some.',
-				action: 'stake',
+					'The game holds your avatar while you play, and moving it is what you have at stake. Getting one is not wired into this build yet: mint from Avatars and deposit it into the Game contract, and it will show up here.',
 			};
 	}
 }
@@ -230,9 +268,11 @@ export function createHud(context: Context): Readable<HudModel> {
 		[
 			game.twoPhase,
 			game.round,
-			game.planning.count,
-			game.cost,
-			game.reserve,
+			game.planning.movesLeft,
+			game.planning.plan,
+			game.deposited,
+			game.activeAvatarID,
+			game.currentPosition,
 			game.epochInfo,
 			game.missedReveal,
 			game.setup,
@@ -240,17 +280,17 @@ export function createHud(context: Context): Readable<HudModel> {
 		([
 			$phase,
 			$round,
-			$count,
-			$cost,
-			$reserve,
+			$movesLeft,
+			$plan,
+			$deposited,
+			$avatarID,
+			$position,
 			$epoch,
 			$missedReveal,
 			$setup,
 		]): HudModel => {
 			const round = describeRound($round);
-			const reserve = $reserve as ReserveState;
-			const reserveAmount =
-				reserve.step === 'Loaded' ? reserve.amount : undefined;
+			const deposited = $deposited as DepositedState;
 			const blocked = blocksCommitting($missedReveal as MissedRevealState);
 
 			// `twoPhase` on a manually advanced chain has no clock, only a phase.
@@ -260,13 +300,26 @@ export function createHud(context: Context): Readable<HudModel> {
 
 			const needsSetup = describeSetup($setup as SetupNeeded | undefined);
 
+			const avatars =
+				deposited.step === 'Loaded' ? deposited.avatars : ([] as const);
+			const inWorld = $position !== undefined;
+			// `lastEpoch` is when the avatar last acted, so a kill in the epoch just
+			// resolved only becomes readable once the next one has begun.
+			const casualty = avatars.find(
+				(a) =>
+					a.life === 0 &&
+					a.inGame &&
+					$epoch.currentEpoch >= Number(a.lastEpoch) + 1,
+			);
+			const plannedCount = $plan.planned.length;
+
 			return {
 				// Never invite a move the player cannot make: while they are still
 				// being set up the clock is just a clock.
 				phaseLabel: needsSetup
 					? 'Round in progress'
 					: playable
-						? 'Plan your moves'
+						? 'Make your move'
 						: 'Resolving the round',
 				phase: $phase.phase,
 				secondsLeft: Math.max(0, Math.ceil(timeLeft)),
@@ -279,32 +332,32 @@ export function createHud(context: Context): Readable<HudModel> {
 				planningForNextRound: !playable && !needsSetup,
 				setup: needsSetup,
 				// `hasLocalSigner` is `TARGET_STEP === 'SignedIn'`, and NOTHING ELSE.
-				// It is not about hosted sign-in, and core says so where it is
-				// defined: "Deliberately NOT 'is PUBLIC_WALLET_HOST set': a
-				// wallet-only sign-in has no host and still derives a signer, so
-				// testing the host would get it wrong."
-				//
-				// This notice used to say the opposite - that no hosted sign-in was
-				// configured, and that setting PUBLIC_WALLET_HOST would give the
-				// player a local signing key. Both halves were wrong, and together
-				// they sent anyone who read it to configure a wallet host and still
-				// have no signer: a signer is derived from a wallet signature with no
-				// service involved, so `SignedIn` + wallet-only is complete and
-				// backend-free. The knob is TARGET_STEP, which is code, not env.
+				// It is not about hosted sign-in: a wallet-only sign-in has no host
+				// and still derives a signer, so testing the host would get it wrong.
+				// See core/connection/mode.ts, where the predicate is defined.
 				walletSigningNotice: context.hasLocalSigner
 					? undefined
 					: "This build does not sign in, so there is no local signing key and every commit and reveal needs a wallet signature. Set TARGET_STEP to 'SignedIn' in core/connection/mode.ts to play with one.",
 
-				plannedCount: $count,
-				costLabel: `${formatBalance($cost)} TOK`,
-				reserveLabel:
-					reserveAmount === undefined
-						? '-'
-						: `${formatBalance(reserveAmount)} TOK`,
-				warning:
-					reserveAmount !== undefined && $cost > reserveAmount
-						? 'Not enough in your reserve to cover these placements.'
-						: undefined,
+				avatarLabel:
+					$avatarID === undefined ? undefined : avatarLabel($avatarID),
+				avatarChoices: avatars.map((a) => ({
+					avatarID: a.avatarID,
+					label: avatarLabel(a.avatarID),
+					inGame: a.inGame,
+					life: a.life,
+					active: a.avatarID === $avatarID,
+				})),
+				inWorld,
+				died: casualty && {label: avatarLabel(casualty.avatarID)},
+
+				plannedCount,
+				movesLeft: $movesLeft,
+				instruction: needsSetup
+					? ''
+					: inWorld
+						? 'Click a neighbouring cell to step onto it. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn.'
+						: 'Click anywhere to choose where to appear. Entering is the whole turn, so nothing can follow it.',
 
 				roundLabel: round.label,
 				roundTone: round.tone,
@@ -319,12 +372,13 @@ export function createHud(context: Context): Readable<HudModel> {
 					!blocked &&
 					($round.step === 'Planning' ||
 						($round.step === 'Error' && $round.during === 'commit')) &&
-					$count > 0 &&
+					plannedCount > 0 &&
 					playable,
 				// Offered as a fallback only. The round reveals on its own, because a
-				// missed reveal forfeits the bond and the window can be seconds long.
+				// missed reveal loses the turn and blocks the next one, and the
+				// window can be seconds long.
 				canReveal: $round.step === 'Error' && $round.during === 'reveal',
-				canClear: $round.step === 'Planning' && $count > 0,
+				canClear: $round.step === 'Planning' && plannedCount > 0,
 				outOfGas:
 					$round.step === 'Error' &&
 					$round.error instanceof SignerOutOfFundsError

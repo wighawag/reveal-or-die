@@ -4,12 +4,19 @@
 	Logic-less on purpose (see AGENTS.md): everything it shows comes from the
 	`HudModel` store, and every button calls straight into the game's stores. If
 	a decision has to be made about what to show, it belongs in `hud.ts`.
+
+	This is where the pre-port UI ended up. `GameClock` is still here as its own
+	component; the phase banners `EnterFlow.svelte` used to paint across the
+	bottom of the screen are the `instruction` line, the "Moves: n" box from
+	`TopBar` is the moves counter, and the avatar list `EnterFlow` opened in a
+	modal is the picker below. What they all had in common was reading the
+	context directly and deciding for themselves; none of them do now.
 -->
 <script lang="ts">
 	import {getAppContext} from '$lib';
 	import {createHud} from './hud';
+	import GameClock from './GameClock.svelte';
 	import Button from '$lib/shadcn/ui/button/button.svelte';
-	import {parseEther} from 'viem';
 
 	const context = getAppContext();
 	const {game} = context;
@@ -17,14 +24,11 @@
 
 	const round = game.round;
 	const planning = game.planning;
-	const reserve = game.reserve;
 	const missedReveal = game.missedReveal;
+	const activeAvatarID = game.activeAvatarID;
 	// One shared flow, built in the context, so the account panel and a blocked
 	// move cannot open two top-ups at once.
 	const topUp = context.topUp;
-
-	/** What the "Add stake" button tops the reserve up by. */
-	const TOP_UP = parseEther('10');
 
 	const toneClass: Record<string, string> = {
 		idle: 'text-muted-foreground',
@@ -39,43 +43,38 @@
 >
 	<!-- Phase and epoch -->
 	<div
-		class="pointer-events-auto w-fit rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"
+		class="pointer-events-auto flex w-fit items-center gap-3 rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"
 	>
-		<div class="flex items-baseline gap-2">
-			<!--
-				A dot rather than a word for the one thing the player checks
-				constantly: can I move right now.
-			-->
-			<span
-				class="inline-block size-2 rounded-full {$hud.phase === 'play'
-					? 'bg-emerald-400'
-					: 'bg-amber-400'}"
-			></span>
-			<span class="text-sm font-semibold">{$hud.phaseLabel}</span>
-			<span class="text-xs text-muted-foreground">round {$hud.epoch}</span>
-		</div>
-		<div class="mt-1 flex items-center gap-2">
-			<div class="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
-				<div
-					class="h-full transition-[width] duration-1000 ease-linear {$hud.phase ===
-					'play'
-						? 'bg-emerald-400'
-						: 'bg-amber-400'}"
-					style="width: {$hud.progress * 100}%"
-				></div>
+		<GameClock
+			phase={$hud.phase}
+			progress={$hud.progress}
+			secondsLeft={$hud.secondsLeft}
+			size={72}
+		/>
+		<div>
+			<div class="flex items-baseline gap-2">
+				<span class="text-sm font-semibold">{$hud.phaseLabel}</span>
+				<span class="text-xs text-muted-foreground">round {$hud.epoch}</span>
 			</div>
-			<span class="w-10 text-right font-mono text-xs">{$hud.secondsLeft}s</span>
+			{#if $hud.avatarLabel}
+				<div id="stats" class="mt-1 text-xs text-muted-foreground">
+					Avatar {$hud.avatarLabel} &middot; {$hud.movesLeft} move{$hud.movesLeft ===
+					1
+						? ''
+						: 's'} left
+				</div>
+			{/if}
+			{#if $hud.walletSigningNotice}
+				<p class="mt-1 max-w-xs text-xs text-amber-400">
+					{$hud.walletSigningNotice}
+				</p>
+			{/if}
+			{#if $hud.planningForNextRound}
+				<p class="mt-1 max-w-xs text-xs text-amber-400">
+					This round is closed. New moves count for the next one.
+				</p>
+			{/if}
 		</div>
-		{#if $hud.walletSigningNotice}
-			<p class="mt-1 max-w-xs text-xs text-amber-400">
-				{$hud.walletSigningNotice}
-			</p>
-		{/if}
-		{#if $hud.planningForNextRound}
-			<p class="mt-1 text-xs text-amber-400">
-				This round is closed. New picks count for the next one.
-			</p>
-		{/if}
 	</div>
 
 	<!-- The round -->
@@ -83,9 +82,9 @@
 		class="pointer-events-auto w-fit max-w-md rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"
 	>
 		<!--
-			A missed reveal has already cost the player their bond, so it is stated
-			plainly and settled only on a deliberate press: acknowledging is what
-			makes the forfeit final on chain, and it is not ours to do for them.
+			An unrevealed commitment bars every new one, so it is stated plainly and
+			settled only on a deliberate press. It forfeits nothing today, which is
+			why the wording is about being blocked rather than about a loss.
 		-->
 		{#if $hud.missedReveal}
 			<div class="mb-3 rounded-md border border-red-500/40 bg-red-500/10 p-2">
@@ -118,11 +117,7 @@
 			<p class="mt-1 max-w-sm text-xs text-muted-foreground">
 				{$hud.setup.detail}
 			</p>
-			{#if $hud.setup.action === 'stake'}
-				<Button size="sm" class="mt-3" onclick={() => reserve.fund(TOP_UP)}>
-					Deposit to play
-				</Button>
-			{:else if $hud.setup.action === 'authorise'}
+			{#if $hud.setup.action === 'authorise'}
 				<!--
 					The same flow the out-of-gas remedy uses: it registers the delegate
 					AND funds it in one transaction, which is the right shape here too.
@@ -152,18 +147,7 @@
 				</div>
 			{/if}
 
-			<dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-				<dt class="text-muted-foreground">Planned</dt>
-				<dd>{$hud.plannedCount} cell{$hud.plannedCount === 1 ? '' : 's'}</dd>
-				<dt class="text-muted-foreground">Cost</dt>
-				<dd>{$hud.costLabel}</dd>
-				<dt class="text-muted-foreground">Reserve</dt>
-				<dd>{$hud.reserveLabel}</dd>
-			</dl>
-
-			{#if $hud.warning}
-				<p class="mt-2 text-xs text-amber-400">{$hud.warning}</p>
-			{/if}
+			<p class="mt-2 text-xs text-muted-foreground">{$hud.instruction}</p>
 
 			<div class="mt-3 flex flex-wrap gap-2">
 				<Button
@@ -185,24 +169,62 @@
 				<Button
 					size="sm"
 					variant="outline"
+					disabled={$hud.plannedCount === 0}
+					onclick={() => planning.undo()}
+				>
+					Undo
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
 					disabled={!$hud.canClear}
 					onclick={() => planning.clear()}
 				>
 					Clear
 				</Button>
-				<Button
-					size="sm"
-					variant="secondary"
-					onclick={() => reserve.fund(TOP_UP)}
-				>
-					Add stake
-				</Button>
 			</div>
 
-			<p class="mt-2 text-xs text-muted-foreground">
-				Click cells to plan placements. Cells are shared: two players placing on
-				the same cell both hold a share of it.
-			</p>
+			{#if $hud.avatarChoices.length > 1}
+				<!--
+					ONE ACTIVE AVATAR PER CLIENT. Nothing on chain keeps two clients off
+					the same avatar (authority is account-wide), so this choice is the
+					only thing that does: two browsers on one account must pick
+					differently, or the later commitment replaces the earlier one and
+					the first client's reveal fails.
+				-->
+				<div id="avatars" class="mt-3">
+					<p class="text-xs text-muted-foreground">Playing as</p>
+					<div class="mt-1 flex flex-wrap gap-2">
+						{#each $hud.avatarChoices as choice (choice.avatarID)}
+							<Button
+								size="sm"
+								variant={choice.active ? 'secondary' : 'ghost'}
+								disabled={choice.life === 0}
+								onclick={() => activeAvatarID.select(choice.avatarID)}
+							>
+								{choice.label}{choice.inGame ? ' (in world)' : ''}
+							</Button>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
+
+<!--
+	A border round the whole window while the round is resolving.
+
+	Kept from the pre-port UI: the canvas fills the screen and the player is
+	looking at their avatar, not at the HUD in the corner, so the one thing that
+	has to be unmissable is "this round is no longer yours to change".
+-->
+{#if $hud.phase === 'wait' && !$hud.setup}
+	<div
+		class="pointer-events-none fixed inset-0 z-50 border-[10px] border-red-600"
+	></div>
+{:else if $hud.inWorld && $hud.movesLeft <= 0}
+	<div
+		class="pointer-events-none fixed inset-0 z-50 border-[10px] border-yellow-600"
+	></div>
+{/if}

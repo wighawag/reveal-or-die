@@ -1,23 +1,28 @@
 import {describe, it, expect} from 'vitest';
 import {setupNeeded} from '$lib/context/game';
 import type {DelegationValue} from '$lib/onchain/delegation';
+import type {DepositedState} from '$lib/world/deposited';
 
 /**
  * The gate in front of a player's first move.
  *
  * Two opposite failures, both invisible from reading it. Too LOOSE and the
- * board invites a turn that cannot be committed: `makeCommitment` resolves the
- * sender against the account's registered delegates and reverts with
- * `NotDelegate`, so an unauthorised browser lets someone plan a whole round and
- * then fails as the phase closes, which is when it is too late to fix. Too
- * STRICT and it hides a perfectly playable board behind a demand the player has
- * already met - and since the delegation answer arrives from a chain read, the
- * obvious way to get that wrong is to treat "not read yet" as "not allowed".
+ * board invites a turn that cannot be committed: `commit` resolves the sender
+ * against the account's registered delegates and reverts with `NotDelegate`, so
+ * an unauthorised browser lets someone plan a whole round and then fails as the
+ * phase closes, which is when it is too late to fix. Too STRICT and it hides a
+ * perfectly playable board behind a demand the player has already met - and
+ * since both answers arrive from chain reads, the obvious way to get that wrong
+ * is to treat "not read yet" as "no".
  *
- * The answer is a FIELD now, not an address comparison. The read is scoped to
- * the (account, this browser's signer) pair, so it says whether THIS browser
- * may play; an account may authorise several, and no single address the chain
- * could return would have been an answer about this one.
+ * The delegation answer is a FIELD, not an address comparison. The read is
+ * scoped to the (account, this browser's signer) pair, so it says whether THIS
+ * browser may play; an account may authorise several, and no single address the
+ * chain could return would have been an answer about this one.
+ *
+ * The third step is `deposit` where the template says `stake`: the same gate
+ * asked about a different thing at stake. There a reserve has to be non-zero,
+ * here the contract has to be holding an avatar.
  */
 
 const ACCOUNT = '0x1111111111111111111111111111111111111111' as const;
@@ -28,7 +33,14 @@ const authorised: DelegationValue = {
 	withdrawn: false,
 };
 
-const staked = {step: 'Loaded', amount: 100n};
+const withAvatar: DepositedState = {
+	step: 'Loaded',
+	avatars: [
+		{avatarID: 1n, inGame: false, position: 0n, lastEpoch: 0n, life: 3},
+	],
+};
+
+const noAvatar: DepositedState = {step: 'Loaded', avatars: []};
 
 describe('what stands between a player and their first move', () => {
 	it('asks to sign in before anything else', () => {
@@ -36,7 +48,7 @@ describe('what stands between a player and their first move', () => {
 			setupNeeded({
 				identity: undefined,
 				delegation: {step: 'Unloaded'} as DelegationValue,
-				reserve: {step: 'Unloaded'},
+				deposited: {step: 'Unloaded'},
 			}),
 		).toEqual({step: 'sign-in'});
 	});
@@ -46,7 +58,7 @@ describe('what stands between a player and their first move', () => {
 			setupNeeded({
 				identity: ACCOUNT,
 				delegation: {step: 'Loaded', allowed: false, withdrawn: false},
-				reserve: staked,
+				deposited: withAvatar,
 			}),
 		).toEqual({step: 'authorise'});
 	});
@@ -60,33 +72,45 @@ describe('what stands between a player and their first move', () => {
 			setupNeeded({
 				identity: ACCOUNT,
 				delegation: {step: 'Unloaded'} as DelegationValue,
-				reserve: staked,
+				deposited: withAvatar,
 			}),
 		).toBeUndefined();
 	});
 
-	it('asks to authorise BEFORE asking for a stake', () => {
-		// Order is a real decision, not a tie-break. Both are wallet
-		// transactions, and a player who abandons setup half way through should
-		// have spent as little as possible: authorising costs gas, staking moves
-		// tokens into a reserve. So the cheap one goes first.
-		expect(
-			setupNeeded({
-				identity: ACCOUNT,
-				delegation: {step: 'Loaded', allowed: false, withdrawn: false},
-				reserve: {step: 'Loaded', amount: 0n},
-			}),
-		).toEqual({step: 'authorise'});
-	});
-
-	it('asks for a stake once the browser may play', () => {
+	it('does NOT ask for an avatar while the avatars are still being read', () => {
+		// Same mistake on the other read, and it is the more tempting one because
+		// "no avatars yet" and "an empty list" look alike from the call site.
 		expect(
 			setupNeeded({
 				identity: ACCOUNT,
 				delegation: authorised,
-				reserve: {step: 'Loaded', amount: 0n},
+				deposited: {step: 'Loading'},
 			}),
-		).toEqual({step: 'stake'});
+		).toBeUndefined();
+	});
+
+	it('asks to authorise BEFORE asking for an avatar', () => {
+		// Order is a real decision, not a tie-break. A player who abandons setup
+		// half way through should have spent as little as possible: authorising is
+		// one transaction that also funds the signer, while depositing puts an
+		// avatar into the contract's custody. So the cheap one goes first.
+		expect(
+			setupNeeded({
+				identity: ACCOUNT,
+				delegation: {step: 'Loaded', allowed: false, withdrawn: false},
+				deposited: noAvatar,
+			}),
+		).toEqual({step: 'authorise'});
+	});
+
+	it('asks for an avatar once the browser may play', () => {
+		expect(
+			setupNeeded({
+				identity: ACCOUNT,
+				delegation: authorised,
+				deposited: noAvatar,
+			}),
+		).toEqual({step: 'deposit'});
 	});
 
 	it('gets out of the way once both are done', () => {
@@ -94,7 +118,7 @@ describe('what stands between a player and their first move', () => {
 			setupNeeded({
 				identity: ACCOUNT,
 				delegation: authorised,
-				reserve: staked,
+				deposited: withAvatar,
 			}),
 		).toBeUndefined();
 	});
@@ -112,7 +136,7 @@ describe('what stands between a player and their first move', () => {
 			setupNeeded({
 				identity: ACCOUNT,
 				delegation: {step: 'Loaded', allowed: false, withdrawn: true},
-				reserve: staked,
+				deposited: withAvatar,
 			}),
 		).toEqual({step: 'authorise'});
 	});

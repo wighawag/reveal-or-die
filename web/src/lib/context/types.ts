@@ -24,8 +24,8 @@ import type {OnchainStateStore} from '$lib/onchain/state';
 import type {DelegationStore} from '$lib/onchain/delegation';
 import type {ViewStateStore} from '$lib/view';
 import type {Game, Render} from './game';
-import type {BoardState} from '$lib/placement/state';
-import type {BoardView} from '$lib/placement/view';
+import type {WorldState} from '$lib/world/state';
+import type {WorldView} from '$lib/world/view';
 import type {ClockStore} from '$lib/core/clock';
 import type {TransactionObserver} from '@etherkit/tx-observer';
 import type {BalanceCheckStore} from '$lib/core/transaction/balance-check-store';
@@ -187,12 +187,12 @@ export type Context = {
 	deployments: DeploymentsStore;
 	accountData: MultiAccountDataStore;
 	/**
-	 * The game's chain state. Typed as the template game's board here; a
-	 * descendant points these two at its own shapes, which is the only change
-	 * this file needs.
+	 * The game's chain state. Typed as THIS game's world; the two lines above the
+	 * `Context` type are the only change a descendant needs in this file, which is
+	 * why they are imports rather than inline shapes.
 	 */
-	onchainState: OnchainStateStore<BoardState & {epoch: number}>;
-	viewState: ViewStateStore<BoardView>;
+	onchainState: OnchainStateStore<WorldState & {epoch: number}>;
+	viewState: ViewStateStore<WorldView>;
 	/** The commit-reveal game: epochs, the round, what is at stake. */
 	game: Game;
 	/** The render surface and the camera that scopes what is loaded. */

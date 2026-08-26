@@ -1,9 +1,9 @@
 import {describe, it, expect, vi} from 'vitest';
 import {writable} from 'svelte/store';
 import {resumeWhenGasArrives} from '$lib/context/game';
-import {SignerOutOfFundsError} from '$lib/placement/errors';
+import {SignerOutOfFundsError} from '$lib/world/errors';
 import type {RoundState} from '$lib/game/core/round';
-import type {Placement} from '$lib/placement/commit-reveal';
+import type {Action} from '$lib/world/commit-reveal';
 
 /**
  * The one piece of wiring that spends the player's gas without being asked.
@@ -19,7 +19,7 @@ import type {Placement} from '$lib/placement/commit-reveal';
  * player never asked for either send.
  */
 
-type State = RoundState<Placement>;
+type State = RoundState<Action>;
 
 function fakeRound(state: State) {
 	const commit = vi.fn(async () => {});
@@ -42,7 +42,7 @@ const outOfGas = (during: 'commit' | 'reveal'): State => ({
 	step: 'Error',
 	during,
 	epoch: 3,
-	actions: [{cellID: 1n}],
+	actions: [{actionType: 1, data: 1n}],
 	message: 'Not enough gas to send this move.',
 	error: new SignerOutOfFundsError(new Error('insufficient funds')),
 });
@@ -90,7 +90,7 @@ describe('resuming a round when gas arrives', () => {
 			step: 'Error',
 			during: 'commit',
 			epoch: 3,
-			actions: [{cellID: 1n}],
+			actions: [{actionType: 1, data: 1n}],
 			message: 'The commitment was rejected by the contract',
 			error: new Error('The commitment was rejected by the contract'),
 		});
@@ -111,7 +111,7 @@ describe('resuming a round when gas arrives', () => {
 		const round = fakeRound({
 			step: 'Committed',
 			epoch: 3,
-			actions: [{cellID: 1n}],
+			actions: [{actionType: 1, data: 1n}],
 			hash: '0xabc',
 		} as unknown as State);
 		const balance = writable<{step: string; value?: bigint}>({
