@@ -1,8 +1,10 @@
-import {defineConfig, type Plugin, type ResolvedConfig} from 'vite';
-import devtoolsJson from 'vite-plugin-devtools-json';
-import basicSsl from '@vitejs/plugin-basic-ssl';
+import {defineConfig, type Plugin, type ResolvedConfig} from 'vitest/config';
+import {playwright} from '@vitest/browser-playwright';
 import tailwindcss from '@tailwindcss/vite';
+import {execSync} from 'node:child_process';
+import devtoolsJson from 'vite-plugin-devtools-json';
 import {sveltekit} from '@sveltejs/kit/vite';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 import {AssetPack, type AssetPackConfig} from '@assetpack/core';
 import {pixiPipes} from '@assetpack/core/pixi';
 import {readFileSync, writeFileSync, existsSync} from 'fs';
@@ -10,6 +12,23 @@ import {hookup} from 'named-logs-console';
 
 hookup();
 
+let FIRST_COMMIT: string | undefined;
+
+try {
+	FIRST_COMMIT = execSync('git rev-list --max-parents=0 HEAD', {
+		stdio: ['ignore', 'pipe', 'ignore'],
+	})
+		.toString()
+		.trim();
+} catch (e) {
+	console.error(e);
+}
+
+// ---------------------------------------------------------------------------
+// Sprite pipeline. This is reveal-or-die's own: the template has no art build,
+// so nothing upstream owns it. It turns ../assets into static/assets plus a
+// manifest the pixi renderer loads as a bundle.
+// ---------------------------------------------------------------------------
 const assetsFolder = '../assets';
 const manifestSrcPath = './src/lib/manifest.json';
 
@@ -35,7 +54,6 @@ function assetpackPlugin(): Plugin {
 				files: ['**/sprites'],
 				metaData: {
 					tps: true,
-					// other tags can be added here
 				},
 			},
 		],
@@ -44,9 +62,9 @@ function assetpackPlugin(): Plugin {
 	let ap: AssetPack | undefined;
 
 	function fixManifest() {
-		// ------------------------------------------------------------------
-		// fix https://github.com/pixijs/assetpack/issues/148
-		// ------------------------------------------------------------------
+		// works around https://github.com/pixijs/assetpack/issues/148 : the
+		// manifest records paths relative to the output folder, but the app
+		// loads them from the site root.
 		const content = readFileSync(manifestSrcPath, 'utf-8');
 		const jsonContent = JSON.parse(content);
 		function transform(value: string | {src: string}): string | {src: string} {
@@ -54,47 +72,27 @@ function assetpackPlugin(): Plugin {
 				if (value.startsWith('/')) {
 					return value;
 				}
-				const newValue = `/assets/${value}`;
-				console.log(`transforming ${value} into ${newValue}`);
-				return newValue;
+				return `/assets/${value}`;
 			} else {
 				if (value.src.startsWith('/')) {
 					return value;
 				}
-				const newSrcValue = `/assets/${value.src}`;
-				console.log(`transforming ${value.src} into ${newSrcValue}`);
-				value.src = newSrcValue;
+				value.src = `/assets/${value.src}`;
 				return value;
 			}
 		}
 		for (const bundle of jsonContent.bundles) {
 			for (const asset of bundle.assets) {
-				if (typeof asset.src === 'object') {
-					if (Array.isArray(asset.src)) {
-						for (let i = 0; i < asset.src.length; i++) {
-							asset.src[i] = transform(asset.src[i]);
-						}
-					} else {
-						throw new Error(`src object not supported yet`);
-					}
-				} else {
-					asset.src = transform(asset.src);
-				}
+				asset.src = asset.src.map(transform);
 			}
 		}
 		writeFileSync(manifestSrcPath, JSON.stringify(jsonContent, null, 2));
-		// ------------------------------------------------------------------
 	}
 
 	return {
-		name: 'vite-plugin-assetpack',
-		configResolved(resolvedConfig) {
+		name: 'assetpack',
+		configResolved: (resolvedConfig) => {
 			mode = resolvedConfig.command;
-			if (!resolvedConfig.publicDir) return;
-			if (apConfig.output) return;
-			const currentFolder = process.cwd().replaceAll(`\\`, `/`); // fix issue on windows
-			const publicDir = resolvedConfig.publicDir.replace(currentFolder, '');
-			apConfig.output = `.${publicDir}/assets/`;
 		},
 		buildStart: async () => {
 			if (mode === 'serve') {
@@ -119,55 +117,87 @@ function assetpackPlugin(): Plugin {
 
 const env = process.env;
 
-const plugins = [
-	devtoolsJson({uuid: '612d0dc7-ecc1-4ebd-8daf-7201d2a8a133'}),
-	tailwindcss(),
-	sveltekit(),
-];
+export default defineConfig(({mode}) => {
+	const plugins = [
+		devtoolsJson(FIRST_COMMIT ? {uuid: FIRST_COMMIT} : undefined),
+		tailwindcss(),
+		sveltekit(),
+	];
 
-if (existsSync(assetsFolder)) {
-	plugins.push(assetpackPlugin());
-} else {
-	writeFileSync(
-		manifestSrcPath,
-		JSON.stringify({
-			bundles: [{name: 'default', assets: []}],
-		}),
-	);
-}
+	if (existsSync(assetsFolder)) {
+		plugins.push(assetpackPlugin());
+	} else {
+		// keep the import in src/ resolvable when the art folder is absent
+		writeFileSync(
+			manifestSrcPath,
+			JSON.stringify({bundles: [{name: 'default', assets: []}]}),
+		);
+	}
 
-if (env.USE_LOCALHOST_SSL) {
-	plugins.push(
-		// following is not recommended, see:
-		// - https://v4.vitejs.dev/config/server-options.html#server-https
-		// - https://github.com/vitejs/vite-plugin-basic-ssl
-		basicSsl({
-			/** name of certification */
-			name: 'test',
-			/** custom trust domains */
-			domains: ['*.custom.com'],
-			/** custom certification directory */
-			certDir: `${env.HOME}/.devServer/cert`,
-		}),
-	);
-}
+	if (env.USE_LOCALHOST_SSL) {
+		// not recommended, see https://v4.vitejs.dev/config/server-options.html#server-https
+		plugins.push(
+			basicSsl({
+				name: 'test',
+				domains: ['*.custom.com'],
+				certDir: `${env.HOME}/.devServer/cert`,
+			}),
+		);
+	}
 
-export default defineConfig({
-	plugins,
-	define: {
-		// fix ethereumjs in worker
-		'process.env': '{}',
-		process: '{}',
-	},
-	build: {
-		emptyOutDir: true,
-		minify: false,
-		sourcemap: true,
-	},
-	worker: {
-		format: 'es',
-	},
-	ssr: {
-		noExternal: ['pixi-viewport'],
-	},
+	return {
+		plugins,
+		define: {
+			// ethereumjs reaches for process.* inside the embedded-chain worker
+			'process.env': '{}',
+			process: '{}',
+		},
+		build: {
+			emptyOutDir: true,
+			minify: true, // shrink chunks so large files don't stall on slow /
+			// throttled connections (an unminified single bundle hung under
+			// Chrome's request-level throttling)
+			sourcemap: true,
+		},
+		worker: {
+			format: 'es',
+		},
+		ssr: {
+			// DROP with the renderer port: pixi-viewport goes away with it
+			noExternal: ['pixi-viewport'],
+		},
+		server: {
+			host: '127.0.0.1',
+			// Allow all hosts in dev mode so tunnels work instantly
+			allowedHosts: mode === 'development' ? true : [],
+		},
+		test: {
+			expect: {requireAssertions: true},
+			projects: [
+				{
+					extends: './vite.config.ts',
+					test: {
+						name: 'client',
+						browser: {
+							enabled: true,
+							provider: playwright(),
+							instances: [{browser: 'chromium', headless: true}],
+						},
+						include: ['test/**/*.svelte.{test,spec}.{js,ts}'],
+						exclude: ['test/lib/server/**'],
+					},
+				},
+
+				{
+					extends: './vite.config.ts',
+					test: {
+						name: 'server',
+						environment: 'node',
+						include: ['test/**/*.{test,spec}.{js,ts}'],
+						exclude: ['test/**/*.svelte.{test,spec}.{js,ts}'],
+					},
+				},
+			],
+		},
+	};
 });

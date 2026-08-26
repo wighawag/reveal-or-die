@@ -1,3 +1,6 @@
 packages:
   - "web"
+  - "contracts"
   - "onchain/*"
+onlyBuiltDependencies:
+  - esbuild

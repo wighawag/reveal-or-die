@@ -12,7 +12,15 @@ static/pwa
 
 src/lib/deployments.ts
 
-# assets
+.yalc
+yalc.lock
+# Playwright
+test-results
+playwright-report/
+blob-report/
+.playwright
+
+# assets (assetpack pipeline output)
 static/assets
 .assetpack
 src/lib/manifest.json

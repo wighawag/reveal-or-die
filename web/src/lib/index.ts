@@ -1,416 +1,121 @@
-import {get} from 'svelte/store';
+/**
+ * Where this app is composed.
+ *
+ * Everything under `core/` is written to not know which app it is running in,
+ * so somebody has to hand the pieces to each other and supply the framework's
+ * answers. That is this file, and keeping it OUT of `core/` is what lets the
+ * rule in `test/framework-boundary.test.ts` be true: a composition root may
+ * import `./kit/*` and the environment, and a reusable building block may not.
+ *
+ * At the root template this file lived at `core/config.ts` until it was moved
+ * here; this repo made the same move in 91ef28b, five hundred commits earlier.
+ */
+import {createRouteHandler} from './kit/paths';
+import {
+	getHashParamsFromLocation,
+	getParamsFromLocation,
+} from './core/utils/web/url';
+
+import {createServiceWorker} from '$lib/core/service-worker';
+import {resolvePath} from './kit/paths';
+import {openFromNotification} from './kit/notification-navigation';
+import {createNotificationsService} from './core/notifications';
 import {createContext} from 'svelte';
-import {
-	establishEmbeddedConnection,
-	establishRemoteConnection,
-} from './core/connection';
-import {createBalanceStore} from './core/connection/balance';
-import {createCostStore} from './core/connection/costs';
-import {createGasFeeStore} from './core/connection/gasFee';
-import {createEpochConfigStore} from './core/epoch/config';
-import {createRenderer} from './render/renderer';
-import {createViewState} from './view';
-import {createOnchainState} from './onchain/state';
-import {createCamera} from './core/render/camera';
-import {createLocalState} from './private/localState';
-import {eventEmitter} from './render/eventEmitter';
-import {createWriteOperations} from './onchain/writes';
-import {createAvatarCollectionStore} from './onchain/avatars';
-import {ZonesFetcher} from './onchain/zones-fetcher';
-import {createEnterFlow} from './ui/flows/enter/enterFlow';
-import {createPurchaseFlow} from './ui/flows/purchase/purchaseFlow';
-import {createSyncedTime} from './core/time';
-import {
-	createManualEpochTrackers,
-	createTimedEpochTrackers,
-} from './core/epoch';
-import {createAutoSubmitterWithGameConfig} from './private/auto-commit-reveal';
-import type {GameDependencies} from './types';
+import type {Context} from './context/types';
+import type {SendingIndicatorPlacement} from './ui/in-flight/sending';
+import {env} from '$env/dynamic/public';
 
-export async function createGameDependenciesForRemotePlay(): Promise<GameDependencies> {
-	const window = globalThis as any;
+export const hashParams = getHashParamsFromLocation();
 
-	// ----------------------------------------------------------------------------
-	// CONNECTION
-	// ----------------------------------------------------------------------------
+const {params: paramFromLocation} = getParamsFromLocation();
+export const {isParentRoute, isSameRoute, route, params} = createRouteHandler(
+	paramFromLocation,
+	{
+		globalQueryParams: [
+			'dev',
+			'transactions',
+			'debug',
+			'debugLevel',
+			'traceLevel',
+			'debugLabel',
+			'eruda',
+			'tx-observer',
+			'burner',
+		] as const,
+		// Dynamic routes that need hash-based URLs on path-based IPFS gateways
+		dynamicRoutes: [
+			{
+				pattern: /^(\/explorer\/tx\/)(0x[a-fA-F0-9]+)\/?$/,
+				basePath: '/explorer/tx/',
+			},
+			{
+				pattern: /^(\/explorer\/address\/)(0x[a-fA-F0-9]+)\/?$/,
+				basePath: '/explorer/address/',
+			},
+		],
+	},
+);
 
-	const {
-		signer,
-		connection,
-		walletClient,
-		publicClient,
-		paymentConnection,
-		paymentWalletClient,
-		paymentPublicClient,
-		account,
-		deployments,
-	} = await establishRemoteConnection();
+export const dev = params.dev || import.meta.env.DEV;
 
-	window.paymentConnection = paymentConnection;
-	window.paymentWalletClient = paymentWalletClient;
-	window.paymentPublicClient = paymentPublicClient;
-	window.connection = connection;
-	window.walletClient = walletClient;
-	window.publicClient = publicClient;
-	window.deployments = deployments;
+// Runtime override for the burner wallet (see context/burner.ts). Preserved
+// across navigation because `burner` is a global query param above.
+export {parseBurnerParam} from './context/burner';
+import {parseBurnerParam as _parseBurnerParam} from './context/burner';
+export const burnerOverride = _parseBurnerParam(params.burner);
 
-	// ----------------------------------------------------------------------------
+/**
+ * MODULE SCOPE, deliberately, and the reason is ordering rather than taste.
+ *
+ * There is exactly one service worker registration per page, and it has to be
+ * claimed EARLY: `routes/+layout.ts` registers it from module scope, because a
+ * controlling worker's queued messages are flushed right after
+ * `DOMContentLoaded` and a registration that waits for the app context to be
+ * built would miss them (see the comment there). A per-context instance could
+ * not exist yet at that moment.
+ *
+ * The same goes for notifications, which the worker feeds.
+ *
+ * This is NOT a licence for module-level state in general. The test is whether
+ * the thing is genuinely process-scoped, like a browser registration, or
+ * whether it belongs to a session, an account or a page, in which case it goes
+ * in the app context and dies with it. ADR-0004 (`work` branch) records what
+ * the second kind costs when it gets this wrong.
+ */
+export const notifications = createNotificationsService();
+export const serviceWorker = createServiceWorker(
+	{resolvePath, navigateTo: openFromNotification},
+	notifications,
+);
 
-	// ----------------------------------------------------------------------------
-	// BALANCE AND COSTS
-	// ----------------------------------------------------------------------------
+/**
+ * Where the "sending..." indicator goes, or whether it goes anywhere.
+ *
+ * HERE RATHER THAN IN THE LAYOUT, for the reason `+layout.svelte` gives about
+ * the identity constants it imports instead of spelling out: that file is the
+ * most-edited in the template, so a choice parked in its markup costs a merge
+ * conflict to every fork that makes a different one. A descendant flips this
+ * line; `main` keeps editing the layout around it.
+ *
+ * See `SendingIndicatorPlacement` for what each value means, and in particular
+ * for what `'none'` does NOT turn off.
+ */
+export const sendingIndicator: SendingIndicatorPlacement = 'floating';
 
-	const costs = createCostStore(deployments);
-	window.costs = costs;
+const [getAppContextFunction, setAppContext] = createContext<() => Context>();
 
-	const balance = createBalanceStore({publicClient, signer, costs});
-	window.balance = balance;
+const getAppContext = () => getAppContextFunction()();
+export {getAppContext, setAppContext};
 
-	// ----------------------------------------------------------------------------
+// Dev/debug: attaching to globalThis for console access
+(globalThis as any).env = env;
+// Dev/debug: attaching to globalThis for console access
+(globalThis as any).vite_env = import.meta.env;
 
-	// ----------------------------------------------------------------------------
-	// TIME
-	// ----------------------------------------------------------------------------
-
-	const syncedTime = createSyncedTime(
-		{provider: connection.provider},
-		{
-			minPollingInterval: 100,
-		},
-	);
-	window.syncedTime = syncedTime;
-
-	const epochConfig = createEpochConfigStore(deployments);
-	window.epochConfig = epochConfig;
-
-	const {epochInfo, twoPhase} = createTimedEpochTrackers({
-		syncedTime,
-		config: epochConfig,
-		publicClient,
+// HMR cleanup: Remove service worker listeners when module is hot-replaced in dev
+// This prevents listener accumulation during development
+if (import.meta.hot) {
+	import.meta.hot.dispose(() => {
+		serviceWorker.cleanup();
 	});
-	window.twoPhase = twoPhase;
-	window.epochInfo = epochInfo;
-	// ----------------------------------------------------------------------------
-
-	// TODO use deployment store ?
-	const gasFee = createGasFeeStore({
-		publicClient: publicClient as any, // TODO fix publicClient type
-		deployments: deployments.current,
-	});
-	window.gasFee = gasFee;
-
-	// TODO remove
-	// we trigger it
-	gasFee.subscribe((v) => {
-		console.log(`gas fee updated`, v);
-	});
-	window.gasFee = gasFee;
-	// ----------------------------------------------------------------------------
-
-	const {camera, cameraControl} = createCamera();
-	window.camera = camera;
-	window.cameraControl = cameraControl;
-
-	const writes = createWriteOperations({
-		costs,
-		connection,
-		publicClient: publicClient as any, // TODO fix publicClient type,
-		walletClient: walletClient as any, // TODO fix publicClient type,
-		paymentConnection,
-		paymentPublicClient: paymentPublicClient as any, // TODO fix publicClient type,
-		paymentWalletClient: paymentWalletClient as any, // TODO fix publicClient type,
-		gasFee,
-		deployments,
-	});
-
-	const zonesFetcher = new ZonesFetcher({
-		publicClient,
-		deployments: deployments.current,
-	});
-
-	// For now use deployments.current
-	const onchainState = createOnchainState({
-		camera,
-		deployments: deployments.current,
-		zonesFetcher,
-		epochInfo,
-		publicClient,
-	});
-	window.onchainState = onchainState;
-
-	// For now use deployments.current
-	const localState = createLocalState({
-		signer,
-		epochInfo,
-		deployments: deployments.current,
-		writes,
-	});
-	window.localState = localState;
-
-	const {commitAutoSubmitter, revealAutoSubmitter} =
-		createAutoSubmitterWithGameConfig({
-			epochConfig,
-			localState,
-			epochInfo,
-			syncedTime,
-		});
-	// TODO move somewhere we can also trigger stop
-	commitAutoSubmitter.start();
-	revealAutoSubmitter.start();
-
-	// For now use deployments.current
-	const viewState = createViewState(
-		onchainState,
-		localState,
-		deployments.current,
-	);
-	// For now use deployments.current
-	const avatars = createAvatarCollectionStore({
-		account,
-		publicClient,
-		deployments: deployments.current,
-	});
-	window.avatars = avatars;
-
-	const purchaseFlow = createPurchaseFlow({
-		avatars,
-		writes,
-	});
-
-	const enterFlow = createEnterFlow({
-		connection,
-		viewState,
-		purchaseFlow,
-		epochInfo,
-		twoPhase,
-		avatars,
-		localState,
-	});
-
-	window.viewState = viewState;
-	const renderer = createRenderer({
-		viewState,
-		eventEmitter,
-		epochInfo,
-		localState,
-		epochConfig,
-		camera,
-		cameraControl,
-		avatars,
-		enterFlow,
-		deployments: deployments.current, // TODO use deployment store ?
-	});
-
-	return {
-		gasFee,
-		epochInfo,
-		twoPhase,
-		epochConfig,
-		costs,
-		balance,
-		paymentConnection,
-		paymentWalletClient,
-		paymentPublicClient,
-		renderer,
-		viewState,
-		localState,
-		onchainState,
-		camera,
-		cameraControl,
-		connection,
-		walletClient,
-		publicClient,
-		account,
-		writes,
-		avatars,
-		deployments,
-		enterFlow,
-		purchaseFlow,
-	};
 }
-
-export async function createGameDependenciesForEmbeddedPlay(): Promise<GameDependencies> {
-	const window = globalThis as any;
-
-	// ----------------------------------------------------------------------------
-	// CONNECTION
-	// ----------------------------------------------------------------------------
-
-	const {
-		signer,
-		connection,
-		walletClient,
-		publicClient,
-		paymentConnection,
-		paymentWalletClient,
-		paymentPublicClient,
-		account,
-		deployments,
-	} = await establishEmbeddedConnection();
-
-	window.paymentConnection = paymentConnection;
-	window.paymentWalletClient = paymentWalletClient;
-	window.paymentPublicClient = paymentPublicClient;
-	window.connection = connection;
-	window.walletClient = walletClient;
-	window.publicClient = publicClient;
-	window.deployments = deployments;
-
-	// ----------------------------------------------------------------------------
-
-	// ----------------------------------------------------------------------------
-	// BALANCE AND COSTS
-	// ----------------------------------------------------------------------------
-
-	const costs = createCostStore(deployments);
-	window.costs = costs;
-
-	const balance = createBalanceStore({publicClient, signer, costs});
-	window.balance = balance;
-
-	// ----------------------------------------------------------------------------
-
-	const epochConfig = createEpochConfigStore(deployments);
-	window.epochConfig = epochConfig;
-
-	const {epochInfo, twoPhase} = createManualEpochTrackers({
-		config: epochConfig,
-		publicClient,
-	});
-	window.twoPhase = twoPhase;
-	window.epochInfo = epochInfo;
-	// ----------------------------------------------------------------------------
-
-	// TODO use deployment store ?
-	const gasFee = createGasFeeStore({
-		publicClient: publicClient as any, // TODO fix publicClient type
-		deployments: deployments.current,
-	});
-	window.gasFee = gasFee;
-
-	// TODO remove
-	// we trigger it
-	gasFee.subscribe((v) => {
-		console.log(`gas fee updated`, v);
-	});
-	window.gasFee = gasFee;
-	// ----------------------------------------------------------------------------
-
-	const {camera, cameraControl} = createCamera();
-	window.camera = camera;
-	window.cameraControl = cameraControl;
-
-	const writes = createWriteOperations({
-		costs,
-		connection,
-		publicClient: publicClient as any, // TODO fix publicClient type,
-		walletClient: walletClient as any, // TODO fix publicClient type,
-		paymentConnection,
-		paymentPublicClient: paymentPublicClient as any, // TODO fix publicClient type,
-		paymentWalletClient: paymentWalletClient as any, // TODO fix publicClient type,
-		gasFee,
-		deployments,
-	});
-
-	const zonesFetcher = new ZonesFetcher({
-		publicClient,
-		deployments: deployments.current,
-	});
-
-	// For now use deployments.current
-	const onchainState = createOnchainState({
-		camera,
-		deployments: deployments.current,
-		zonesFetcher,
-		epochInfo,
-		publicClient,
-	});
-	window.onchainState = onchainState;
-
-	// For now use deployments.current
-	const localState = createLocalState({
-		signer,
-		epochInfo,
-		deployments: deployments.current,
-		writes,
-	});
-	window.localState = localState;
-
-	// For now use deployments.current
-	const viewState = createViewState(
-		onchainState,
-		localState,
-		deployments.current,
-	);
-	// For now use deployments.current
-	const avatars = createAvatarCollectionStore({
-		account,
-		publicClient,
-		deployments: deployments.current,
-	});
-	window.avatars = avatars;
-
-	const purchaseFlow = createPurchaseFlow({
-		avatars,
-		writes,
-	});
-
-	const enterFlow = createEnterFlow({
-		connection,
-		viewState,
-		purchaseFlow,
-		epochInfo,
-		twoPhase,
-		avatars,
-		localState,
-	});
-
-	window.viewState = viewState;
-	const renderer = createRenderer({
-		viewState,
-		eventEmitter,
-		epochInfo,
-		localState,
-		epochConfig,
-		camera,
-		cameraControl,
-		avatars,
-		enterFlow,
-		deployments: deployments.current, // TODO use deployment store ?
-	});
-
-	return {
-		gasFee,
-		epochInfo,
-		twoPhase,
-		epochConfig,
-		costs,
-		balance,
-		paymentConnection,
-		paymentWalletClient,
-		paymentPublicClient,
-		renderer,
-		viewState,
-		localState,
-		onchainState,
-		camera,
-		cameraControl,
-		connection,
-		walletClient,
-		publicClient,
-		account,
-		writes,
-		avatars,
-		deployments,
-		enterFlow,
-		purchaseFlow,
-	};
-}
-
-(globalThis as any).get = get;
-
-const [getUserContextFunction, setUserContext] =
-	createContext<() => GameDependencies>();
-
-const getUserContext = () => getUserContextFunction()();
-export {getUserContext, setUserContext};

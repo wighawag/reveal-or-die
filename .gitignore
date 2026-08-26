@@ -7,10 +7,14 @@ node_modules/
 .vscode/*
 !.vscode/*.default
 
+tmp/
+# Nightshift plan artifacts (keep out of version control)
+.nightshift-plan
+
+.kilo/
 database.sql
 
 .kilocode/
 
 # agent scratch (subagent transcripts and artifacts)
 .pi-subagents/
-

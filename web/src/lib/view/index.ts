@@ -1,120 +1,61 @@
-import type {AvatarEntity, OnchainState} from '$lib/onchain/types';
-import {derived, type Readable} from 'svelte/store';
-import {
-	computeUpdatedLocalState,
-	type LocalAction,
-	type LocalState,
-} from '../private/localState';
-import type {TypedDeployments} from '$lib/core/connection/types';
+/**
+ * The view seam.
+ *
+ * What the renderer draws: onchain state with the player's local, not-yet-onchain
+ * intent layered on top. The template supplies the wiring (subscribe to both,
+ * re-derive, pass the status through); the game supplies the merge, because
+ * only it knows what a planned move looks like on top of a confirmed one.
+ */
+import {derived} from 'svelte/store';
+import type {
+	OnchainStateStore,
+	OnchainStateValue,
+	ViewStateStore,
+	ViewStateValue,
+} from '$lib/game/core/seams';
+import type {Readable} from 'svelte/store';
 
-export type Position = {x: number; y: number};
+export type {ViewStateStore, ViewStateValue} from '$lib/game/core/seams';
 
-export type AvatarViewEntity = AvatarEntity & {
-	plannedActions?: LocalAction[];
-	entering: boolean;
-};
-export type ViewEntity = AvatarViewEntity;
-export type ViewEntities = {[id: string]: ViewEntity};
-export type ViewState = {
-	avatar?: {id: string; numMoves: number};
-	entities: ViewEntities;
+/**
+ * Merge confirmed state with local intent.
+ *
+ * Receives the loaded onchain state and whatever the game keeps locally, and
+ * returns what should be drawn. Called on every change of either, so it should
+ * be cheap and must not mutate its inputs: the onchain store stays the single
+ * source of truth, and a re-derive must not leave view-only flags behind on it.
+ */
+export type ViewMerge<TState, TLocal, TView> = (params: {
+	onchain: TState;
+	local: TLocal;
 	epoch: number;
-};
+}) => TView;
 
-export type ViewStateStore = Readable<ViewState>;
+export function createViewState<TState, TLocal, TView>(params: {
+	onchainState: OnchainStateStore<TState & {epoch: number}>;
+	localState: Readable<TLocal>;
+	merge: ViewMerge<TState, TLocal, TView>;
+}): ViewStateStore<TView> {
+	const {onchainState, localState, merge} = params;
 
-export function createViewState(
-	onchainState: Readable<OnchainState>,
-	localState: Readable<LocalState>,
-	deployments: TypedDeployments, // TODO use store
-) {
-	const viewState = derived(
-		[onchainState, localState],
-		([$onchainState, localStateFromStore]): ViewState => {
-			const epoch = $onchainState.epoch;
-			const $localState = computeUpdatedLocalState(localStateFromStore, epoch);
-
-			const entities: ViewEntities = {};
-			for (const entityID of Object.keys($onchainState.entities)) {
-				const onchainEntity = $onchainState.entities[entityID];
-				if (onchainEntity.type === 'avatar') {
-					entities[entityID] = {
-						...onchainEntity,
-						entering: false,
-					};
-				}
+	const _value = derived(
+		[{subscribe: onchainState.subscribe}, localState],
+		([$onchain, $local]): ViewStateValue<TView> => {
+			const state = $onchain as OnchainStateValue<TState & {epoch: number}>;
+			if (state.step === 'Unloaded') {
+				return {step: 'Unloaded'};
 			}
-			let avatarData: {id: string; numMoves: number} | undefined;
-			if ($localState.signer && $localState.avatar) {
-				const currentAvatarID = $localState.avatar.avatarID;
-				let avatarEntity = entities[currentAvatarID] as
-					| AvatarViewEntity
-					| undefined;
-				if (avatarEntity || !$localState.avatar.exiting) {
-					let numMoves = Number(deployments.contracts.Game.linkedData.numMoves);
-
-					avatarData = {
-						id: currentAvatarID,
-						numMoves:
-							numMoves -
-							$localState.avatar.actions.filter((v) => v.type === 'move')
-								.length,
-					};
-
-					if ($localState.avatar.actions[0]?.type === 'enter') {
-						avatarEntity = {
-							owner: $localState.signer.owner,
-							type: 'avatar',
-							id: avatarData.id,
-							life: 1,
-							position: $localState.avatar.actions[0],
-							lastEpoch: epoch,
-							previousActions: [],
-							entering: true,
-						};
-						entities[avatarData.id] = avatarEntity;
-					}
-
-					if (avatarEntity) {
-						const actions: LocalAction[] = [];
-						let current_action: LocalAction = {
-							type: 'move',
-							...avatarEntity.position,
-						};
-						actions.push(current_action);
-						// console.log(`current pos`, current_position);
-
-						if (
-							$localState.avatar.actions.length > 0 &&
-							$localState.avatar.epoch == epoch
-						) {
-							for (const action of $localState.avatar.actions) {
-								current_action = {...action};
-								actions.push(current_action);
-							}
-						}
-						avatarEntity.plannedActions = actions;
-					}
-				}
-			}
-
-			for (const entityID of Object.keys(entities)) {
-				const entity = entities[entityID];
-				if (entity.type === 'avatar' && entityID != avatarData?.id) {
-					// TODO
-					if (entity.life == 0 && entity.lastEpoch + 1 < epoch) {
-						delete entities[entityID];
-					}
-				}
-			}
-
+			const epoch = state.epoch;
 			return {
-				avatar: avatarData,
-				entities,
-				epoch: $onchainState.epoch,
+				step: 'Loaded',
+				epoch,
+				...merge({onchain: state as unknown as TState, local: $local, epoch}),
 			};
 		},
 	);
 
-	return viewState;
+	return {
+		subscribe: _value.subscribe,
+		status: onchainState.status,
+	};
 }

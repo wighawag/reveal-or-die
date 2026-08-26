@@ -1,108 +1,217 @@
-import {createDirectReadStore} from '$lib/onchain/direct-read';
-import type {AvatarEntity} from '$lib/onchain/types';
-import {bigIntIDToXY} from 'reveal-or-die-contracts';
-import {type LocalAction} from '../private/localState';
-import type {CameraWatcher} from '$lib/core/render/camera';
-import type {ZonesFetcher} from './zones-fetcher';
-import type {PublicClient} from 'viem';
-import type {EpochInfoStore} from '$lib/types';
-import type {TypedDeployments} from '$lib/core/connection/types';
+/**
+ * The onchain-state seam.
+ *
+ * The template defines the CONTRACT here (see `$lib/game/core/seams`) and ships
+ * one implementation of it: a poller that reads the game contract on an
+ * interval, scoped to what the camera can see. That is what a game with a large
+ * world and cheap reads wants.
+ *
+ * It is deliberately not the only possible implementation. A game whose state
+ * is better built by replaying events (stratagems does this, through a
+ * client-side indexer) supplies its own store satisfying `OnchainStateStore`
+ * and the rest of the app does not notice: the view layer, the RPC-health
+ * banner and the refresh connector only ever see the contract.
+ */
+import type {
+	TypedDeployments,
+	TypedPublicClient,
+} from '$lib/core/connection/types';
+import {createPollingStore} from '$lib/core/connection/polling-store';
+import type {CameraWatcher} from '$lib/game/render/camera';
+import type {ChainTimeStore} from '$lib/game/core/chain-time';
+import type {EpochInfoStore} from '$lib/game/core/epoch';
+import type {OnchainStateStore} from '$lib/game/core/seams';
+import {derived, type Readable} from 'svelte/store';
 
-// Define the state type that the store will use
-type OnchainState = {
-	entities: {[id: string]: AvatarEntity};
+export type {
+	OnchainStateStore,
+	OnchainStateValue,
+	OnchainStateStatus,
+} from '$lib/game/core/seams';
+
+/**
+ * Reads state for a set of zones.
+ *
+ * A game implements this against its own getters: `getAvatarsInZone`,
+ * `getStarSystems`, whatever it has. The framework only needs the epoch back,
+ * so it can tell whether the answer is current.
+ */
+export type ZonesReader<TState> = (params: {
+	zones: readonly bigint[];
+	fromBlock: number;
+	toBlock: number;
+	expectedEpoch: number;
+}) => Promise<(TState & {epoch: number}) | undefined>;
+
+/** Maps a camera box to the zones a game wants loaded for it. */
+export type ZonesForCamera = (camera: {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}) => bigint[];
+
+/**
+ * What the current fetch is scoped to.
+ *
+ * The epoch is part of the identity because the contract answers per-epoch: the
+ * same zones at a new epoch is a different question, and the answer to the old
+ * one is stale.
+ */
+type FetchScope = {
+	zones: bigint[];
 	epoch: number;
+	averageBlockTime: number;
 };
 
-const defaultState = (): OnchainState => ({
-	entities: {},
-	epoch: 0,
-});
+/** Stable identity, so panning inside the same zones does not refetch. */
+function scopeKey(scope: FetchScope): string {
+	return `${scope.epoch}:${scope.zones.join(',')}`;
+}
 
-export function createOnchainState(params: {
-	camera: CameraWatcher;
+/**
+ * How long to keep waiting for the node to reach the epoch we asked for.
+ *
+ * At an epoch boundary the client's clock crosses over before the node has
+ * mined a block on the other side, so a read for the new epoch legitimately
+ * comes back as "not yet". That is normal, not a fault: letting it reach the
+ * polling store as an error would start exponential backoff (10s, 20s, 40s...)
+ * that nothing cancels until the scope changes, and feed the RPC-health banner
+ * a false outage. The player would see a blank board every epoch until they
+ * happened to pan. Conquest hit exactly this; the budget scales with block time
+ * so a slow chain gets proportionally longer.
+ */
+function nodeCatchupBudgetMs(averageBlockTime: number): number {
+	return Math.max(2_000, averageBlockTime * 2_000);
+}
+
+const NODE_CATCHUP_RETRY_MS = 200;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const readableTrue: Readable<boolean> = {
+	subscribe(run) {
+		run(true);
+		return () => {};
+	},
+};
+
+/**
+ * The polling implementation of the state seam.
+ *
+ * What is fetched follows the camera and the epoch, so both are folded into the
+ * polling store's `source`: a pan or an epoch tick triggers an immediate
+ * refetch, and the interval is only a safety net.
+ *
+ * Every precondition (chain time pinned, camera sized, gate open) lives in the
+ * scope rather than as a throw inside the fetch. A throw is read as a FAILED
+ * read: it feeds the RPC-health banner a false outage and starts exponential
+ * backoff that nothing cancels until the scope changes, which shows up as a
+ * blank world until the player happens to pan.
+ */
+export function createPollingOnchainState<TState>(params: {
+	publicClient: TypedPublicClient;
 	deployments: TypedDeployments;
-	zonesFetcher: ZonesFetcher;
+	camera: CameraWatcher;
 	epochInfo: EpochInfoStore;
-	publicClient: PublicClient;
-}) {
-	const {camera, deployments, zonesFetcher, epochInfo, publicClient} = params;
-	const onchainState = createDirectReadStore<OnchainState>(
-		{camera, epochInfo, publicClient, deployments},
-		defaultState,
-		async (zones, fromBlock, toBlock, expectedEpoch) => {
-			const zoneData = await zonesFetcher.fetchZones(
-				zones,
-				fromBlock,
-				toBlock,
-				expectedEpoch,
-			);
+	chainTime: ChainTimeStore;
+	zonesForCamera: ZonesForCamera;
+	read: ZonesReader<TState>;
+	emptyState: () => TState;
+	config?: {fetchInterval?: number};
+	/** Chain reads only run while this is truthy (no RPC yet, wallet not connected). */
+	fetchGate?: Readable<boolean>;
+}): OnchainStateStore<TState> {
+	const {
+		publicClient,
+		deployments,
+		camera,
+		epochInfo,
+		chainTime,
+		zonesForCamera,
+		read,
+		emptyState,
+	} = params;
 
-			if (!zoneData) {
-				// the request has been dismissed
-				return undefined;
-			}
+	const linkedData = deployments.contracts.Game.linkedData as {
+		commitPhaseDuration: unknown;
+		revealPhaseDuration: unknown;
+	};
+	const epochDuration =
+		Number(linkedData.commitPhaseDuration) +
+		Number(linkedData.revealPhaseDuration);
 
-			const state: OnchainState = defaultState();
-
-			const epoch = BigInt(zoneData.epoch);
-			state.epoch = Number(epoch);
-
-			// Separate old events (epoch - 2) from current events (epoch - 1)
-			const events = zoneData.events.filter((v) => v.args.epoch == epoch - 1n);
-
-			const avatarEvents: Map<
-				bigint,
-				import('viem').GetContractEventsReturnType<
-					typeof deployments.contracts.Game.abi,
-					'CommitmentRevealed',
-					true
-				>[0]
-			> = new Map();
-			for (const event of events) {
-				avatarEvents.set(event.args.avatarID, event);
-			}
-
-			for (const entityFetched of zoneData.entities) {
-				const id = entityFetched.avatarID.toString();
-
-				let actions: LocalAction[] = [];
-
-				const event = avatarEvents.get(entityFetched.avatarID);
-				if (event) {
-					actions = event.args.actions.map((v) => {
-						const coords = bigIntIDToXY(v.data);
-						return {
-							type:
-								v.actionType === 0
-									? 'enter'
-									: v.actionType === 1
-										? 'move'
-										: 'exit',
-							x: coords.x,
-							y: coords.y,
-						};
-					});
-				}
-
-				const {x, y} = bigIntIDToXY(entityFetched.position);
-				const entity: AvatarEntity = {
-					id,
-					owner: entityFetched.owner,
-					type: 'avatar',
-					position: {
-						x: Number(x),
-						y: Number(y),
-					},
-					life: entityFetched.life,
-					lastEpoch: Number(entityFetched.lastEpoch),
-					previousActions: actions,
-				};
-				state.entities[id] = entity;
-			}
-
-			return state;
+	const scope = derived<
+		[CameraWatcher, EpochInfoStore, ChainTimeStore, Readable<boolean>],
+		FetchScope | undefined
+	>(
+		[camera, epochInfo, chainTime, params.fetchGate ?? readableTrue],
+		([$camera, $epochInfo, $chainTime, $gate]) => {
+			if (!$gate) return undefined;
+			// Chain time has to be pinned to a block before a span of seconds can
+			// become a span of blocks. It lands a few hundred ms after startup.
+			if (!$chainTime.lastSync) return undefined;
+			// The camera has no size until the canvas has laid itself out.
+			if ($camera.width <= 0 || $camera.height <= 0) return undefined;
+			return {
+				zones: zonesForCamera($camera),
+				epoch: $epochInfo.currentEpoch,
+				averageBlockTime: $chainTime.lastSync.averageBlockTime,
+			};
 		},
 	);
-	return onchainState;
+
+	const store = createPollingStore<TState, FetchScope | undefined>(
+		async (currentScope) => {
+			if (!currentScope) return emptyState();
+
+			const deadline =
+				Date.now() + nodeCatchupBudgetMs(currentScope.averageBlockTime);
+
+			for (;;) {
+				// The contract answers over a block range; ask for roughly two epochs'
+				// worth, doubled, so late blocks cannot hide an event. Re-read per
+				// attempt, since the point of retrying is that the chain moves on.
+				const toBlock = Number(await publicClient.getBlockNumber());
+				const span = Math.floor(
+					(4 * epochDuration) / currentScope.averageBlockTime,
+				);
+				const fromBlock = Math.max(0, toBlock - span);
+
+				const result = await read({
+					zones: currentScope.zones,
+					fromBlock,
+					toBlock,
+					expectedEpoch: currentScope.epoch,
+				});
+
+				if (result) return result;
+
+				// The node has not reached this epoch yet. Wait it out briefly rather
+				// than reporting a failure (see nodeCatchupBudgetMs); if it persists
+				// past the budget then something really is wrong and the error is
+				// allowed through to the health banner and the backoff.
+				if (Date.now() >= deadline) {
+					throw new Error(
+						`node did not reach epoch ${currentScope.epoch} in time`,
+					);
+				}
+				await delay(NODE_CATCHUP_RETRY_MS);
+			}
+		},
+		{
+			fetchInterval: params.config?.fetchInterval ?? 5_000,
+			source: {store: scope, key: (s) => (s ? scopeKey(s) : undefined)},
+		},
+	);
+
+	// Narrow the polling store to the seam: callers get the contract, not the
+	// implementation, so swapping in an indexer stays a local change.
+	return {
+		subscribe: store.subscribe,
+		status: store.status,
+		update: async () => {
+			await store.update();
+		},
+	};
 }

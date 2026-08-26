@@ -7,7 +7,7 @@ layout {
 			args "web:dev"
 		}
 		pane name="svelte-check" command="pnpm"  {
-			args "--filter" "./web" "check:watch"
+			args "web:check:watch"
 		}
 	}
 }
