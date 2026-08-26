@@ -3,50 +3,18 @@ import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not 
 import {network} from 'hardhat';
 import {setupFixtures} from './utils/index.js';
 import {zoneID} from '../../js/zones.js';
+import {commitmentHash, type Action} from '../../js/commitment.js';
 import {
 	decodeEventLog,
 	encodeAbiParameters,
-	keccak256,
 	zeroAddress,
 } from 'viem';
 
 const {provider, networkHelpers, viem} = await network.connect();
 const {deployAll} = setupFixtures(provider);
 
-type Action = {actionType: number; data: bigint};
-
 /** A packed board position, as the contract stores it: `y << 32 | x`. */
 const pos = (x: bigint, y: bigint) => (y << 32n) | x;
-
-/**
- * The commitment the contract will recompute at reveal:
- * `bytes24(keccak256(abi.encode(secret, actions)))`, see
- * UsingGameInternal._checkHash. bytes24 is the LEFTMOST 24 bytes of the digest.
- *
- * This has to be computed rather than stubbed. The contract used to accept a
- * zero commitment as a wildcard, and this test committed exactly that, so it
- * asserted the reveal path while never once exercising the commit-reveal
- * binding it exists to protect.
- */
-function commitmentHash(
-	secret: `0x${string}`,
-	actions: Action[],
-): `0x${string}` {
-	const encoded = encodeAbiParameters(
-		[
-			{type: 'bytes32'},
-			{
-				type: 'tuple[]',
-				components: [
-					{name: 'actionType', type: 'uint8'},
-					{name: 'data', type: 'uint128'},
-				],
-			},
-		],
-		[secret, actions],
-	);
-	return keccak256(encoded).slice(0, 50) as `0x${string}`;
-}
 
 describe('Game', function () {
 	it('basic test', async function () {
