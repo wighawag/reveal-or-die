@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {
 	activeAvatarStorageKey,
@@ -100,16 +100,36 @@ describe('the remembered choice', () => {
 	});
 });
 
+/**
+ * A localStorage that exists, so the persistence path is actually exercised.
+ *
+ * Node has none, and the module's guards degrade to "remember nothing", which
+ * would make every assertion below pass without the code under test running.
+ */
+function installStorage(): Map<string, string> {
+	const entries = new Map<string, string>();
+	(globalThis as Record<string, unknown>).localStorage = {
+		getItem: (k: string) => entries.get(k) ?? null,
+		setItem: (k: string, v: string) => void entries.set(k, v),
+		removeItem: (k: string) => void entries.delete(k),
+	};
+	return entries;
+}
+
 describe('the active-avatar store', () => {
-	const make = (initial: DepositedState) => {
+	const make = (
+		initial: DepositedState,
+		owner: `0x${string}` | undefined = undefined,
+	) => {
 		const deposited = writable<DepositedState>(initial);
+		const ownerStore = writable<`0x${string}` | undefined>(owner);
 		const store = createActiveAvatar({
 			deposited,
-			owner: writable<`0x${string}` | undefined>(undefined),
+			owner: ownerStore,
 			chainID: 31337,
 			gameAddress: '0xGAME',
 		});
-		return {deposited, store};
+		return {deposited, owner: ownerStore, store};
 	};
 
 	it('holds nothing until the deposited avatars have been read', () => {
@@ -142,5 +162,39 @@ describe('the active-avatar store', () => {
 		const {store} = make({step: 'Loaded', avatars: [avatar(1n)]});
 		store.select(42n);
 		expect(get(store)).toEqual(1n);
+	});
+
+	describe('across a reload and across accounts', () => {
+		beforeEach(() => installStorage());
+		afterEach(() => {
+			delete (globalThis as Record<string, unknown>).localStorage;
+		});
+
+		it('resumes with the avatar the player last chose', () => {
+			const avatars = [avatar(1n), avatar(2n)];
+			make({step: 'Loaded', avatars}, '0xOWNER').store.select(2n);
+
+			// A second store is what a reload looks like from here.
+			const reloaded = make({step: 'Loaded', avatars}, '0xOWNER').store;
+			expect(get(reloaded)).toEqual(2n);
+		});
+
+		it('re-reads the preference when the account changes', () => {
+			// `owner` is a DEPENDENCY of the derive, not something read out of band.
+			// Without that, switching account keeps answering from the previous
+			// account's key until the deposited read next happens to land - and the
+			// symptom is a stale avatar chosen for the wrong player.
+			const a = [avatar(1n), avatar(2n)];
+			make({step: 'Loaded', avatars: a}, '0xA').store.select(2n);
+
+			const {owner, store} = make({step: 'Loaded', avatars: a}, '0xB');
+			// Read through the LIVE value rather than `get()`, which subscribes
+			// afresh and so recomputes whether or not `owner` is a dependency. This
+			// is the reading a component holding the store actually sees.
+			// 0xB has chosen nothing, so it gets the default.
+			expect(store.value).toEqual(1n);
+			owner.set('0xA');
+			expect(store.value).toEqual(2n);
+		});
 	});
 });

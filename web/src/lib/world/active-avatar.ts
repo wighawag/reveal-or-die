@@ -81,10 +81,12 @@ export type ActiveAvatarStore = Readable<bigint | undefined> & {
 };
 
 /** Reading and writing the remembered choice, defensively. */
-function createPreference(key: () => string | undefined) {
+function createPreference(
+	keyFor: (owner: string | undefined) => string | undefined,
+) {
 	return {
-		read(): bigint | undefined {
-			const k = key();
+		read(owner: string | undefined): bigint | undefined {
+			const k = keyFor(owner);
 			if (!k || typeof localStorage === 'undefined') return undefined;
 			try {
 				const raw = localStorage.getItem(k);
@@ -95,8 +97,8 @@ function createPreference(key: () => string | undefined) {
 				return undefined;
 			}
 		},
-		write(avatarID: bigint | undefined) {
-			const k = key();
+		write(owner: string | undefined, avatarID: bigint | undefined) {
+			const k = keyFor(owner);
 			if (!k || typeof localStorage === 'undefined') return;
 			try {
 				if (avatarID === undefined) localStorage.removeItem(k);
@@ -118,12 +120,9 @@ export function createActiveAvatar(params: {
 }): ActiveAvatarStore {
 	const {deposited, owner, chainID, gameAddress} = params;
 
-	const preference = createPreference(() => {
-		const $owner = get(owner);
-		return $owner
-			? activeAvatarStorageKey({chainID, gameAddress, owner: $owner})
-			: undefined;
-	});
+	const preference = createPreference((o) =>
+		o ? activeAvatarStorageKey({chainID, gameAddress, owner: o}) : undefined,
+	);
 
 	/**
 	 * What the player last chose, IN MEMORY.
@@ -134,13 +133,23 @@ export function createActiveAvatar(params: {
 	 */
 	const chosen = writable<bigint | undefined>(undefined);
 
+	/**
+	 * `owner` is a DEPENDENCY, not something read out of band, because the stored
+	 * preference is keyed by it: derived only from `deposited` and `chosen`, this
+	 * would keep answering with the previous account's key until the next read
+	 * happened to land.
+	 *
+	 * A `chosen` left over from a previous account needs no clearing. An avatar id
+	 * is `owner << 96 | subID`, so it cannot appear in a different account's list,
+	 * and `chooseActiveAvatar` drops anything that is not there.
+	 */
 	const active = derived(
-		[deposited, chosen],
-		([$deposited, $chosen]): bigint | undefined => {
+		[deposited, chosen, owner],
+		([$deposited, $chosen, $owner]): bigint | undefined => {
 			if ($deposited.step !== 'Loaded') return undefined;
 			return chooseActiveAvatar({
 				avatars: $deposited.avatars,
-				preferred: $chosen ?? preference.read(),
+				preferred: $chosen ?? preference.read($owner),
 			});
 		},
 	);
@@ -161,7 +170,7 @@ export function createActiveAvatar(params: {
 			) {
 				return;
 			}
-			preference.write(avatarID);
+			preference.write(get(owner), avatarID);
 			chosen.set(avatarID);
 		},
 	};
