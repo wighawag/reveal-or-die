@@ -2,6 +2,7 @@ import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
 import {setupFixtures} from './utils/index.js';
+import {zoneID} from '../../js/zones.js';
 import {
 	decodeEventLog,
 	encodeAbiParameters,
@@ -382,5 +383,74 @@ describe('Game', function () {
 		expect(bFirst.lifeA).toEqual(aFirst.lifeA);
 		expect(bFirst.lifeB).toEqual(aFirst.lifeB);
 		expect(bFirst.listed).toEqual(aFirst.listed);
+	});
+
+	/**
+	 * The JS zone encoding must agree with PositionUtils.getZone, including west
+	 * and north of the origin.
+	 *
+	 * Solidity packs the zone as `(uint32(zoneY) << 32) + uint32(zoneX)`, and
+	 * casting a negative int32 is two's complement, so zone -1 is 0xFFFFFFFF
+	 * rather than -1. A JS helper that treats it as a signed number agrees with
+	 * the contract for every positive coordinate and disagrees for every
+	 * negative one, which means the board looks correct until a player walks off
+	 * the origin zone and then goes silently empty.
+	 *
+	 * Asserted against the chain rather than against a hand-computed constant,
+	 * because a constant would only prove the helper matches whatever I believed
+	 * when writing it.
+	 */
+	it('computes the same zone id as the contract, west of the origin', async function () {
+		const {env, Game, AvatarsSale, unnamedAccounts, advanceToEpoch, advanceToRevealPhase, getEpoch, getTimestamp} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const player = unnamedAccounts[0];
+		const avatarID = (BigInt(player) << 96n) + 0n;
+		await env.execute(AvatarsSale, {
+			account: player,
+			functionName: 'purchase',
+			args: [Game.address, 0n, encodeAbiParameters([{type: 'address'}], [player]), zeroAddress, 0n, zeroAddress],
+			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+		});
+
+		// far enough west and north to land outside the origin zone, which is
+		// what makes both packed halves negative
+		const entryX = -20;
+		const entryY = -20;
+		const entry = (BigInt.asUintN(32, BigInt(entryY)) << 32n) |
+			BigInt.asUintN(32, BigInt(entryX));
+
+		const {epoch: start} = getEpoch(await getTimestamp());
+		const secret = '0x00000000000000000000000000000000000000000000000000000000000000cc' as const;
+		const actions: Action[] = [{actionType: 0, data: entry}];
+
+		await advanceToEpoch(start + 2);
+		await env.execute(Game, {
+			account: player,
+			functionName: 'commit',
+			args: [avatarID, commitmentHash(secret, actions), zeroAddress],
+		});
+		await advanceToRevealPhase(start + 2);
+		await env.execute(Game, {
+			account: player,
+			functionName: 'reveal',
+			args: [avatarID, actions, secret, zeroAddress],
+		});
+
+		const listed = await env.read(Game, {
+			functionName: 'getAvatarsInZone',
+			args: [zoneID(entryX, entryY), 0n, 100n],
+		});
+		expect(listed[0].map((a: {avatarID: bigint}) => a.avatarID)).toEqual([
+			avatarID,
+		]);
+
+		// and it is NOT in the origin zone, which is what a signed-number helper
+		// would have produced
+		const origin = await env.read(Game, {
+			functionName: 'getAvatarsInZone',
+			args: [zoneID(0, 0), 0n, 100n],
+		});
+		expect(origin[0].length).toEqual(0);
 	});
 });
