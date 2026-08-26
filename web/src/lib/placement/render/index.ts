@@ -48,21 +48,21 @@ export function createGameRenderer(params: {
 /*
  * The immediate-mode alternative. Replace EVERYTHING ABOVE (imports included,
  * or `Container` and `createBoardRenderer` are left imported and unused) with:
- *
- * import type {GameRenderer} from '$lib/game/core/seams';
- * import type {ViewStateStore} from '$lib/view';
- * import type {BoardView} from '../view';
- * import {createImmediateBoardRenderer} from './board-immediate';
- *
- * export type GameSurface = CanvasRenderingContext2D;
- *
- * export const loadCanvasComponent = () =>
- *   import('$lib/game/render/canvas2d/Canvas2DCanvas.svelte');
- *
- * export function createGameRenderer(params: {
- *   viewState: ViewStateStore<BoardView>;
- *   cellSize: number;
- * }): GameRenderer<GameSurface> {
- *   return createImmediateBoardRenderer({viewState: params.viewState});
- * }
  */
+
+// import type {GameRenderer} from '$lib/game/core/seams';
+// import type {ViewStateStore} from '$lib/view';
+// import type {BoardView} from '../view';
+// import {createImmediateBoardRenderer} from './board-immediate';
+
+// export type GameSurface = CanvasRenderingContext2D;
+
+// export const loadCanvasComponent = () =>
+// 	import('$lib/game/render/canvas2d/Canvas2DCanvas.svelte');
+
+// export function createGameRenderer(params: {
+// 	viewState: ViewStateStore<BoardView>;
+// 	cellSize: number;
+// }): GameRenderer<GameSurface> {
+// 	return createImmediateBoardRenderer({viewState: params.viewState});
+// }
