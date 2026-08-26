@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Modal from '$lib/core/ui/modal/legacy-modal.svelte';
+	import * as Modal from '$lib/core/ui/modal/index.js';
 	import {type AvatarViewEntity} from '$lib/view';
 
 	import {getUserContext} from '$lib';
@@ -18,15 +18,13 @@
 	);
 </script>
 
-<Modal
+<Modal.Root
 	openWhen={avatar
 		? avatar.life == 0 && $epochInfo.currentEpoch >= avatar.lastEpoch + 1
 		: false}
 >
-	{#snippet title()}
-		Your avatar died
-	{/snippet}
+	<Modal.Title>Your avatar died</Modal.Title>
 	<div>
 		<button onclick={() => clear()}>ok</button>
 	</div>
-</Modal>
+</Modal.Root>

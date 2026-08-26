@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/core/ui/ethereum/generic/Button.svelte';
-	import Modal from '$lib/core/ui/modal/legacy-modal.svelte';
+	import * as Modal from '$lib/core/ui/modal/index.js';
 	import {getUserContext} from '$lib';
 
 	const {
@@ -14,46 +14,40 @@
 	} = getUserContext();
 </script>
 
-<Modal
+<Modal.Root
 	openWhen={$enterFlow.step === 'Loading'}
 	onCancel={() => enterFlow.cancel()}
 >
 	Please wait...
-</Modal>
-<Modal
+</Modal.Root>
+<Modal.Root
 	openWhen={$enterFlow.step === 'RequireSignIn'}
 	onCancel={() => enterFlow.cancel()}
 >
-	{#snippet title()}
-		You need to sign-in first
-	{/snippet}
+	<Modal.Title>You need to sign-in first</Modal.Title>
 	<Button onclick={() => connection.connect()}>sign-in</Button>
-</Modal>
-<Modal
+</Modal.Root>
+<Modal.Root
 	openWhen={$enterFlow.step === 'RequireAvatars'}
 	onCancel={() => enterFlow.cancel()}
 >
-	{#snippet title()}
-		You do not have any avatar
-	{/snippet}
+	<Modal.Title>You do not have any avatar</Modal.Title>
 	<Button onclick={() => enterFlow.startPurchaseFlow()}>Purchase</Button>
-</Modal>
-<Modal
+</Modal.Root>
+<Modal.Root
 	openWhen={$enterFlow.step === 'RequireDeposit'}
 	onCancel={() => enterFlow.cancel()}
 >
-	{#snippet title()}
+	<Modal.Title>
 		Your avatars are in your wallet, you need to deposit them first
-	{/snippet}
+	</Modal.Title>
 	<Button onclick={() => console.log('TODO')}>Deposit</Button>
-</Modal>
-<Modal
+</Modal.Root>
+<Modal.Root
 	openWhen={$enterFlow.step === 'Ready'}
 	onCancel={() => enterFlow.cancel()}
 >
-	{#snippet title()}
-		Select the avatar you want to play with
-	{/snippet}
+	<Modal.Title>Select the avatar you want to play with</Modal.Title>
 	{#if $enterFlow.step === 'Ready'}
 		<div>
 			{#each $enterFlow.avatars as avatarID}
@@ -63,7 +57,7 @@
 			{/each}
 		</div>
 	{/if}
-</Modal>
+</Modal.Root>
 
 {#if $connection.step !== 'SignedIn'}
 	<div

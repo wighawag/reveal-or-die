@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Address from '$lib/core/ui/ethereum/Address.svelte';
 	import Button from '$lib/core/ui/ethereum/generic/Button.svelte';
-	import BasicModal from '$lib/core/ui/modal/legacy-basic-modal.svelte';
-	import Modal from '$lib/core/ui/modal/legacy-modal.svelte';
+	import BasicModal from '$lib/core/ui/modal/basic-modal.svelte';
+	import * as Modal from '$lib/core/ui/modal/index.js';
 	import type {
 		ConnectionStore,
 		UnderlyingEthereumProvider,
@@ -15,23 +15,21 @@
 	let {connection}: Props = $props();
 </script>
 
-<Modal
+<Modal.Root
+	layer="system"
 	openWhen={$connection.step == 'WaitingForWalletConnection'}
 	onCancel={() => connection.back('Idle')}
 >
-	{#snippet title()}
-		Waiting for Wallet Connection...
-	{/snippet}
+	<Modal.Title>Waiting for Wallet Connection...</Modal.Title>
 	Please Accept Connection Request...
-</Modal>
+</Modal.Root>
 
-<Modal
+<Modal.Root
+	layer="system"
 	openWhen={$connection.step == 'ChooseWalletAccount'}
 	onCancel={() => connection.back('Idle')}
 >
-	{#snippet title()}
-		Choose Wallet Account
-	{/snippet}
+	<Modal.Title>Choose Wallet Account</Modal.Title>
 	{#if $connection.step == 'ChooseWalletAccount'}
 		<!-- ASSERT ChooseWalletAccount -->
 		{#each $connection.wallet.accounts as account}
@@ -40,15 +38,14 @@
 			>
 		{/each}
 	{/if}
-</Modal>
+</Modal.Root>
 
-<Modal
+<Modal.Root
+	layer="system"
 	openWhen={$connection.step == 'WalletToChoose'}
 	onCancel={() => connection.cancel()}
 >
-	{#snippet title()}
-		Choose Connection Type...
-	{/snippet}
+	<Modal.Title>Choose Connection Type...</Modal.Title>
 
 	<!-- Wallet options -->
 	{#if $connection.wallets.length > 0}
@@ -75,15 +72,18 @@
 		We plan to support credit card payment but for now you need a web3 wallet to
 		make the purchase
 	{/if}
-</Modal>
+</Modal.Root>
 
-<Modal
+<!-- NOTE: this opens on the SAME step as the ChooseWalletAccount modal above,
+     so both render at once, differing only in whether cancelling goes back to
+     Idle or cancels outright. Pre-existing; left alone here because deciding
+     which one survives is a flow question, not a modal one. -->
+<Modal.Root
+	layer="system"
 	openWhen={$connection.step === 'ChooseWalletAccount'}
 	onCancel={() => connection.cancel()}
 >
-	{#snippet title()}
-		Choose Wallet Account
-	{/snippet}
+	<Modal.Title>Choose Wallet Account</Modal.Title>
 	{#if $connection.step == 'ChooseWalletAccount'}
 		<!-- ASSERT ChooseWalletAccount -->
 		{#each $connection.wallet.accounts as account}
@@ -97,10 +97,11 @@
 		>
 	{/if}
 	<!-- TODO : cancel Button -->
-</Modal>
+</Modal.Root>
 
 <!-- TODO not a Modal -->
 <BasicModal
+	layer="system"
 	openWhen={($connection.step === 'SignedIn' &&
 		$connection.wallet?.invalidChainId) ||
 		false}

@@ -1,40 +1,35 @@
 <script lang="ts">
 	import {getUserContext} from '$lib';
 	import Button from '$lib/core/ui/ethereum/generic/Button.svelte';
-	import Modal from '$lib/core/ui/modal/legacy-modal.svelte';
+	import * as Modal from '$lib/core/ui/modal/index.js';
 
 	const {connection, purchaseFlow} = getUserContext();
 </script>
 
 <!-- TODO? not a modal -->
-<Modal
+<Modal.Root
 	openWhen={$purchaseFlow.step == 'RequireSignIn'}
 	onCancel={() => purchaseFlow.cancel()}
 >
-	{#snippet title()}
-		You need to sign-in first
-	{/snippet}
+	<Modal.Title>You need to sign-in first</Modal.Title>
 	<Button onclick={() => connection.connect()}>sign-in</Button>
-</Modal>
+</Modal.Root>
 
-<Modal
+<Modal.Root
 	openWhen={$purchaseFlow.step == 'Ready'}
 	onCancel={() => purchaseFlow.cancel()}
 >
-	{#snippet title()}
-		Avatar is $X.XX
-	{/snippet}
+	<Modal.Title>Avatar is $X.XX</Modal.Title>
 	<Button onclick={() => purchaseFlow.purchase()}>buy</Button>
-</Modal>
+</Modal.Root>
 
-<Modal openWhen={$purchaseFlow.step == 'ConfirmTransaction'}>
-	{#snippet title()}
-		Please confirm your purchase
-	{/snippet}
-</Modal>
+<!-- No onCancel: a transaction in flight is not something the player can
+     dismiss, and the template's modal derives showCloseButton and
+     interact-outside behaviour from onCancel being absent. -->
+<Modal.Root openWhen={$purchaseFlow.step == 'ConfirmTransaction'}>
+	<Modal.Title>Please confirm your purchase</Modal.Title>
+</Modal.Root>
 
-<Modal openWhen={$purchaseFlow.step == 'PendingTransaction'}>
-	{#snippet title()}
-		Please wait while the purchase go through
-	{/snippet}
-</Modal>
+<Modal.Root openWhen={$purchaseFlow.step == 'PendingTransaction'}>
+	<Modal.Title>Please wait while the purchase go through</Modal.Title>
+</Modal.Root>
