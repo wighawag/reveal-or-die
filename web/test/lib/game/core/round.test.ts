@@ -493,3 +493,99 @@ describe('the commit-reveal round', () => {
 		stop();
 	});
 });
+
+describe('a game where silence costs the player their stake', () => {
+	/**
+	 * `commitWhenIdle` exists for reveal-or-die, whose contract says it out loud:
+	 * `_getResolvedAvatar` carries the comment "we force character to
+	 * continuously commit+reveal" and sets `life = 0` once `lastEpoch` falls more
+	 * than `numMissesAllowed` behind. `lastEpoch` advances only on a REVEAL, so a
+	 * player who watches a few rounds without moving loses the avatar they paid
+	 * for, having done nothing wrong.
+	 *
+	 * The round cannot be driven into this from outside: `plan([])` means
+	 * "nothing is pending" and lands on Idle, so without an option here there is
+	 * no way to say "send an empty turn".
+	 */
+	function idleRound(atRisk: () => boolean) {
+		const {epochInfo, setTime} = fakeEpochs(0);
+		const {adapter, calls} = fakeAdapter();
+		const round = createRound<`0x${string}`, Action>({
+			epochInfo,
+			adapter,
+			storage: fakeStorage<Action>(),
+			identity,
+			commitWhenIdle: atRisk,
+		});
+		return {round, calls, setTime};
+	}
+
+	/** Just inside the commit-time allowance, where autoCommit fires. */
+	const CLOSING = config.commitPhaseDuration - 1;
+
+	it('commits an empty turn when the epoch is about to close', async () => {
+		const {round, calls, setTime} = idleRound(() => true);
+		const stop = round.start();
+		expect(round.value.step).toBe('Idle');
+
+		setTime(CLOSING);
+		await vi.waitFor(() => expect(calls.commit.length).toBe(1));
+
+		// Empty, and that is the point: the contract's action loop does nothing
+		// with it, but the reveal that follows advances `lastEpoch`, which is the
+		// only thing keeping the avatar alive.
+		expect((calls.commit[0] as {actions: Action[]}).actions).toEqual([]);
+		stop();
+	});
+
+	it('reveals it, which is the half that actually counts', async () => {
+		// Committing alone would be worse than useless: it spends gas AND leaves a
+		// commitment that blocks the next epoch until acknowledged.
+		const {round, calls, setTime} = idleRound(() => true);
+		const stop = round.start();
+
+		setTime(CLOSING);
+		await vi.waitFor(() => expect(round.value.step).toBe('Committed'));
+
+		setTime(config.commitPhaseDuration + 1);
+		await vi.waitFor(() => expect(calls.reveal.length).toBe(1));
+		expect((calls.reveal[0] as {actions: Action[]}).actions).toEqual([]);
+		stop();
+	});
+
+	it('spends nothing while there is nothing at risk', async () => {
+		// An avatar waiting to enter has no clock running against it, so an empty
+		// commitment for it would burn gas to prevent nothing. This is why the
+		// option is a predicate and not a flag.
+		const {round, calls, setTime} = idleRound(() => false);
+		const stop = round.start();
+
+		setTime(CLOSING);
+		setTime(config.commitPhaseDuration + 1);
+		await new Promise((r) => setTimeout(r, 10));
+
+		expect(calls.commit).toEqual([]);
+		expect(calls.reveal).toEqual([]);
+		stop();
+	});
+
+	it('is off unless a game asks for it', async () => {
+		// The default has to stay "a quiet epoch just passes": for the template's
+		// own game an empty commitment is gas spent to say nothing.
+		const {epochInfo, setTime} = fakeEpochs(0);
+		const {adapter, calls} = fakeAdapter();
+		const round = createRound<`0x${string}`, Action>({
+			epochInfo,
+			adapter,
+			storage: fakeStorage<Action>(),
+			identity,
+		});
+		const stop = round.start();
+
+		setTime(CLOSING);
+		await new Promise((r) => setTimeout(r, 10));
+
+		expect(calls.commit).toEqual([]);
+		stop();
+	});
+});

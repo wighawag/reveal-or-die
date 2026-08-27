@@ -449,6 +449,22 @@ export function createGameContext(core: CoreServices): GameContext {
 			},
 		}),
 		storage,
+		/**
+		 * KEEP THE LOOP TURNING EVEN WITH NOTHING PLANNED.
+		 *
+		 * `_getResolvedAvatar` says it in as many words: "we force character to
+		 * continuously commit+reveal". With `numMissesAllowed = 3`, an avatar whose
+		 * `lastEpoch` falls more than four epochs behind is set to `life = 0`.
+		 * `lastEpoch` only advances on a REVEAL, so a player who watches a few
+		 * rounds without moving loses the avatar they paid for, having done nothing
+		 * wrong and been warned by nothing.
+		 *
+		 * Only while an avatar is actually IN THE WORLD. One waiting to enter has no
+		 * clock running against it (`_getResolvedAvatar` forces `life = 1` for an
+		 * avatar that is not `inGame`), so committing empty rounds for it would burn
+		 * gas to prevent nothing.
+		 */
+		commitWhenIdle: () => get(currentPosition) !== undefined,
 		// The AVATAR, not the account: `commit` and `reveal` both take an avatar id
 		// and resolve the sender against its owner. `PlayerIdentity` is
 		// `bigint | 0x${string}` for exactly this, so nothing has to widen.

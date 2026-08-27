@@ -96,15 +96,28 @@ export function createDeposited(params: {
 }
 
 /**
- * Whether the player has anything in the game to play with.
+ * Whether the player has anything to play with.
  *
  * The equivalent of the template asking whether the reserve is non-zero, and
  * used for the same thing: letting somebody plan a whole turn they cannot
  * commit is worse than not letting them start, because the moves look accepted
  * and the failure only arrives at the commit.
+ *
+ * A DEAD AVATAR DOES NOT COUNT, and getting that wrong was a dead end rather
+ * than a cosmetic slip. The contract keeps holding an avatar after it is killed
+ * (the body stays where it fell until it is withdrawn), so counting what the
+ * game holds answered "yes, they are set up" for a player who could do nothing
+ * at all: `chooseActiveAvatar` refuses to select a dead avatar, so the setup
+ * gate said ready, no avatar was active, the board ignored every click, and the
+ * one button that would have helped - buy another - was hidden behind the very
+ * gate reporting success.
+ *
+ * The rule is therefore the SAME rule `chooseActiveAvatar` applies, and the two
+ * must not drift apart again: this one asks whether anything is playable, that
+ * one picks which. A test pins them against each other.
  */
 export const hasAvatarInGame = (state: DepositedState): boolean =>
-	state.step === 'Loaded' && state.avatars.length > 0;
+	state.step === 'Loaded' && state.avatars.some((a) => a.life > 0);
 
 /** The store form, for composing into `canPlay`. */
 export const derivedHasAvatar = (

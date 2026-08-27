@@ -5,7 +5,11 @@ import {
 	chooseActiveAvatar,
 	createActiveAvatar,
 } from '$lib/world/active-avatar';
-import type {DepositedAvatar, DepositedState} from '$lib/world/deposited';
+import {
+	hasAvatarInGame,
+	type DepositedAvatar,
+	type DepositedState,
+} from '$lib/world/deposited';
 
 /**
  * One active avatar per client, and which one.
@@ -196,5 +200,57 @@ describe('the active-avatar store', () => {
 			owner.set('0xA');
 			expect(store.value).toEqual(2n);
 		});
+	});
+});
+
+describe('the two predicates about having an avatar', () => {
+	/**
+	 * `hasAvatarInGame` (the setup gate) and `chooseActiveAvatar` (which one to
+	 * play) answer two halves of one question, and they disagreed.
+	 *
+	 * The contract keeps holding an avatar after it dies: the body stays where it
+	 * fell until it is withdrawn. So `avatars.length > 0` stayed true while
+	 * `chooseActiveAvatar` correctly refused to select any of them, and the
+	 * result was a player told they were set up, with no active avatar, a board
+	 * that ignored every click, and the button that would have helped hidden
+	 * behind the gate that was reporting success.
+	 *
+	 * Pinned against each other rather than separately, because either one alone
+	 * looks right.
+	 */
+	const cases: Array<{name: string; avatars: DepositedAvatar[]}> = [
+		{name: 'nothing deposited', avatars: []},
+		{name: 'one alive', avatars: [avatar(1n)]},
+		{name: 'one dead', avatars: [avatar(1n, {life: 0, inGame: true})]},
+		{
+			name: 'one dead and one alive',
+			avatars: [avatar(1n, {life: 0, inGame: true}), avatar(2n)],
+		},
+		{
+			name: 'all dead',
+			avatars: [
+				avatar(1n, {life: 0, inGame: true}),
+				avatar(2n, {life: 0, inGame: true}),
+			],
+		},
+	];
+
+	for (const {name, avatars} of cases) {
+		it(`agrees with chooseActiveAvatar: ${name}`, () => {
+			const state: DepositedState = {step: 'Loaded', avatars};
+			const chosen = chooseActiveAvatar({avatars, preferred: undefined});
+			// "The gate lets them through" must mean exactly "there is one to play".
+			expect(hasAvatarInGame(state)).toBe(chosen !== undefined);
+		});
+	}
+
+	it('sends a player whose only avatar died back to buy another', () => {
+		// The specific dead end, stated as itself.
+		expect(
+			hasAvatarInGame({
+				step: 'Loaded',
+				avatars: [avatar(1n, {life: 0, inGame: true})],
+			}),
+		).toBe(false);
 	});
 });

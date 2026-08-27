@@ -142,6 +142,32 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 */
 	autoCommit?: boolean;
 	/**
+	 * Whether a turn with NOTHING planned should still be committed and revealed.
+	 *
+	 * Default false, which is right for a game where a quiet epoch simply passes:
+	 * committing an empty round would spend gas to say nothing.
+	 *
+	 * It is wrong, and expensively so, for a game that PUNISHES SILENCE.
+	 * reveal-or-die kills an avatar that has not revealed for a few epochs
+	 * (`_getResolvedAvatar`: "we force character to continuously commit+reveal",
+	 * `numMissesAllowed = 3`), so a player who watches a few rounds without moving
+	 * loses the avatar they paid for, having done nothing wrong and been told
+	 * nothing. The client has to keep the loop turning on their behalf.
+	 *
+	 * A PREDICATE rather than a flag, because the answer changes minute to minute:
+	 * it is only true while the game is actually holding something that can die.
+	 * An avatar waiting to enter has no clock running, and committing empty rounds
+	 * for it would burn gas for nothing.
+	 *
+	 * This is the framework's business rather than the game's because the round is
+	 * what owns the epoch loop, the secret and the storage; a game cannot express
+	 * "commit nothing" from outside, since `plan([])` means "nothing is pending".
+	 * Worth backporting: "something must be at stake" is the template's own stated
+	 * requirement, and a stake that decays is one of the two obvious ways to have
+	 * one.
+	 */
+	commitWhenIdle?: () => boolean;
+	/**
 	 * When this browser should send the reveal itself. Defaults to `immediately`.
 	 *
 	 * This is NOT a choice about whether the player may reveal: `reveal()` is
@@ -195,6 +221,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 }): RoundStore<TIdentity, TAction> {
 	const {epochInfo, adapter, storage, identity} = params;
 	const autoCommit = params.autoCommit ?? true;
+	const commitWhenIdle = params.commitWhenIdle ?? (() => false);
 	const autoReveal = params.autoReveal ?? 'immediately';
 	const fallbackRevealAfter = params.fallbackRevealAfter ?? 0.5;
 	const makeSecret = params.makeSecret ?? (() => randomSecret());
@@ -252,9 +279,17 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	}
 
 	async function commit() {
-		if ($state.step !== 'Planning' && $state.step !== 'Error') return;
+		// `Idle` is allowed only for a game that has asked for it: see
+		// `commitWhenIdle`. Everything below already copes with an empty action list
+		// (the commitment hashes it, the reveal discloses it, and the contract's
+		// action loop simply does nothing), so what is being decided here is only
+		// whether an empty turn is worth sending.
+		const idleButOwed = $state.step === 'Idle' && commitWhenIdle();
+		if ($state.step !== 'Planning' && $state.step !== 'Error' && !idleButOwed) {
+			return;
+		}
 		const actions = currentActions();
-		if (actions.length === 0) return;
+		if (actions.length === 0 && !idleButOwed) return;
 
 		const player = currentIdentity();
 		if (!player) return;
@@ -429,7 +464,10 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 				autoCommit &&
 				$info.type === 'timed' &&
 				$info.isCommitPhase &&
-				$state.step === 'Planning' &&
+				($state.step === 'Planning' ||
+					// Nothing planned, but silence costs this game's player their
+					// avatar. See `commitWhenIdle`.
+					($state.step === 'Idle' && commitWhenIdle())) &&
 				$info.timeLeftForCommitEnd <= $info.config.commitTimeAllowance
 			) {
 				void commit();
