@@ -40,6 +40,7 @@
  * the `authorise` setup step exists for.
  */
 import {get, writable, type Readable} from 'svelte/store';
+import {logs} from 'named-logs';
 import type {Context} from '$lib/context/types';
 import {
 	avatarIDFor,
@@ -55,6 +56,13 @@ import {
 	type RegistrationWriter,
 } from '$lib/ui/delegation/register-delegate';
 import type {WorldConfig} from './config';
+
+/**
+ * Onboarding is three steps across two senders, and only the middle one prompts.
+ * Traced so a recording can tell "waiting for the wallet" from "the signer is
+ * working" from "nothing is happening". Inert unless `?debug`.
+ */
+const logger = logs('world:purchase');
 
 export type PurchaseState =
 	| {step: 'Idle'}
@@ -124,6 +132,7 @@ export function createPurchase(params: {
 			return undefined;
 		}
 
+		logger.debug(`authorising: asking the owner for a delegation credential`);
 		state.set({step: 'Authorising'});
 		const deployments = get(deps.deployments);
 		return {
@@ -177,6 +186,9 @@ export function createPurchase(params: {
 			const stipendTo = authorisation?.delegate;
 			const stipend = stipendTo ? config.sale.stipend : 0n;
 
+			logger.debug(
+				`purchasing: price=${config.sale.price} stipend=${stipend} to=${stipendTo ?? 'nobody'}`,
+			);
 			state.set({step: 'Purchasing'});
 			const hash = await $executor.client.writeContract(
 				(await deps.balanceCheck.ensureCanAfford(
@@ -216,6 +228,10 @@ export function createPurchase(params: {
 			// The avatar exists and is deposited from here on, so the player has got
 			// what they paid for whatever happens next.
 			if (authorisation) {
+				// No prompt for this one: the signer sends it itself out of the
+				// stipend that just arrived. Worth a line, because on screen it is a
+				// wait the player was never asked about.
+				logger.debug(`registering: signer submits its own delegation`);
 				state.set({step: 'Registering'});
 				const $signer = get(deps.signerExecutor);
 				if ($signer.status === 'ready') {
@@ -247,6 +263,7 @@ export function createPurchase(params: {
 			state.set({step: 'Idle'});
 			params.onPurchased?.();
 		} catch (error) {
+			logger.debug(`failed at step "${value.step}": ${String(error)}`);
 			state.set({
 				step: 'Error',
 				error,

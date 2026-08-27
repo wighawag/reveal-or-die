@@ -4,6 +4,7 @@
 	import {DebugOperations} from '$lib/ui/debug';
 	import {PendingOperationModal} from '$lib/ui/pending-operation';
 	import TxObserverDebugOverlay from '$lib/debug/TxObserverDebugOverlay.svelte';
+	import {startDiagnostics} from '$lib/debug/diagnostics';
 
 	import InsufficientFundsModal from '$lib/core/transaction/InsufficientFundsModal.svelte';
 	import {TopUpModal} from '$lib/ui/credits/index.js';
@@ -12,7 +13,20 @@
 	import ErrorDetailsModal from '$lib/core/transaction/ErrorDetailsModal.svelte';
 	import InFlightRequestsModal from '$lib/core/transaction/InFlightRequestsModal.svelte';
 
-	const {connection, payment, inFlight} = getAppContext();
+	const context = getAppContext();
+	const {connection, payment, inFlight} = context;
+
+	// A running commentary on the transitions that are over before they can be
+	// described: a modal that flashes, a banner that comes and goes. Started
+	// here because this component is already where the app's debug surfaces
+	// live, and it is mounted for the whole session rather than per route.
+	//
+	// Only with `?debug`. The subscriptions are cheap and `logs()` is a no-op
+	// until `setupLogging` hooks it up, but a subscription that exists only to
+	// be thrown away is still a subscription. See $lib/debug/logging.ts for the
+	// switch and $lib/debug/diagnostics.ts for why it watches from outside
+	// instead of instrumenting `core/`.
+	$effect(() => (params.debug ? startDiagnostics(context) : undefined));
 </script>
 
 {#if params.transactions}

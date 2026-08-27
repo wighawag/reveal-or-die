@@ -8,6 +8,7 @@
  * else.
  */
 import {get} from 'svelte/store';
+import {logs} from 'named-logs';
 import {zeroAddress} from 'viem';
 import type {Context} from '$lib/context/types';
 import type {CommitRevealAdapter} from '$lib/game/core/seams';
@@ -20,6 +21,18 @@ import {
 } from 'reveal-or-die-contracts';
 
 export type {Action};
+
+/**
+ * The silent path, traced.
+ *
+ * Every move the player never sees a prompt for goes through `send` below, and
+ * the two interesting moments have no store to watch them: the gap before the
+ * hash comes back (which is what arms the unload guard and the sending
+ * indicator) and the gap before the receipt does. Both are logged so a
+ * recording can be lined up against them. Inert unless `?debug`; see
+ * $lib/debug/logging.ts.
+ */
+const logger = logs('world:send');
 
 /**
  * The commitment hash comes from the CONTRACTS package, not from a copy here.
@@ -77,9 +90,12 @@ async function send(
 	what: string,
 ): Promise<`0x${string}`> {
 	let hash: `0x${string}`;
+	const startedAt = Date.now();
+	logger.debug(`${what}: dispatching (signer, no prompt)`);
 	try {
 		hash = await executor.client.writeContract(request as never);
 	} catch (error) {
+		logger.debug(`${what}: dispatch failed after ${Date.now() - startedAt}ms`);
 		// THE boundary. The only place in this game that sees a raw node error, so
 		// the only place that classifies one. Everything downstream asks
 		// `instanceof SignerOutOfFundsError` rather than running the classifier
@@ -89,7 +105,14 @@ async function send(
 		}
 		throw error;
 	}
+	const dispatchedAt = Date.now();
+	logger.debug(
+		`${what}: broadcast in ${dispatchedAt - startedAt}ms, hash ${hash}`,
+	);
 	const receipt = await deps.publicClient.waitForTransactionReceipt({hash});
+	logger.debug(
+		`${what}: ${receipt.status} after a further ${Date.now() - dispatchedAt}ms`,
+	);
 	if (receipt.status === 'reverted') {
 		throw new Error(`${what} was rejected by the contract`);
 	}
