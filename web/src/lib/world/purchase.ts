@@ -60,7 +60,7 @@ import type {WorldConfig} from './config';
 /**
  * Onboarding is three steps across two senders, and only the middle one prompts.
  * Traced so a recording can tell "waiting for the wallet" from "the signer is
- * working" from "nothing is happening". Inert unless `?debug`.
+ * working" from "nothing is happening". Inert unless the namespace is enabled.
  */
 const logger = logs('world:purchase');
 

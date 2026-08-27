@@ -5,29 +5,8 @@ import {PUBLIC_ENABLE_SW_IN_DEV} from '$env/static/public';
 import {serviceWorker} from '$lib';
 
 import {logs} from 'named-logs';
-import {setupLogging} from '$lib/debug/logging';
-import {params} from '$lib';
-
-// FIRST, and from module scope, because everything below logs. `named-logs` is
-// inert until this runs, so a logger built earlier still works (the factory is
-// shared) but a line WRITTEN earlier is gone for good.
-//
-// The service worker just below has the same "must be early" property for a
-// different reason, which is why both live at module scope in this file rather
-// than in a component.
-const logging = setupLogging(params);
 
 const logger = logs('init');
-
-if (logging === 'restored') {
-	// Said out loud, once. `factory.enable` persists to localStorage, so a
-	// `?debug` from some previous session is still in force with nothing in the
-	// URL to explain it. A console full of unexplained noise gets reported as a
-	// bug in the app.
-	console.warn(
-		`named-logs is enabled from a previous session (localStorage "debug"). Use ?debug=off to stop.`,
-	);
-}
 
 logger.debug(`initialization...`);
 

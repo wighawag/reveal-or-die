@@ -29,8 +29,8 @@ export type {Action};
  * the two interesting moments have no store to watch them: the gap before the
  * hash comes back (which is what arms the unload guard and the sending
  * indicator) and the gap before the receipt does. Both are logged so a
- * recording can be lined up against them. Inert unless `?debug`; see
- * $lib/debug/logging.ts.
+ * recording can be lined up against them. Inert unless the namespace is enabled;
+ * see the inline switch in `src/app.html` and $lib/debug/diagnostics.ts.
  */
 const logger = logs('world:send');
 
