@@ -78,6 +78,16 @@ export type HudModel = {
 		actionLabel?: string;
 		/** The purchase is in flight, so the button says so and does nothing. */
 		busy?: boolean;
+		/**
+		 * What it is doing, while it is busy.
+		 *
+		 * The step matters to the player because they are different KINDS of wait:
+		 * a signature they have to answer, a transaction they have paid for and
+		 * are waiting on, and a third one being sent on their behalf that they
+		 * were never prompted for. One spinner reading "Buying..." across all
+		 * three makes the last look like a hang.
+		 */
+		busyLabel?: string;
 		/** Set when the last attempt failed, in words the player can act on. */
 		error?: string;
 	};
@@ -237,10 +247,34 @@ export function describeMissedReveal(
 	};
 }
 
+/**
+ * What the purchase is doing right now, in the player's terms.
+ *
+ * Three waits that feel different: one they must answer, one they have paid for,
+ * and one sent on their behalf without a prompt.
+ */
+export function purchaseBusyLabel(state: PurchaseState): string | undefined {
+	switch (state.step) {
+		case 'Authorising':
+			// A hosted account never sees this: its credential was minted at
+			// sign-in, so `fetchDelegation` returns without prompting.
+			return 'Confirm in your wallet to authorise this browser...';
+		case 'Purchasing':
+			return 'Buying your avatar...';
+		case 'Registering':
+			// No prompt for this one: the signer sends it itself, out of the stipend
+			// the purchase just gave it. Unexplained it looks like a hang after the
+			// money has already gone.
+			return 'Setting up your play key...';
+		default:
+			return undefined;
+	}
+}
+
 /** What the player has to do before they can take a turn. */
 export function describeSetup(
 	setup: SetupNeeded | undefined,
-	options?: {priceLabel?: string},
+	options?: {priceLabel?: string; busyLabel?: string},
 ): HudModel['setup'] {
 	if (!setup) return undefined;
 	switch (setup.step) {
@@ -263,18 +297,25 @@ export function describeSetup(
 			};
 		case 'deposit':
 			return {
-				headline: 'You need an avatar to play',
+				headline: 'Get an avatar and start playing',
 				// Says where the avatar GOES, because "buy" suggests it lands in the
 				// player's wallet and it does not: `AvatarsSale.purchase` mints it
 				// straight into the Game, which is what having something at stake
 				// means here. Somebody expecting to see an NFT appear in their wallet
 				// should be told beforehand rather than go looking.
+				// Says what the ONE transaction covers, because the player is about to
+				// approve something that does three things: it buys the avatar into
+				// the game's custody, it sends this browser's key enough gas to play
+				// with, and it is what lets that key be authorised without a second
+				// transaction. Saying only "buy" would make the wallet prompt look
+				// bigger than the price.
 				detail:
-					'The game holds your avatar while you play, and losing it is what you have at stake. Buying one puts it straight into the game, ready to move: it will not appear in your wallet, and you can withdraw it whenever it is not in the world.',
+					'One transaction sets you up: it puts an avatar straight into the game, ready to move, and funds the key this browser plays with. The avatar will not appear in your wallet, and you can withdraw it whenever it is not in the world.',
 				action: 'buy',
 				actionLabel: options?.priceLabel
 					? `Buy an avatar for ${options.priceLabel}`
 					: 'Buy an avatar',
+				busyLabel: options?.busyLabel,
 			};
 	}
 }
@@ -320,6 +361,7 @@ export function createHud(context: Context): Readable<HudModel> {
 
 			const purchase = $purchase as PurchaseState;
 			const needsSetup = describeSetup($setup as SetupNeeded | undefined, {
+				busyLabel: purchaseBusyLabel(purchase),
 				// The price is EXACT, not a minimum, so it is worth putting on the
 				// button rather than leaving the player to discover it in the wallet.
 				priceLabel: `${formatBalance(game.config.sale.price)} ${
@@ -327,7 +369,7 @@ export function createHud(context: Context): Readable<HudModel> {
 				}`,
 			});
 			if (needsSetup?.action === 'buy') {
-				needsSetup.busy = purchase.step === 'Purchasing';
+				needsSetup.busy = purchaseBusyLabel(purchase) !== undefined;
 				needsSetup.error =
 					purchase.step === 'Error' ? purchase.message : undefined;
 			}

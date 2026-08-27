@@ -69,10 +69,21 @@ export function randomSubID(): bigint {
  * `avatarIDFor(owner, subID)`, so a wrong order or a wrong payload fails there,
  * against a real chain, rather than in somebody's browser.
  *
- * `tipTo`/`tipAmount` and `referrer` are `SaleViaNativePayment` machinery this
- * game does not use. A non-zero tip recipient is not merely unused: it is
- * subtracted from `msg.value` before the price check, so it would revert the
- * purchase with `WrongPaymentAmount`.
+ * `extraNativeTokenRecipient`/`extraNativeTokenAmount` are THE SIGNER STIPEND,
+ * and they are the reason a new player needs only one transaction. The sale
+ * forwards that amount to that address before it checks the price, so the same
+ * call that puts an avatar in the game also puts gas in the key that will play
+ * it. Without it the player has an avatar they cannot move, and funding the
+ * signer separately means a second transaction from a wallet the first one just
+ * emptied.
+ *
+ * `msg.value` must therefore be `price + stipend`: the contract subtracts the
+ * stipend first and then requires the remainder to equal `PAYMENT_AMOUNT`
+ * EXACTLY, so getting this pair out of step reverts with `WrongPaymentAmount`
+ * rather than overpaying. `purchaseValue` below is the other half of this
+ * function and they should be read together.
+ *
+ * `referrer` is unused machinery and stays zero.
  */
 export function purchaseArgs(params: {
 	/** Who receives the NFT. The GAME, so the avatar arrives deposited. */
@@ -80,15 +91,37 @@ export function purchaseArgs(params: {
 	/** Who it belongs to. Encoded into `data`, and packed into the token id. */
 	owner: `0x${string}`;
 	subID: bigint;
+	/** The local signer, which needs gas to commit and reveal. */
+	stipendTo?: `0x${string}`;
+	/** How much to forward to it, out of the same `msg.value`. */
+	stipend?: bigint;
 }) {
+	const stipend = params.stipend ?? 0n;
+	// A recipient with nothing to send is worse than no recipient: the contract
+	// takes the `!= address(0)` branch and makes a zero-value call, which a
+	// contract wallet can reject and turn into `FailedToTransferNativeToken`.
+	const stipendTo = stipend > 0n ? (params.stipendTo ?? zeroAddress) : zeroAddress;
+
 	return [
 		params.gameAddress,
 		params.subID,
 		// There is no controller to name. Who may PLAY an avatar is delegation,
 		// granted account-wide by the owner's signature, not fixed at deposit time.
 		encodeAbiParameters([{type: 'address'}], [params.owner]),
-		zeroAddress,
-		0n,
+		stipendTo,
+		stipendTo === zeroAddress ? 0n : stipend,
 		zeroAddress,
 	] as const;
+}
+
+/**
+ * What to send with those arguments.
+ *
+ * Its own function so the two cannot drift: the sale subtracts the stipend from
+ * `msg.value` and then demands the remainder equal the price exactly, so a
+ * caller that remembered the stipend in one place and forgot it in the other
+ * gets `WrongPaymentAmount` and no avatar.
+ */
+export function purchaseValue(params: {price: bigint; stipend?: bigint}): bigint {
+	return params.price + (params.stipend ?? 0n);
 }

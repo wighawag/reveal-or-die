@@ -11,7 +11,7 @@ import {
 	MANIFEST_PATH,
 	assetpackPlugin,
 	writeEmptyManifest,
-} from './vite.assetpack.ts';
+} from './vite.assetpack.js';
 import {hookup} from 'named-logs-console';
 
 hookup();

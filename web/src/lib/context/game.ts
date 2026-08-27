@@ -281,15 +281,30 @@ export function setupNeeded(params: {
 }): SetupNeeded | undefined {
 	const {identity, delegation, deposited} = params;
 	if (!identity) return {step: 'sign-in'};
-	// Only once the read has landed. Treating Unloaded as "not authorised" would
-	// flash the gate over a board that is perfectly playable, on every load, for
-	// as long as the first read takes.
-	if (delegation.step === 'Loaded' && !isRegistered(delegation)) {
-		return {step: 'authorise'};
-	}
-	// Same rule, same reason: `Loading` is not `no avatars`.
+
+	// THE AVATAR COMES FIRST, and the order was the other way round until buying
+	// one started carrying the authorisation with it.
+	//
+	// It used to ask to authorise first, on the grounds that authorising was the
+	// cheaper of two transactions and a player who abandons setup half way should
+	// have spent as little as possible. That reasoning died with the second
+	// transaction: `purchase` now funds the signer in the same call, and the
+	// signer registers itself out of that stipend, so buying an avatar IS
+	// authorising. Asking for authorisation first would demand a transaction that
+	// the very next step includes.
+	//
+	// `Loading` is not `no avatars`: treating an unfinished read as an empty one
+	// would put the gate over a playable board on every load until it lands.
 	if (deposited.step === 'Loaded' && !hasAvatarInGame(deposited)) {
 		return {step: 'deposit'};
+	}
+
+	// Still reachable, and still needed: a player who ALREADY has an avatar on
+	// this account but is opening a second browser, or who revoked this one. They
+	// have nothing left to buy, so there is no purchase to fold the authorisation
+	// into, and the top-up flow (register and fund in one) is the remedy.
+	if (delegation.step === 'Loaded' && !isRegistered(delegation)) {
+		return {step: 'authorise'};
 	}
 	return undefined;
 }

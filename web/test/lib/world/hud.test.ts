@@ -158,6 +158,14 @@ describe('what the setup gate asks for', () => {
 		expect(detail).toMatch(/not appear in your wallet/i);
 	});
 
+	it('says the one transaction also funds the play key', () => {
+		// The prompt is for more than the price, and the player is entitled to
+		// know that before they approve it rather than after.
+		const detail = describeSetup({step: 'deposit'})?.detail ?? '';
+		expect(detail).toMatch(/one transaction/i);
+		expect(detail).toMatch(/funds the key/i);
+	});
+
 	it('never promises the avatar can be taken away', () => {
 		// "Authorise" is the word every drainer uses, so the sentence has to say
 		// what the permission does NOT cover. The contract enforces it: withdraw
@@ -349,6 +357,28 @@ describe('what the HUD says when there is no local signer', () => {
 });
 
 describe('buying an avatar, through the HUD', () => {
+	it('names each of the three waits differently', () => {
+		// They are different kinds of wait: one the player must answer, one they
+		// have paid for and are waiting on, and one sent on their behalf with no
+		// prompt at all. A single "Buying..." across all three makes the last one
+		// look like a hang, after the money has already gone.
+		const labels = (['Authorising', 'Purchasing', 'Registering'] as const).map(
+			(step) =>
+				get(
+					createHud(
+						fakeContext(
+							{step: 'Idle'},
+							{setup: {step: 'deposit'}, purchase: {step}},
+						),
+					),
+				).setup?.busyLabel,
+		);
+		expect(new Set(labels).size).toBe(3);
+		for (const label of labels) expect(label).toBeTruthy();
+		// The one nobody was prompted for has to explain itself.
+		expect(labels[2]).toMatch(/play key/i);
+	});
+
 	it('reports the purchase in flight on the button itself', () => {
 		// The player is being asked to sign in their wallet, which happens
 		// somewhere this page cannot see. Without this the button looks idle and

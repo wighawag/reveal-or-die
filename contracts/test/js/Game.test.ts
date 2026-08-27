@@ -4,7 +4,11 @@ import {network} from 'hardhat';
 import {setupFixtures} from './utils/index.js';
 import {zoneID, isObstacle, isValidMove} from '../../js/zones.js';
 import {commitmentHash, type Action} from '../../js/commitment.js';
-import {avatarIDFor, purchaseArgs} from '../../js/avatar-id.js';
+import {
+	avatarIDFor,
+	purchaseArgs,
+	purchaseValue,
+} from '../../js/avatar-id.js';
 import {decodeEventLog, encodeAbiParameters, zeroAddress} from 'viem';
 
 const {provider, networkHelpers, viem} = await network.connect();
@@ -524,5 +528,67 @@ describe('Game', function () {
 				{actionType: 1, data: pos(0n, 0n)},
 			]),
 		).toEqual(pos(0n, 1n));
+	});
+});
+
+describe('buying an avatar', () => {
+	/**
+	 * The stipend is what makes onboarding ONE transaction.
+	 *
+	 * `SaleViaNativePayment.purchase` forwards `extraNativeTokenAmount` to
+	 * `extraNativeTokenRecipient` before it checks the price, so the same call
+	 * that puts an avatar in the game puts gas in the key that will play it.
+	 * Without it a new player has an avatar they cannot move, and funding the
+	 * signer separately means a second transaction from a wallet the first one
+	 * just emptied.
+	 *
+	 * Pinned here rather than only in the app because the failure is arithmetic
+	 * against a contract: the price check runs on `msg.value` MINUS the stipend
+	 * and demands the remainder match exactly, so `purchaseArgs` and
+	 * `purchaseValue` have to agree or nothing is bought at all.
+	 */
+	it('funds the signer in the same transaction', async () => {
+		const {env, Game, AvatarsSale} = await deployAll();
+		const owner = env.unnamedAccounts[0];
+		// Stands in for the local signer: an address that holds nothing yet.
+		const signer = env.unnamedAccounts[1];
+		const price = BigInt(AvatarsSale.linkedData!.paymentAmount as string);
+		const stipend = 12345678901234n;
+
+		const before = await env.network.provider.request({
+			method: 'eth_getBalance',
+			params: [signer, 'latest'],
+		});
+
+		const subID = 7n;
+		await env.execute(AvatarsSale, {
+			account: owner,
+			functionName: 'purchase',
+			args: purchaseArgs({
+				gameAddress: Game.address,
+				owner,
+				subID,
+				stipendTo: signer,
+				stipend,
+			}),
+			value: purchaseValue({price, stipend}),
+		});
+
+		const after = await env.network.provider.request({
+			method: 'eth_getBalance',
+			params: [signer, 'latest'],
+		});
+
+		// The signer pays no gas here (the owner sent the transaction), so the
+		// whole stipend arrives.
+		expect(BigInt(after as string) - BigInt(before as string)).toEqual(stipend);
+
+		// And the avatar is in the game, under the id the client computed before
+		// sending anything.
+		const avatar = await env.read(Game, {
+			functionName: 'getAvatar',
+			args: [avatarIDFor(owner, subID)],
+		});
+		expect(avatar.owner.toLowerCase()).toEqual(owner.toLowerCase());
 	});
 });

@@ -141,7 +141,7 @@
 					disabled={$hud.setup.busy}
 					onclick={() => purchase.buy()}
 				>
-					{$hud.setup.busy ? 'Buying...' : $hud.setup.actionLabel}
+					{$hud.setup.busy ? $hud.setup.busyLabel : $hud.setup.actionLabel}
 				</Button>
 				{#if $hud.setup.error}
 					<p class="mt-2 max-w-sm text-xs text-red-400">{$hud.setup.error}</p>
