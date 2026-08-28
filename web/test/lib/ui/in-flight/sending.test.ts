@@ -28,6 +28,11 @@ function state(over: Partial<InFlightState> = {}): InFlightState {
 		requests: [],
 		outcomes: {},
 		dispatching: 0,
+		// Zero by DEFAULT, so every case below is a dispatch no human was asked
+		// about: the local signer, which is the case this indicator was written for.
+		// If any of them started depending on `prompting`, they would go dark here
+		// and the silent send would be back to an unexplained unload dialog.
+		prompting: 0,
 		...over,
 	} as InFlightState;
 }
@@ -104,6 +109,28 @@ describe('the sending state', () => {
 			writable(state({dispatching: 1, requests: [request('a')]})),
 		);
 		expect(get(s)).toMatchObject({sending: true, description: undefined});
+	});
+
+	it('lights up for a send NOBODY was prompted about, which is the point', () => {
+		// "Wallet Action Required" is suppressed for these (see wallet-activity),
+		// because no wallet asked anyone anything. This surface is the opposite
+		// case and must stay broad: the unload guard still fires, and this is the
+		// only thing on screen explaining it. Narrowing it to `prompting` would
+		// recreate the unexplained blocking dialog it was written to close.
+		const s = createSendingState(
+			writable(
+				state({
+					dispatching: 1,
+					prompting: 0,
+					requests: [request('a', 'commit')],
+				}),
+			),
+		);
+		expect(get(s)).toMatchObject({
+			sending: true,
+			count: 1,
+			description: 'commit',
+		});
 	});
 });
 
