@@ -1,5 +1,4 @@
 import {expect, type Page} from '@playwright/test';
-import {waitForAppReady} from './test';
 
 /**
  * A wallet that HOLDS a transaction request until the test lets it go.
@@ -286,13 +285,24 @@ export async function sendAndStall(
 	// for a wallet that was never going to be asked.
 	await page.goto('/contracts');
 
-	// This page's write only reaches a wallet once the app has settled into a
-	// connection state; clicking through before that opens the connect modal
-	// instead of dispatching, and then there is no held transaction to stop
-	// waiting for. Nothing is connected yet - this walk is what connects it, by
-	// choosing the stalling wallet below - so what is being waited for is the
-	// navbar having an opinion at all.
-	await waitForAppReady(page);
+	// This page's write only reaches a wallet once the app has hydrated;
+	// clicking through before that opens the connect modal instead of
+	// dispatching, and then there is no held transaction to stop waiting for.
+	//
+	// THE WEAK WAIT ON PURPOSE, not `waitForAppReady`. `data-connected` is FALSE
+	// here and stays false - nothing is connected yet, and this walk is what
+	// connects it, by choosing the stalling wallet below. All that is needed is
+	// that the navbar has an OPINION, i.e. it hydrated. Waiting for the
+	// connection to settle instead (which is what waitForAppReady is for, and
+	// what the offline tests genuinely need) costs this walk the whole
+	// connection round trip up front, and under a full parallel run against one
+	// node that pushed the first test of the escape-hatch suite past its
+	// two-minute budget while the app sat there saying "Executing...".
+	await expect(page.locator('[data-testid="wallet-status"]')).toHaveAttribute(
+		'data-connected',
+		/true|false/,
+		{timeout: 30_000},
+	);
 
 	const writeTab = page.getByRole('tab', {name: 'Write'});
 	await expect(writeTab).toBeVisible({timeout: 30_000});

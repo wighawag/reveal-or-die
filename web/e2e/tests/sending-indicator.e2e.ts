@@ -30,6 +30,29 @@ describe('Explaining a dispatch in flight', () => {
 	// itself nor the escape-hatch suite for a nonce.
 	describe.configure({mode: 'serial'});
 
+	// SLOW BY NATURE IN THIS APP, so the budget is tripled rather than the run
+	// being made quieter.
+	//
+	// Every test here walks the whole way to a wallet holding a transaction:
+	// load `/contracts` (which in this app renders a large game contract and
+	// reads it), connect, sign in, then send. That is the heaviest walk in the
+	// suite, it is almost entirely chain round-trips, and it shares ONE hardhat
+	// node with every other worker (see the workers note in
+	// playwright.config.ts, which caps them for the same reason).
+	//
+	// Measured: with both stalling-wallet suites doing real work - which they
+	// only started doing once the sending indicator's suite was fixed - whichever
+	// of the two met the node at a bad moment ran past the default two minutes,
+	// sitting on "Executing..." with the send waiting on RPC. At 4 workers that
+	// was the escape hatch, at 3 the sending indicator: the signature of
+	// contention rather than of a stuck app. Both pass alone and with the suite
+	// narrowed.
+	//
+	// A budget is the right lever here because nothing being measured is a
+	// duration: this suite asserts an ORDER (pulse before words) and a floor
+	// (words not before their delay), both of which stay true on a slow box.
+	test.slow();
+
 	const nodeUrl =
 		(globalThis as any).process.env.E2E_RPC_URL ||
 		`http://127.0.0.1:${(globalThis as any).process.env.E2E_RPC_PORT || '8545'}`;
