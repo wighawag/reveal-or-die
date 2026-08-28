@@ -49,6 +49,15 @@ import {
 	randomSubID,
 } from 'reveal-or-die-contracts';
 import {isRegistered} from '$lib/onchain/delegation';
+import {isUserRejectionError, txErrorSummary} from '$lib/core/transaction';
+import {
+	availablePaymentMethods,
+	paymentMethods,
+	NO_PAYMENT_METHOD_EXPLANATION,
+	type PaymentMethod,
+	type PaymentMethodId,
+} from '$lib/ui/credits/payment-methods';
+import {effectiveGasPrice} from '$lib/core/connection/gasFee';
 import {registrationRequest} from '$lib/ui/delegation/registration';
 import {
 	fetchDelegation,
@@ -67,6 +76,15 @@ const logger = logs('world:purchase');
 export type PurchaseState =
 	| {step: 'Idle'}
 	/**
+	 * Waiting for the player to say who pays.
+	 *
+	 * Only reached when there is a genuine choice. Asking someone to pick when
+	 * one of the two is unavailable is a question with one answer.
+	 */
+	| {step: 'ChoosingPayer'; methods: readonly PaymentMethod[]}
+	/** Nothing here can pay, with the reason. */
+	| {step: 'NoPaymentMethod'; message: string}
+	/**
 	 * Asking the owner to authorise this browser. A SIGNATURE, not a
 	 * transaction: free, and for a hosted account not even a prompt, because the
 	 * credential was minted at sign-in.
@@ -82,6 +100,8 @@ export type PurchaseStore = Readable<PurchaseState> & {
 	readonly value: PurchaseState;
 	/** Buy one avatar, minted straight into the game. */
 	buy(): Promise<void>;
+	/** Answer `ChoosingPayer`. */
+	choose(method: PaymentMethodId): Promise<void>;
 	/** Put an error away without buying. */
 	dismiss(): void;
 };
@@ -91,6 +111,7 @@ export type PurchaseDeps = Pick<
 	| 'connection'
 	| 'accountExecutor'
 	| 'accountBalance'
+	| 'gasFee'
 	| 'balanceCheck'
 	| 'deployments'
 	| 'publicClient'
@@ -98,7 +119,36 @@ export type PurchaseDeps = Pick<
 	// sent it. That is what keeps the owner down to one transaction.
 	| 'signerExecutor'
 	| 'delegation'
+	/**
+	 * A SECOND, WALLET-ONLY CONNECTION, because the payer is not necessarily the
+	 * player. An account that signed in with email or a social login has no
+	 * wallet at all and `accountExecutor` reports `cannot-send` for it, so
+	 * without this the one thing a new player must do is impossible for them.
+	 * See core/connection/remote.ts.
+	 */
+	| 'payment'
 >;
+
+/**
+ * Gas to keep back when asking whether the account can afford the purchase.
+ *
+ * A contract call with a value transfer, generously rounded: being short here
+ * offers a payer who then fails in the wallet, while being generous only sends
+ * someone to the other payment method a little early.
+ */
+const PURCHASE_GAS = 400_000n;
+
+/**
+ * The wallet picks the fee, not the app, and it routinely picks more than
+ * `estimateFeesPerGas` returned. Same multiplier and same reason as the top-up
+ * flow's.
+ */
+const FEE_SAFETY_MULTIPLIER = 2n;
+
+/** The steps a fresh `buy()` may start from. */
+function isRestable(step: PurchaseState['step']): boolean {
+	return step === 'Idle' || step === 'Error' || step === 'NoPaymentMethod';
+}
 
 export function createPurchase(params: {
 	deps: PurchaseDeps;
@@ -148,15 +198,107 @@ export function createPurchase(params: {
 		};
 	}
 
+	/**
+	 * Who could pay for the avatar, and whether there is anything to ask.
+	 *
+	 * THE PAYER IS NOT NECESSARILY THE PLAYER, which is the whole reason the
+	 * template carries a second, wallet-only connection. An account that signed
+	 * in with email or a social login has no wallet, `accountExecutor` reports
+	 * `cannot-send`, and this used to throw "This account cannot send
+	 * transactions in this mode" at exactly the moment such a player is starting.
+	 * They can still play: somebody connects a wallet and pays, and the avatar is
+	 * minted to the GAME on the player's behalf regardless. Nothing about the
+	 * purchase requires the payer to be the owner, because the owner is the
+	 * encoded payload rather than `msg.sender`.
+	 *
+	 * The SET is computed by `$lib/ui/credits/payment-methods`, which the top-up
+	 * flow already uses and which is tested on its own. Reusing it rather than
+	 * writing a second rule here is what keeps the two from disagreeing about
+	 * whether an account can pay, which is the sort of difference a player would
+	 * experience as the app contradicting itself.
+	 */
+	function offeredMethods(total: bigint): readonly PaymentMethod[] {
+		const $account = get(deps.accountExecutor);
+		const $balance = get(deps.accountBalance);
+		const $gasFee = get(deps.gasFee);
+		// `Loaded` or nothing: an unknown fee reserves nothing, which errs towards
+		// offering the account and letting the wallet refuse, rather than hiding a
+		// payer that can in fact pay.
+		const maxFeePerGas =
+			$gasFee.step === 'Loaded' ? effectiveGasPrice($gasFee) : 0n;
+		const balance =
+			$balance.step === 'Loaded' && $balance.value !== undefined
+				? $balance.value
+				: 0n;
+
+		// What the account could send AFTER the gas of sending it, compared
+		// against the whole price plus stipend rather than the price alone: an
+		// account that can cover only part of it cannot pay at all.
+		//
+		// The arithmetic mirrors `spendableBalance` in ui/credits/top-up-flow and
+		// is repeated rather than imported, because that module is 1587 lines and
+		// pulls the whole credits and delegation graph behind it, all of which
+		// would land in the CONTEXT's module graph for the sake of one
+		// multiplication. `test/lib/context/fatal.test.ts` re-imports that graph
+		// per case and its timeout is a budget for exactly this, so it is the file
+		// that would pay for the import.
+		//
+		// NOT a measured regression: I briefly believed it was, on the strength of
+		// that test timing out, and it turned out to be a loaded machine (the same
+		// suite ran green minutes later). Stated plainly so the next person does
+		// not go looking for a slowdown that was never here.
+		//
+		// The rule worth SHARING is which methods are available, and that is still
+		// `paymentMethods` below rather than a second copy.
+		const reserve = maxFeePerGas * PURCHASE_GAS * FEE_SAFETY_MULTIPLIER;
+		const spendable = balance > reserve ? balance - reserve : 0n;
+
+		return paymentMethods({
+			accountSpendable: spendable >= total ? spendable : 0n,
+			ownerCanSend: $account.status === 'ready',
+			walletsAvailable: get(deps.payment.connection).wallets.length,
+		});
+	}
+
+	/** Resolve a chosen method into something that can send. */
+	async function payerFor(method: PaymentMethodId) {
+		if (method === 'account') {
+			const $account = get(deps.accountExecutor);
+			if ($account.status !== 'ready') {
+				throw new Error('This account cannot send a transaction.');
+			}
+			return {
+				kind: 'account' as const,
+				client: $account.client,
+				account: $account.account,
+				address: $account.address,
+			};
+		}
+
+		// Disconnect first: @etherplay/connect remembers the last wallet AND the
+		// last account, and who pays is routinely a different account from last
+		// time, so the picker has to appear. Same reasoning as the top-up flow's.
+		await deps.payment.connection.disconnect();
+		const $payment = await deps.payment.connection.ensureConnected();
+		return {
+			kind: 'wallet' as const,
+			client: deps.payment.walletClient,
+			account: $payment.account.address,
+			address: $payment.account.address,
+		};
+	}
+
+	/**
+	 * Start a purchase: work out who could pay, and ask only if there is a choice.
+	 */
 	async function buy() {
 		// NEVER TWICE AT ONCE. `subID` is random, so a second run does not collide
 		// with the first: it mints a SECOND avatar and charges for it again. The
 		// guard is here rather than in the button because a disabled button is a
 		// suggestion and this is the player's money.
-		if (value.step !== 'Idle' && value.step !== 'Error') return;
+		if (!isRestable(value.step)) return;
 
-		const $owner = get(owner);
-		if (!$owner) {
+		if (!get(owner)) {
 			state.set({
 				step: 'Error',
 				error: new Error('not signed in'),
@@ -165,15 +307,43 @@ export function createPurchase(params: {
 			return;
 		}
 
+		const total = purchaseValue({
+			price: config.sale.price,
+			stipend: config.sale.stipend,
+		});
+		const offered = offeredMethods(total);
+		const usable = availablePaymentMethods(offered);
+
+		if (usable.length === 0) {
+			// A real, reachable state: no wallet on the account and none installed.
+			// It gets the honest explanation rather than a disabled button.
+			state.set({
+				step: 'NoPaymentMethod',
+				message: NO_PAYMENT_METHOD_EXPLANATION,
+			});
+			return;
+		}
+		if (usable.length === 1) {
+			// One answer is not a question. Asking would be ceremony.
+			await run(usable[0].id);
+			return;
+		}
+		// Every method is shown, available or not, so an unavailable one carries
+		// its reason instead of simply being missing.
+		state.set({step: 'ChoosingPayer', methods: offered});
+	}
+
+	async function choose(method: PaymentMethodId) {
+		if (value.step !== 'ChoosingPayer') return;
+		await run(method);
+	}
+
+	async function run(method: PaymentMethodId) {
+		const $owner = get(owner);
+		if (!$owner) return;
+
 		try {
 			await deps.connection.ensureConnected();
-			const $executor = get(deps.accountExecutor);
-			if ($executor.status === 'cannot-send') {
-				throw new Error('This account cannot send transactions in this mode.');
-			}
-			if ($executor.status !== 'ready') {
-				throw new Error('No account connected.');
-			}
 			const deployments = get(deps.deployments);
 
 			// Signature first: free, refusable, and it decides whether the purchase
@@ -189,32 +359,49 @@ export function createPurchase(params: {
 			logger.debug(
 				`purchasing: price=${config.sale.price} stipend=${stipend} to=${stipendTo ?? 'nobody'}`,
 			);
+			const payer = await payerFor(method);
+			logger.debug(`purchasing via ${payer.kind}`);
 			state.set({step: 'Purchasing'});
-			const hash = await $executor.client.writeContract(
-				(await deps.balanceCheck.ensureCanAfford(
-					{
-						contract: {
-							address: config.sale.address,
-							abi: deployments.contracts.AvatarsSale.abi,
-							functionName: 'purchase',
-							args: purchaseArgs({
-								gameAddress: deployments.contracts.Game.address,
-								owner: $owner,
-								subID: randomSubID(),
-								stipendTo,
-								stipend,
-							}),
-							// `purchaseValue`, not `config.sale.price`. The sale subtracts
-							// the stipend from `msg.value` and then requires the remainder
-							// to equal the price EXACTLY, so the two have to be computed
-							// together or the purchase reverts with `WrongPaymentAmount`.
-							value: purchaseValue({price: config.sale.price, stipend}),
-							account: $executor.account,
-						},
-					},
-					{balance: deps.accountBalance, sender: $executor.address},
-				)) as never,
-			);
+
+			const request = {
+				address: config.sale.address,
+				abi: deployments.contracts.AvatarsSale.abi,
+				functionName: 'purchase',
+				args: purchaseArgs({
+					gameAddress: deployments.contracts.Game.address,
+					owner: $owner,
+					subID: randomSubID(),
+					stipendTo,
+					stipend,
+				}),
+				// `purchaseValue`, not `config.sale.price`. The sale subtracts the
+				// stipend from `msg.value` and then requires the remainder to equal
+				// the price EXACTLY, so the two have to be computed together or the
+				// purchase reverts with `WrongPaymentAmount`.
+				value: purchaseValue({price: config.sale.price, stipend}),
+				account: payer.account,
+			};
+
+			// The pre-flight balance check is only meaningful for the ACCOUNT, whose
+			// balance the app tracks. A payment wallet is chosen inside the wallet
+			// and its balance is not ours to watch, so checking it here would be
+			// checking the wrong address and refusing a payer who can pay.
+			// One cast, at the one place the mismatch is: viem types `writeContract`
+			// for a call site that names the function literally, and the ABI and
+			// entry point here are values. Same cast, same reason, as the top-up
+			// flow's registration writer.
+			const checked =
+				payer.kind === 'account'
+					? await deps.balanceCheck.ensureCanAfford(
+							{contract: request as never},
+							{balance: deps.accountBalance, sender: payer.address},
+						)
+					: request;
+			const hash = await (
+				payer.client as unknown as {
+					writeContract: (r: unknown) => Promise<`0x${string}`>;
+				}
+			).writeContract(checked);
 
 			// Waiting matters here. `writeContract` resolves on BROADCAST, and the
 			// next two things that happen both depend on this having landed: the
@@ -264,10 +451,25 @@ export function createPurchase(params: {
 			params.onPurchased?.();
 		} catch (error) {
 			logger.debug(`failed at step "${value.step}": ${String(error)}`);
+			// REJECTING IS AN ANSWER, NOT A FAULT. The player pressed no in their
+			// wallet, which is a decision they made deliberately and already know
+			// about; reporting it back to them as an error, in viem's words, is the
+			// app telling them off for using it correctly. Back to Idle, so the
+			// button simply reads as ready again.
+			if (isUserRejectionError(error)) {
+				state.set({step: 'Idle'});
+				return;
+			}
 			state.set({
 				step: 'Error',
 				error,
-				message: error instanceof Error ? error.message : String(error),
+				// SUMMARISED, not `error.message`. A viem error message is the whole
+				// request pretty-printed - from, to, value, data, gas, nonce, the ABI
+				// signature, every argument, a docs link and a version - and it was
+				// being rendered verbatim into a panel over the board. `txErrorSummary`
+				// is the app's own one-sentence version, and the full text is still
+				// reachable through the error-details modal.
+				message: txErrorSummary(error),
 			});
 		}
 	}
@@ -278,6 +480,7 @@ export function createPurchase(params: {
 			return value;
 		},
 		buy,
+		choose,
 		dismiss: () => state.set({step: 'Idle'}),
 	};
 }

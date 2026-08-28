@@ -146,6 +146,17 @@ export type CoreServices = {
 	walletClient: Context['walletClient'];
 	/** Gas held by the account that pays. */
 	accountBalance: Context['accountBalance'];
+	/** Current fee estimates, for sizing what an account can afford to send. */
+	gasFee: Context['gasFee'];
+	/**
+	 * The payment rail: a second, wallet-only connection.
+	 *
+	 * Here because THE PAYER IS NOT NECESSARILY THE PLAYER. An account that
+	 * signed in with email or a social login has no wallet, so `accountExecutor`
+	 * reports `cannot-send` and cannot buy anything; somebody else's wallet can
+	 * pay on its behalf. A game that sells nothing simply never reads this.
+	 */
+	payment: Context['payment'];
 	/** Whether that account can cover a given call at current gas. */
 	balanceCheck: Context['balanceCheck'];
 	/** Where a failed transaction's full error text goes, for the details view. */
@@ -793,6 +804,8 @@ export function createCoreContext<App extends AppContext>(params: {
 		signerBalance,
 		walletClient,
 		accountBalance,
+		gasFee,
+		payment,
 		balanceCheck,
 		errorDetails,
 		txObserver,

@@ -13,6 +13,7 @@
 	import DefaultHead from '$lib/metadata/DefaultHead.svelte';
 	import GameHud from '$lib/world/ui/GameHud.svelte';
 	import DeathNotice from '$lib/world/ui/DeathNotice.svelte';
+	import PurchaseModal from '$lib/world/ui/PurchaseModal.svelte';
 	import Tutorial from '$lib/world/ui/Tutorial.svelte';
 	import {loadCanvasComponent} from '$lib/world/render';
 	import {gridTileCells} from '$lib/game/render/grid';
@@ -104,6 +105,7 @@
 		     inside the `{#if}` because neither means anything without a canvas
 		     under it. -->
 		<DeathNotice />
+		<PurchaseModal />
 		<Tutorial />
 	{/if}
 </div>

@@ -23,6 +23,7 @@ import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import {SignerOutOfFundsError} from '../errors';
 import type {SetupAction, SetupNeeded} from '$lib/context/game';
 import type {PurchaseState} from '../purchase';
+import {purchaseValue} from 'reveal-or-die-contracts';
 import {formatBalance} from '$lib/core/utils/format/balance';
 
 /** One avatar the player could switch to. */
@@ -261,6 +262,8 @@ export function purchaseBusyLabel(state: PurchaseState): string | undefined {
 			return 'Confirm in your wallet to authorise this browser...';
 		case 'Purchasing':
 			return 'Buying your avatar...';
+		case 'ChoosingPayer':
+			return 'Choose how to pay...';
 		case 'Registering':
 			// No prompt for this one: the signer sends it itself, out of the stipend
 			// the purchase just gave it. Unexplained it looks like a hang after the
@@ -362,11 +365,18 @@ export function createHud(context: Context): Readable<HudModel> {
 			const purchase = $purchase as PurchaseState;
 			const needsSetup = describeSetup($setup as SetupNeeded | undefined, {
 				busyLabel: purchaseBusyLabel(purchase),
-				// The price is EXACT, not a minimum, so it is worth putting on the
-				// button rather than leaving the player to discover it in the wallet.
-				priceLabel: `${formatBalance(game.config.sale.price)} ${
-					context.deployments.get().chain.nativeCurrency.symbol
-				}`,
+				// THE TOTAL, not the price. The wallet is about to ask for
+				// `price + stipend`, and the two differ by four orders of magnitude
+				// here: the button read "Buy an avatar for >0 ETH" (the price rounds
+				// to nothing) while MetaMask asked for 0.51. A button that
+				// understates what is about to be charged is worse than one with no
+				// number on it.
+				priceLabel: `${formatBalance(
+					purchaseValue({
+						price: game.config.sale.price,
+						stipend: game.config.sale.stipend,
+					}),
+				)} ${context.deployments.get().chain.nativeCurrency.symbol}`,
 			});
 			if (needsSetup?.action === 'buy') {
 				needsSetup.busy = purchaseBusyLabel(purchase) !== undefined;
