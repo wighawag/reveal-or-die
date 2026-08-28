@@ -39,7 +39,7 @@
  * an avatar and this browser is not yet authorised, which is exactly the state
  * the `authorise` setup step exists for.
  */
-import {get, writable, type Readable} from 'svelte/store';
+import {get, readable, writable, type Readable} from 'svelte/store';
 import {logs} from 'named-logs';
 import type {Context} from '$lib/context/types';
 import {
@@ -49,7 +49,12 @@ import {
 	randomSubID,
 } from 'reveal-or-die-contracts';
 import {isRegistered} from '$lib/onchain/delegation';
-import {isUserRejectionError, txErrorSummary} from '$lib/core/transaction';
+import {
+	InsufficientFundsError,
+	isUserRejectionError,
+	txErrorSummary,
+} from '$lib/core/transaction';
+import {createBalanceStore} from '$lib/core/connection/balance';
 import {
 	availablePaymentMethods,
 	paymentMethods,
@@ -272,6 +277,7 @@ export function createPurchase(params: {
 				client: $account.client,
 				account: $account.account,
 				address: $account.address,
+				balance: deps.accountBalance,
 			};
 		}
 
@@ -280,11 +286,20 @@ export function createPurchase(params: {
 		// time, so the picker has to appear. Same reasoning as the top-up flow's.
 		await deps.payment.connection.disconnect();
 		const $payment = await deps.payment.connection.ensureConnected();
+		const address = $payment.account.address;
 		return {
 			kind: 'wallet' as const,
 			client: deps.payment.walletClient,
-			account: $payment.account.address,
-			address: $payment.account.address,
+			account: address,
+			address,
+			// Built here rather than held in the context, because WHICH wallet pays
+			// is chosen inside the wallet and is not known until the line above
+			// resolves. Read through the rail's own public client, which is the one
+			// pointed at whatever chain that wallet connected to.
+			balance: createBalanceStore({
+				publicClient: deps.payment.publicClient,
+				account: readable(address),
+			}),
 		};
 	}
 
@@ -382,21 +397,20 @@ export function createPurchase(params: {
 				account: payer.account,
 			};
 
-			// The pre-flight balance check is only meaningful for the ACCOUNT, whose
-			// balance the app tracks. A payment wallet is chosen inside the wallet
-			// and its balance is not ours to watch, so checking it here would be
-			// checking the wrong address and refusing a payer who can pay.
+			// EVERY payer goes through the balance check, including a payment
+			// wallet. Skipping it for the rail was wrong and it is what produced a
+			// bare "does not have enough funds" with no remedy: `ensureCanAfford` is
+			// the thing that opens the insufficient-funds modal, names WHO is short,
+			// offers the faucet, and waits for the balance to catch up afterwards.
+			// A payer that cannot pay should meet all of that, not a red sentence.
 			// One cast, at the one place the mismatch is: viem types `writeContract`
 			// for a call site that names the function literally, and the ABI and
 			// entry point here are values. Same cast, same reason, as the top-up
 			// flow's registration writer.
-			const checked =
-				payer.kind === 'account'
-					? await deps.balanceCheck.ensureCanAfford(
-							{contract: request as never},
-							{balance: deps.accountBalance, sender: payer.address},
-						)
-					: request;
+			const checked = await deps.balanceCheck.ensureCanAfford(
+				{contract: request as never},
+				{balance: payer.balance, sender: payer.address},
+			);
 			const hash = await (
 				payer.client as unknown as {
 					writeContract: (r: unknown) => Promise<`0x${string}`>;
@@ -457,6 +471,16 @@ export function createPurchase(params: {
 			// app telling them off for using it correctly. Back to Idle, so the
 			// button simply reads as ready again.
 			if (isUserRejectionError(error)) {
+				state.set({step: 'Idle'});
+				return;
+			}
+			// ALREADY REPORTED, and far better than this could. `ensureCanAfford`
+			// throws this only after the insufficient-funds modal has named the
+			// account, shown the shortfall, offered the faucet and waited for the
+			// balance to arrive; the player then chose to stop. Painting a summary
+			// underneath is the app telling them again, worse, in a panel with no
+			// remedy on it. Same reasoning as the rejection above.
+			if (error instanceof InsufficientFundsError) {
 				state.set({step: 'Idle'});
 				return;
 			}
