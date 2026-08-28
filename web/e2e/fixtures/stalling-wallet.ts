@@ -226,7 +226,24 @@ export function sentHashes(page: Page): Promise<string[]> {
  */
 export async function sendAndStall(
 	page: Page,
-	options: {message: string},
+	options?: {
+		/**
+		 * A distinctive value to send, for a caller that will later assert THEIR
+		 * input survived. Optional, and that is the interface working rather than
+		 * a convenience.
+		 *
+		 * WHAT IT IS HAS TO BE THE APP'S BUSINESS, not the caller's. This app fills
+		 * `addToReserve`'s ADDRESS argument, so a caller that passes one must pass
+		 * an address; a descendant's write takes an ADDRESS,
+		 * and a suite that hardcoded 'sending indicator' there filled an invalid
+		 * field, so the form never submitted and nothing ever reached the wallet -
+		 * the same failure this whole helper exists to stop, one layer in. A suite
+		 * that does not care omits it and gets whatever this app can send; a suite
+		 * that does care is a suite already adapted per app, and passes something
+		 * valid here.
+		 */
+		input?: string;
+	},
 ): Promise<void> {
 	// THROUGH /contracts AND THIS APP'S OWN WRITE, which is the override the
 	// template's version was written to receive, and it differs from the template
@@ -274,7 +291,12 @@ export async function sendAndStall(
 	// reaches the wallet. The caller's distinctive value therefore goes in the
 	// ADDRESS, which is not validated against any balance: `options.message` is
 	// whatever the caller needs to recognise later, and here that is an address.
-	await writeForm(page).getByPlaceholder('0x...').first().fill(options.message);
+	await writeForm(page)
+		.getByPlaceholder('0x...')
+		.first()
+		// The zero address when a caller does not care: `amount` is zero, so this
+		// call is harmless whoever it names, and it is never mined anyway.
+		.fill(options?.input ?? '0x0000000000000000000000000000000000000000');
 	await writeForm(page)
 		.getByPlaceholder('Enter number or 0x...')
 		.first()

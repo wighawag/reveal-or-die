@@ -88,7 +88,7 @@ describe('Stopping waiting for the wallet', () => {
 	 */
 	async function sendAndStall(page: Page, player: string) {
 		await installStallingWallet(page, {nodeUrl});
-		await stallARequest(page, {message: player});
+		await stallARequest(page, {input: player});
 		await expect(dialog(page, 'Wallet Action Required')).toBeVisible({
 			timeout: 30_000,
 		});
