@@ -195,9 +195,15 @@ export function sentHashes(page: Page): Promise<string[]> {
  * app named what it is sending (the sending notice does) reads it from here
  * rather than repeating a literal - `setMessage` is the template's
  * GreetingsRegistry, and a descendant that does not deploy it inherited an
- * assertion for a function it never calls.
+ * assertion for a function it never calls, which is this app: it sends
+ * `addToReserve`, and the inherited literal made a passing notice look like a
+ * broken one.
+ *
+ * The same name as {@link WRITE_FUNCTION} below, minus the mutability the
+ * contracts page prints beside it, because the sending notice shows the function
+ * and the contracts page shows the signature.
  */
-export const STALLED_SEND_NAME = 'setMessage';
+export const STALLED_SEND_NAME = 'addToReserve';
 
 /**
  * Get this app to hand the stalling wallet a transaction, and leave it holding
