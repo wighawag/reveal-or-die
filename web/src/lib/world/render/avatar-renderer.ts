@@ -19,6 +19,7 @@ import type {ViewStateStore} from '$lib/view';
 import type {AvatarView, WorldView} from '../view';
 import {AvatarObject} from './AvatarObject';
 import {loadWorldAssets} from './assets';
+import {createTerrainLayer, type TerrainLayer} from './terrain';
 
 /**
  * Whether an avatar needs redrawing.
@@ -55,6 +56,14 @@ export function createAvatarRenderer(params: {
 }): GameRenderer<Container> {
 	const {viewState, cellSize} = params;
 
+	/**
+	 * The map, which is not view state and never diffs.
+	 *
+	 * Built here and driven from `tick` rather than from the subscription,
+	 * because what changes is the CAMERA and not the chain. See ./terrain.ts.
+	 */
+	let terrain: TerrainLayer | undefined;
+
 	return createStatefulRenderer<
 		Container,
 		WorldView,
@@ -69,8 +78,26 @@ export function createAvatarRenderer(params: {
 		// Art is not needed to draw an avatar (the blockie is a data URI), so the
 		// bundle is started here and never awaited. See ./assets.ts for why this
 		// is not a gate in the host.
-		onStarted() {
+		onStarted(surface) {
 			void loadWorldAssets();
+			terrain = createTerrainLayer(cellSize);
+			// FIRST CHILD and a very negative zIndex: the avatar objects sort
+			// themselves back-to-front with `zIndex = 10 * y`, which switches this
+			// container to sorted rendering, and anything left at 0 would sort into
+			// the middle of them rather than underneath.
+			surface.addChild(terrain.view);
+		},
+
+		onStopped() {
+			terrain?.destroy();
+			terrain = undefined;
+		},
+
+		// Terrain follows the camera, so it is redrawn per frame rather than per
+		// state change. `update` returns immediately unless the visible box has
+		// actually moved by a whole cell.
+		tick({frame}) {
+			terrain?.update(frame);
 		},
 
 		add({entity, surface}) {

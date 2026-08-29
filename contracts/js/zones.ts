@@ -76,11 +76,43 @@ export function wallAt(
  * told nothing. Checking here is what stops that being plannable at all.
  */
 export function isObstacle(x: number, y: number): boolean {
+	const cell = cellTypeAt(x, y);
+	return cell === CellType.Wall || cell === CellType.Box;
+}
+
+/**
+ * What the generated areas put at world `(x, y)`.
+ *
+ * The numbers are the ones `scripts/asciiAreaToStruct.ts` emits and
+ * `GameUtils.obstacleAt` reads, so they are the map format rather than a
+ * rendering choice: `#` and `x` are the two the contract refuses to stand on.
+ */
+export const CellType = {
+	Floor: 0,
+	/** `#` in the ascii source. */
+	Wall: 1,
+	/** `x` in the ascii source. */
+	Box: 2,
+	/** `!` in the ascii source. The way out. */
+	Exit: 3,
+} as const;
+
+export type CellTypeValue = (typeof CellType)[keyof typeof CellType];
+
+/**
+ * The raw cell, for anything that has to DRAW the world rather than judge it.
+ *
+ * Split out of `isObstacle` rather than duplicated beside it, and that is the
+ * point: the renderer and the move rules now read the same lookup, so a map the
+ * player can see is a map the contract agrees with. Drawing from a second copy
+ * is how you get a wall you can walk through, or worse, an invisible one you
+ * cannot.
+ */
+export function cellTypeAt(x: number, y: number): number {
 	const area = areaAt(x, y);
 	const xx = zoneLocalCoord(x);
 	const yy = zoneLocalCoord(y);
-	const cellType = area.cells[yy * ZONE_SIZE + xx];
-	return cellType === 1 || cellType === 2;
+	return area.cells[yy * ZONE_SIZE + xx] ?? CellType.Floor;
 }
 
 /** Orthogonally adjacent and walkable, which is what `_isValidMove` allows. */
