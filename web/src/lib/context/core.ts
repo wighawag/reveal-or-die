@@ -42,6 +42,7 @@ import {
 } from '$env/static/public';
 import {hasFaucet} from '$lib/core/ui/faucet/index.js';
 import {createTopUpFlow} from '$lib/ui/credits/top-up-flow.js';
+import type {SignerGrant} from '$lib/ui/delegation/grant.js';
 import {burnerOverride} from '$lib';
 import {resolveBurnerWallet} from './burner.js';
 import {
@@ -886,11 +887,21 @@ function buildBalances(params: {
  */
 export function createCoreContext<App extends AppContext>(params: {
 	createApp: AppFactory<App>;
+	/**
+	 * What this app's browser key is for, in this app's words.
+	 *
+	 * A PARAMETER rather than an import, for the same reason `createApp` is one:
+	 * this file is the template's half and must not reach into the app's half.
+	 * It arrives from `context/index.ts`, which is where the two are composed.
+	 * See ui/delegation/grant for what happens when a shared component is left
+	 * to guess this instead.
+	 */
+	signerGrant: SignerGrant;
 }): {
 	context: Context;
 	start: () => () => void;
 } {
-	const {createApp} = params;
+	const {createApp, signerGrant} = params;
 	let cleanupBurnerWallet: (() => void) | undefined;
 
 	/**
@@ -1204,6 +1215,7 @@ export function createCoreContext<App extends AppContext>(params: {
 			payment,
 			signerBalance,
 			credits,
+			signerGrant,
 			deployments,
 			accountExecutor,
 			accountBalance,
@@ -1258,6 +1270,7 @@ export function createCoreContext<App extends AppContext>(params: {
 		overlays,
 		signerBalance,
 		credits,
+		signerGrant,
 		payment,
 		signerExecutor,
 		hasLocalSigner,

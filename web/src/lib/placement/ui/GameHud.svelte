@@ -129,7 +129,11 @@
 					A key that is authorised but has no gas is authorised in name only,
 					and that is a second dead end one step further on.
 				-->
-				<Button size="sm" class="mt-3" onclick={() => topUp.start()}>
+				<Button
+					size="sm"
+					class="mt-3"
+					onclick={() => topUp.start(topUp.purposes.authorise)}
+				>
 					Authorise and carry on
 				</Button>
 			{/if}
@@ -146,7 +150,13 @@
 					class="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2"
 				>
 					<p class="text-xs text-muted-foreground">{$hud.outOfGas.detail}</p>
-					<Button size="sm" class="mt-2" onclick={() => topUp.start()}>
+					<!-- The gas remedy, so the payment is a top-up even though the round
+					     is what is blocked; the sentence above has already said why. -->
+					<Button
+						size="sm"
+						class="mt-2"
+						onclick={() => topUp.start(topUp.purposes.topUp)}
+					>
 						Top up and carry on
 					</Button>
 				</div>
