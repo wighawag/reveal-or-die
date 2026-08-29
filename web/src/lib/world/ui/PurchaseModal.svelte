@@ -23,8 +23,24 @@
 	const purchase = game.purchase;
 </script>
 
+<!--
+	THE MODAL LAYER, NOT THE SYSTEM ONE, and getting this wrong here would have
+	rebuilt the bug this repo just merged a fix for.
+
+	The system layer is for a live question about something already IN FLIGHT,
+	which "must be able to cover whatever raised it" (core/ui/layers.ts). This is
+	the opposite on both counts: nothing has been dispatched yet, and choosing
+	"another wallet" RAISES the connection flow, which is a system modal and has
+	to cover this one.
+
+	It would also have been the wrong way round in practice. This file is declared
+	in a PAGE, and layers.ts warns that a page remounts on every navigation and
+	takes a fresh slot at the END of its layer while AcrossPages keeps the one it
+	took at startup. In the system layer that would have put the payer chooser
+	over the wallet picker it had just opened.
+-->
 <Modal.Root
-	layer="system"
+	layer="modal"
 	openWhen={$purchase.step === 'ChoosingPayer'}
 	onCancel={() => purchase.dismiss()}
 >
@@ -68,7 +84,7 @@
 	explanation the template already wrote for it.
 -->
 <Modal.Root
-	layer="system"
+	layer="modal"
 	openWhen={$purchase.step === 'NoPaymentMethod'}
 	onCancel={() => purchase.dismiss()}
 >

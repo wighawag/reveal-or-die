@@ -24,7 +24,18 @@
 	const open = $derived(!!$hud.died && $hud.died.label !== dismissed);
 </script>
 
-<Modal.Root openWhen={open} onCancel={() => (dismissed = $hud.died?.label)}>
+<!--
+	The modal layer: this REPORTS something that already happened, rather than
+	asking a live question about something in flight, which is what the system
+	layer is for (core/ui/layers.ts). A death notice must not cover a wallet
+	prompt or a funds modal - if the avatar died while a transaction is being
+	confirmed, the transaction is the more urgent thing on screen.
+-->
+<Modal.Root
+	layer="modal"
+	openWhen={open}
+	onCancel={() => (dismissed = $hud.died?.label)}
+>
 	<Modal.Title>Your avatar died</Modal.Title>
 	<p class="text-sm text-muted-foreground">
 		Avatar {$hud.died?.label} was killed and is still lying where it fell. Play on

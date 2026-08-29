@@ -360,9 +360,15 @@ export function createPurchase(params: {
 			logger.debug(
 				`purchasing: price=${config.sale.price} stipend=${stipend} to=${stipendTo ?? 'nobody'}`,
 			);
+			// BEFORE `payerFor`, which is what connects a paying wallet and can
+			// raise the wallet picker. Two reasons, and only one is cosmetic: the
+			// payer chooser must be off screen before something else asks a
+			// question, and "Buying your avatar" is true from here on whereas
+			// leaving the state at `ChoosingPayer` would keep asking a question the
+			// player has already answered.
+			state.set({step: 'Purchasing'});
 			const payer = await payerFor(method);
 			logger.debug(`purchasing via ${payer.kind}`);
-			state.set({step: 'Purchasing'});
 
 			const request = {
 				address: config.sale.address,
