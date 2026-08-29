@@ -75,7 +75,23 @@ export default defineConfig({
 	// Measured, not guessed: every one of those passes alone and with fewer
 	// workers, and the full suite flaked on five of six runs at the default.
 	// `bleeps` capped at 4 for the same reason and the same measurement.
-	workers: env.CI ? 1 : 4,
+	//
+	// RE-MEASURED AT 2, because the load went up. The sending-indicator suite
+	// used to fail fast here (it drove the template's demo page, which this app
+	// does not send through, so it waited thirty seconds for a wallet nobody was
+	// going to ask). Fixing it means a SECOND suite now walks all the way to a
+	// held transaction, and two of those against one node is what 4 could no
+	// longer feed: at 4 the full suite failed four runs out of five, at 3 it
+	// still failed, and the failure kept moving between the two heavy suites -
+	// the same wandering signature described above. At 2 it passed twice in a
+	// row, and costs about a minute of wall clock (10.0m against 8.9m).
+	//
+	// What it looks like when it bites, so the next person does not spend an
+	// evening on it: the app sits on "Executing...", the wallet-action modal is
+	// up, and nothing is ever held, because the wallet is waiting on the node
+	// for a read that a busier node has not answered yet. The stalling wallet
+	// now names the call it is waiting on when it gives up.
+	workers: env.CI ? 1 : 2,
 
 	// Reporter to use
 	reporter: [

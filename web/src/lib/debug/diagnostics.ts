@@ -19,20 +19,17 @@
  * is the number that matters when the question is "what did that modal follow?"
  * rather than "what time was it?".
  *
- * TURNING IT ON is `?debug=*`, and none of that machinery is here: the inline
- * script in `src/app.html` builds the `named-logs` factory, reads
- * `localStorage.debug` and parses `debug=`, `debugLevel=`, `traceLevel=` and
- * `debugLabel` off the query string, all before the first module runs. That is
- * earlier than any module could manage, which is the point of it being inline.
+ * TURNING IT ON: `?debug=diag:*&debugLevel=debug`. The switch is documented in
+ * `web/README.md`, which is also where the sharp edges are written down (a bare
+ * `?debug` does nothing, the level defaults to warn so the namespaces alone are
+ * silent, and the namespace selection persists while the level does not).
  *
- * So do NOT call `hookup()` from `named-logs-console` anywhere in the app. It
- * installs a SECOND factory over `globalThis._logFactory`, freshly defaulted to
- * level 2 with no namespaces enabled, which silently undoes whatever the URL
- * just asked for.
- *
- * Note the spelling: `?debug=*`, with the `=`. The inline parser matches
- * `debug=` as a prefix, so a bare `?debug` sets no namespaces (the app still
- * sees the param, which is what gates this module).
+ * None of that machinery is here or anywhere in the app: the inline script in
+ * `src/app.html` builds the factory and parses the URL before the first module
+ * runs. Do NOT call `hookup()` from a module to "fix" logging that looks
+ * inert - it installs a second factory over `globalThis._logFactory`, freshly
+ * defaulted, silently undoing whatever the URL just asked for. I did exactly
+ * that once; the README exists partly because of it.
  */
 import {logs} from 'named-logs';
 import type {Readable} from 'svelte/store';

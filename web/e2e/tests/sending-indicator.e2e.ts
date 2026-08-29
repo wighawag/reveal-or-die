@@ -2,8 +2,8 @@ import {test, expect, describe} from '../fixtures/test';
 import {
 	approveHeldTransaction,
 	installStallingWallet,
-	isHoldingTransaction,
-	STALLING_WALLET_NAME,
+	sendAndStall,
+	STALLED_SEND_NAME,
 } from '../fixtures/stalling-wallet';
 
 /**
@@ -30,6 +30,29 @@ describe('Explaining a dispatch in flight', () => {
 	// itself nor the escape-hatch suite for a nonce.
 	describe.configure({mode: 'serial'});
 
+	// SLOW BY NATURE IN THIS APP, so the budget is tripled rather than the run
+	// being made quieter.
+	//
+	// Every test here walks the whole way to a wallet holding a transaction:
+	// load `/contracts` (which in this app renders a large game contract and
+	// reads it), connect, sign in, then send. That is the heaviest walk in the
+	// suite, it is almost entirely chain round-trips, and it shares ONE hardhat
+	// node with every other worker (see the workers note in
+	// playwright.config.ts, which caps them for the same reason).
+	//
+	// Measured: with both stalling-wallet suites doing real work - which they
+	// only started doing once the sending indicator's suite was fixed - whichever
+	// of the two met the node at a bad moment ran past the default two minutes,
+	// sitting on "Executing..." with the send waiting on RPC. At 4 workers that
+	// was the escape hatch, at 3 the sending indicator: the signature of
+	// contention rather than of a stuck app. Both pass alone and with the suite
+	// narrowed.
+	//
+	// A budget is the right lever here because nothing being measured is a
+	// duration: this suite asserts an ORDER (pulse before words) and a floor
+	// (words not before their delay), both of which stay true on a slow box.
+	test.slow();
+
 	const nodeUrl =
 		(globalThis as any).process.env.E2E_RPC_URL ||
 		`http://127.0.0.1:${(globalThis as any).process.env.E2E_RPC_PORT || '8545'}`;
@@ -41,21 +64,16 @@ describe('Explaining a dispatch in flight', () => {
 		page,
 	}) => {
 		await installStallingWallet(page, {nodeUrl, stallingAccountIndex: 1});
-		await page.goto('/demo/');
-
-		const input = page.getByPlaceholder('Enter your greeting...');
-		await expect(input).toBeEnabled({timeout: 30_000});
-		await input.fill('sending indicator');
-		await page.getByRole('button', {name: /send/i}).click();
-		// Two wallets are announced (the build's burner and ours), so connecting is
-		// a choice from a list.
-		await page
-			.getByRole('button', {name: new RegExp(STALLING_WALLET_NAME, 'i')})
-			.click({timeout: 30_000});
-
-		await expect
-			.poll(() => isHoldingTransaction(page), {timeout: 30_000})
-			.toBe(true);
+		// The walk to a wallet that is holding something, shared with the escape
+		// hatch's suite and overridden as one piece by a descendant whose sends do
+		// not reach a wallet. This suite used to open-code it and was left behind
+		// when the other copy was adapted, which is what the fixture now prevents.
+		//
+		// NOTHING PASSED, deliberately: what is sent is this app's business, and
+		// nothing below asserts on it. Naming a value here would be this suite
+		// deciding what a descendant's write accepts, which is how it filled a
+		// greeting into an address field and hung.
+		await sendAndStall(page);
 		const dispatchedAt = Date.now();
 
 		// The wordless rung: no delay, because this is the one that has to be on
@@ -80,7 +98,10 @@ describe('Explaining a dispatch in flight', () => {
 
 		// It says what is being sent, in the words the transaction list uses, and
 		// what leaving would cost. That sentence is the whole reason it exists.
-		await expect(page.locator(NOTICE)).toContainText('setMessage');
+		// Named from the fixture, not spelled out: what this app sends is the
+		// fixture's business (see sendAndStall), and a literal here is an
+		// assertion about a function a descendant may never call.
+		await expect(page.locator(NOTICE)).toContainText(STALLED_SEND_NAME);
 		await expect(page.locator(NOTICE)).toContainText('Leaving the page now');
 
 		// Above the wallet-action modal rather than under its backdrop: being
@@ -88,7 +109,9 @@ describe('Explaining a dispatch in flight', () => {
 		// layer (core/ui/layers.ts).
 		const layer = await page
 			.locator(NOTICE)
-			.evaluate((node) => node.closest('[data-layer]')?.getAttribute('data-layer'));
+			.evaluate((node) =>
+				node.closest('[data-layer]')?.getAttribute('data-layer'),
+			);
 		expect(layer).toBe('progress');
 
 		// And both go when the answer arrives.

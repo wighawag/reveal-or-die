@@ -1,6 +1,5 @@
 {
 	"name": "reveal-or-die-monorepo",
-	"description": "A Game",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
@@ -22,8 +21,8 @@
 		}
 	},
 	"scripts": {
-		"prepare": "set-defaults .vscode",
 		"preinstall": "npx only-allow pnpm",
+		"prepare": "set-defaults .vscode && node scripts/ensure-deployments.mjs",
 		"cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
 		"---------------------- FORMAT ----------------------": "",
 		"format": "pnpm -r format",
@@ -65,5 +64,6 @@
 		"zellij": "expand-vars zellij-launcher a $npm_package_name || expand-vars zellij -n dev/zellij.kdl -s $npm_package_name",
 		"stop": "expand-vars zellij kill-session $npm_package_name",
 		"start": "pnpm zellij"
-	}
+	},
+	"description": "A Game"
 }

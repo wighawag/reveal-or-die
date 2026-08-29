@@ -77,6 +77,8 @@ cd <your-project-name>
 pnpm install
 ```
 
+Installing also generates `web/src/lib/deployments.ts` from the deployment records committed to this repo, so that `pnpm web:check` and the web unit tests work before you have deployed anything. That file is gitignored (it names a chain and its addresses, so it belongs to whoever deployed rather than to the repo), and deploying overwrites it: an export for your own chain always wins, and nothing regenerates it while it exists. See `scripts/ensure-deployments.mjs`.
+
 #### Option 2: Clone Directly
 
 ```bash

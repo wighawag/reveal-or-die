@@ -58,10 +58,11 @@ import {createBalanceStore} from '$lib/core/connection/balance';
 import {
 	availablePaymentMethods,
 	paymentMethods,
+	spendableBalance,
 	NO_PAYMENT_METHOD_EXPLANATION,
 	type PaymentMethod,
 	type PaymentMethodId,
-} from '$lib/ui/credits/payment-methods';
+} from '$lib/core/funding';
 import {effectiveGasPrice} from '$lib/core/connection/gasFee';
 import {registrationRequest} from '$lib/ui/delegation/registration';
 import {
@@ -142,13 +143,6 @@ export type PurchaseDeps = Pick<
  * someone to the other payment method a little early.
  */
 const PURCHASE_GAS = 400_000n;
-
-/**
- * The wallet picks the fee, not the app, and it routinely picks more than
- * `estimateFeesPerGas` returned. Same multiplier and same reason as the top-up
- * flow's.
- */
-const FEE_SAFETY_MULTIPLIER = 2n;
 
 /** The steps a fresh `buy()` may start from. */
 function isRestable(step: PurchaseState['step']): boolean {
@@ -240,23 +234,15 @@ export function createPurchase(params: {
 		// against the whole price plus stipend rather than the price alone: an
 		// account that can cover only part of it cannot pay at all.
 		//
-		// The arithmetic mirrors `spendableBalance` in ui/credits/top-up-flow and
-		// is repeated rather than imported, because that module is 1587 lines and
-		// pulls the whole credits and delegation graph behind it, all of which
-		// would land in the CONTEXT's module graph for the sake of one
-		// multiplication. `test/lib/context/fatal.test.ts` re-imports that graph
-		// per case and its timeout is a budget for exactly this, so it is the file
-		// that would pay for the import.
-		//
-		// NOT a measured regression: I briefly believed it was, on the strength of
-		// that test timing out, and it turned out to be a loaded machine (the same
-		// suite ran green minutes later). Stated plainly so the next person does
-		// not go looking for a slowdown that was never here.
-		//
-		// The rule worth SHARING is which methods are available, and that is still
-		// `paymentMethods` below rather than a second copy.
-		const reserve = maxFeePerGas * PURCHASE_GAS * FEE_SAFETY_MULTIPLIER;
-		const spendable = balance > reserve ? balance - reserve : 0n;
+		// `core/funding`, not arithmetic of our own. This was four lines of
+		// duplicated multiplication until the rules were lifted into core, which
+		// is where a descendant can find them; keeping a private copy now would be
+		// keeping a second answer to a question that has one.
+		const spendable = spendableBalance({
+			balance,
+			maxFeePerGas,
+			gas: PURCHASE_GAS,
+		});
 
 		return paymentMethods({
 			accountSpendable: spendable >= total ? spendable : 0n,

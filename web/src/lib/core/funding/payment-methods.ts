@@ -18,6 +18,11 @@
  * wallet installed, can do nothing here: it cannot send, and there is nothing
  * to pay with. That is a real, reachable state, so it gets an honest
  * explanation rather than a disabled button with no reason (or a spinner).
+ *
+ * PURE, so the whole of "who can pay" is answered by stating three facts and
+ * reading a list. A descendant that needs this answer should call it rather
+ * than re-derive a "prefer the account, fall back to a wallet" rule, which is
+ * the same rule with none of the reasons attached.
  */
 
 export type PaymentMethodId = 'account' | 'wallet';
@@ -37,6 +42,9 @@ export type PaymentMethodsInput = {
 	 * What the authenticated account could send right now, after keeping back
 	 * the gas of sending it. Zero when it holds nothing, cannot cover the fee, or
 	 * has no wallet to send with at all.
+	 *
+	 * This is `spendableBalance` (or `offerAmount`) from `./funding-math`, not a
+	 * raw balance: an account holding exactly the fee can send nothing.
 	 */
 	accountSpendable: bigint;
 	/** Whether the account can submit a transaction (i.e. it has a wallet). */
@@ -44,15 +52,19 @@ export type PaymentMethodsInput = {
 	/** How many wallets the PAYMENT connection can see. */
 	walletsAvailable: number;
 	/**
-	 * Whether this payment also has to register the signer, and the account has
-	 * withdrawn its authorisation for that signer before.
+	 * A veto on paying with another wallet, from whatever this payment ALSO has
+	 * to accomplish.
 	 *
-	 * Withdrawal is per delegate: only an owner-sent `registerDelegate` clears
-	 * it, so re-authorising the SAME signer cannot go through another wallet.
-	 * A different signer can still be registered by signature. Saying so here
-	 * keeps the user from choosing a route that would revert.
+	 * Some terminal actions can only be carried out by a particular payer, and
+	 * then a third-party wallet is a route that would revert. The reason is
+	 * supplied by the caller rather than named here, because what disqualifies a
+	 * payer is a property of the action, not of paying: on `with/local-signer`
+	 * this is an account that withdrew its authorisation for the signer, which
+	 * only an owner-sent registration can clear.
+	 *
+	 * Saying so keeps the user from choosing a route that could only fail.
 	 */
-	blockedFromSignatureRoute?: boolean;
+	walletRouteBlocked?: {reason: string};
 };
 
 const ACCOUNT_DESCRIPTION =
@@ -66,8 +78,7 @@ export function paymentMethods(
 	const {accountSpendable, ownerCanSend, walletsAvailable} = input;
 
 	const accountAvailable = ownerCanSend && accountSpendable > 0n;
-	const walletAvailable =
-		walletsAvailable > 0 && !input.blockedFromSignatureRoute;
+	const walletAvailable = walletsAvailable > 0 && !input.walletRouteBlocked;
 
 	return [
 		{
@@ -88,8 +99,8 @@ export function paymentMethods(
 			available: walletAvailable,
 			unavailableReason: walletAvailable
 				? undefined
-				: input.blockedFromSignatureRoute
-					? "You withdrew this browser's access before, and only your own account can authorise it again."
+				: input.walletRouteBlocked
+					? input.walletRouteBlocked.reason
 					: 'No wallet was found in this browser.',
 		},
 	];

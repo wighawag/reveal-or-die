@@ -1,8 +1,15 @@
 import {describe, it, expect} from 'vitest';
-import {
-	availablePaymentMethods,
-	paymentMethods,
-} from '$lib/ui/credits/payment-methods';
+import {availablePaymentMethods, paymentMethods} from '$lib/core/funding';
+
+/**
+ * Nothing on this branch imports `core/funding`; see the header of
+ * `funding-math.test.ts` for why it is here and why it is tested anyway.
+ *
+ * These cases came up with the module from `with/local-signer`, where they
+ * passed against the same assertions. The one that changed is the wallet veto,
+ * which took the caller's wording rather than naming a delegation rule here:
+ * that rename is step 3 of the cascade checklist in the directory's README.
+ */
 
 const both = {
 	accountSpendable: 10n ** 18n,
@@ -49,12 +56,17 @@ describe('paymentMethods: who can pay, as a set', () => {
 		expect(wallet?.unavailableReason).toMatch(/No wallet/);
 	});
 
-	it('refuses another wallet when only the owner can re-authorise', () => {
+	it('refuses another wallet when the action itself vetoes that route', () => {
 		const wallet = paymentMethods({
 			...both,
-			blockedFromSignatureRoute: true,
+			walletRouteBlocked: {
+				reason:
+					"You withdrew this browser's access before, and only your own account can authorise it again.",
+			},
 		}).find((m) => m.id === 'wallet');
 		expect(wallet?.available).toBe(false);
+		// The WORDING comes from the caller: what disqualifies a payer is a
+		// property of the action, not of paying. See PaymentMethodsInput.
 		expect(wallet?.unavailableReason).toMatch(/withdrew/);
 	});
 

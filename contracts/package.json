@@ -2,7 +2,7 @@
 	"name": "reveal-or-die-contracts",
 	"version": "0.0.0",
 	"dependencies": {
-		"@etherplay/delegation": "^0.1.0"
+		"@etherplay/delegation": "^0.1.1"
 	},
 	"type": "module",
 	"exports": {
