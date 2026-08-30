@@ -125,7 +125,14 @@
 					A key that is authorised but has no gas is authorised in name only,
 					and that is a second dead end one step further on.
 				-->
-				<Button size="sm" class="mt-3" onclick={() => topUp.start()}>
+				<!-- The purpose IS authorising here, so the dialog says so. It is a
+				     required argument now, deliberately: a default is what let one
+				     caller's words end up in front of every other caller's users. -->
+				<Button
+					size="sm"
+					class="mt-3"
+					onclick={() => topUp.start(topUp.purposes.authorise)}
+				>
 					Authorise and carry on
 				</Button>
 			{:else if $hud.setup.action === 'buy'}
@@ -160,7 +167,16 @@
 					class="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2"
 				>
 					<p class="text-xs text-muted-foreground">{$hud.outOfGas.detail}</p>
-					<Button size="sm" class="mt-2" onclick={() => topUp.start()}>
+					<!-- A DIFFERENT purpose from the gate above, and this is exactly
+					     what the argument is for: the key is already authorised and
+					     has simply run out of gas, so telling the player it is about
+					     to be authorised would be describing a step that happened
+					     rounds ago. -->
+					<Button
+						size="sm"
+						class="mt-2"
+						onclick={() => topUp.start(topUp.purposes.topUp)}
+					>
 						Top up and carry on
 					</Button>
 				</div>

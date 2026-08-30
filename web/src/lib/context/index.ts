@@ -15,7 +15,7 @@
  * the game's chain reads. See the injection point in `core.ts`.
  */
 import {createCoreContext} from './core.js';
-import {createGameContext} from './game.js';
+import {createGameContext, SIGNER_GRANT} from './game.js';
 import type {Context} from './types.js';
 
 export type {CoreServices} from './core.js';
@@ -24,5 +24,13 @@ export function createContext(): {
 	context: Context;
 	start: () => () => void;
 } {
-	return createCoreContext({createApp: createGameContext});
+	// Both of the game's contributions travel the same way, and for the same
+	// reason: `core.ts` must not import `game.ts`. The grant is this app's answer
+	// to "what is this browser's key for", which two pieces of shared UI need
+	// (the payment dialog's consent step and the account panel's delegation row)
+	// and neither can work out. See ui/delegation/grant.
+	return createCoreContext({
+		createApp: createGameContext,
+		signerGrant: SIGNER_GRANT,
+	});
 }

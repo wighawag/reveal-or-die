@@ -82,6 +82,48 @@ export default defineConfig(({mode}) => {
 		},
 		test: {
 			expect: {requireAssertions: true},
+			// HALF THE CORES, because a test run does not own the machine.
+			//
+			// Vitest defaults to one worker per core, and every worker that touches
+			// the app barrel holds its own copy of a large module graph. That is fine
+			// alone and falls apart the moment a second suite runs beside it: three of
+			// these repos at once (16 cores, 30GB) drove the machine into swap and
+			// `test/lib/context/fatal.test.ts` blew its 120s hang guard in ALL THREE,
+			// with the whole run taking 27 minutes instead of 30 seconds. The failure
+			// looks like a flaky test and is not one: it is 48 forks competing for 8GB.
+			//
+			// It is not a trade against speed, which is why it is a default rather
+			// than something CI passes. Measured on this repo, solo: 19.3s -> 17.4s
+			// wall, with transform 65s -> 34s and import 95s -> 46s, because the work
+			// saved on contention more than pays for the workers given up. The same
+			// three-way run that failed above passes in 80s with this set.
+			//
+			// A PERCENTAGE, not a number: these repos are cloned onto everything from
+			// a laptop to a CI runner, and a hardcoded count is either oversubscribed
+			// on the small machine or wasteful on the big one.
+			maxWorkers: '50%',
+			// THE TWO PROJECTS BELOW MUST NOT RUN AT THE SAME TIME, which is why
+			// `test:unit` runs them as two commands rather than letting vitest start
+			// both. Vitest runs projects concurrently, and these two do not share a
+			// machine well: `client` drives a real headless chromium through
+			// playwright while `server` fans a large module graph across forks.
+			//
+			// Together they are worse than the sum of their parts, measured on this
+			// repo. Alone: server 17s, client 9s. Sequentially: 25s. Concurrently
+			// (what one plain `vitest run` does): 43s. So splitting them is ~40%
+			// FASTER even with the machine to yourself.
+			//
+			// And it is the difference between passing and hanging when the machine is
+			// shared. Three of these repos running `vitest run` at once never
+			// finished: killed at 15 minutes, every one of them, with
+			// `test/lib/context/fatal.test.ts` blaming its own timeout. The same three
+			// with the projects split finish in 1m50s. Neither project is at fault on
+			// its own: three concurrent `server` runs pass in 80s and three concurrent
+			// `client` runs pass in 50s.
+			//
+			// `test:unit:watch` deliberately keeps the single-process behaviour: watch
+			// mode is one developer on one machine, and the ergonomics are worth more
+			// there than the contention costs.
 			projects: [
 				{
 					extends: './vite.config.ts',

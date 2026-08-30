@@ -13,6 +13,7 @@
  */
 import {derived, get, type Readable} from 'svelte/store';
 import type {CoreServices} from './core';
+import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
 import {
 	createThreePhase,
@@ -308,6 +309,22 @@ export function setupNeeded(params: {
 	}
 	return undefined;
 }
+
+/**
+ * WHAT THIS APP'S BROWSER KEY IS FOR, in this app's own words.
+ *
+ * Inherited plumbing, app-specific answer. The template owns the sentences it
+ * lands in (see `ui/delegation/grant.ts`); this is the verb phrase inside them,
+ * and it is shown in the two places where being wrong is most expensive: the
+ * dialog asking the user to authorise a key, and the account panel row saying
+ * what that key can do.
+ *
+ * Upstream this said "post greetings", because upstream's demo posts greetings
+ * and the sentence was hard-coded in shared code. A game inheriting that told
+ * its players the key was for posting greetings. If you fork THIS template,
+ * change this line.
+ */
+export const SIGNER_GRANT: SignerGrant = {action: 'play your moves'};
 
 export function createGameContext(core: CoreServices): GameContext {
 	/**
