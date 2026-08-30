@@ -393,6 +393,9 @@ export function createGameContext(core: CoreServices): GameContext {
 		deps: core,
 		config,
 		owner: gameIdentity,
+		// The same grant the top-up flow shows, from the one place this app
+		// declares it, so the two cannot describe two different keys.
+		grant: SIGNER_GRANT,
 		// The avatar is in the contract's custody the moment the purchase lands, so
 		// re-reading is what takes the player past the setup gate and onto the board.
 		onPurchased: () => void deposited.update(),

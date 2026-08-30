@@ -83,6 +83,41 @@
 	with no wallet, in a browser with no wallet installed. It gets the
 	explanation the template already wrote for it.
 -->
+<!--
+	Consent, before the wallet is asked for a signature.
+
+	The same list the top-up flow shows, from the same grant, because they are
+	describing the same key. Its own dialog rather than a line in the chooser:
+	this is the moment the player agrees to something, and it must be readable
+	before MetaMask opens rather than behind it.
+-->
+<Modal.Root
+	layer="modal"
+	openWhen={$purchase.step === 'Consent'}
+	onCancel={() => purchase.dismiss()}
+>
+	<Modal.Title>Let this browser play for you</Modal.Title>
+	{#if $purchase.step === 'Consent'}
+		<p class="text-sm text-muted-foreground">
+			Your wallet will ask you to sign a message. It is not a transaction and
+			costs nothing.
+		</p>
+		<ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+			{#each $purchase.bullets as bullet (bullet)}
+				<li>{bullet}</li>
+			{/each}
+		</ul>
+		<div class="mt-4 flex gap-2">
+			<Button size="sm" onclick={() => purchase.confirmConsent()}>
+				Sign and buy
+			</Button>
+			<Button size="sm" variant="outline" onclick={() => purchase.dismiss()}>
+				Cancel
+			</Button>
+		</div>
+	{/if}
+</Modal.Root>
+
 <Modal.Root
 	layer="modal"
 	openWhen={$purchase.step === 'NoPaymentMethod'}

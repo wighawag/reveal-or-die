@@ -67,9 +67,11 @@ import {effectiveGasPrice} from '$lib/core/connection/gasFee';
 import {registrationRequest} from '$lib/ui/delegation/registration';
 import {
 	fetchDelegation,
+	signsWithoutPrompt,
 	submitRegistration,
 	type RegistrationWriter,
 } from '$lib/ui/delegation/register-delegate';
+import {consentBullets, type SignerGrant} from '$lib/ui/delegation/grant';
 import type {WorldConfig} from './config';
 
 /**
@@ -91,6 +93,16 @@ export type PurchaseState =
 	/** Nothing here can pay, with the reason. */
 	| {step: 'NoPaymentMethod'; message: string}
 	/**
+	 * Waiting for the player to agree to authorise this browser, BEFORE their
+	 * wallet is asked to sign anything.
+	 *
+	 * Only reached when a wallet will actually be prompted. A hosted account
+	 * hands back a credential minted at sign-in with no dialog at all, and
+	 * asking it to consent to something that is not about to happen would be
+	 * ceremony. Same split the top-up flow makes.
+	 */
+	| {step: 'Consent'; bullets: readonly string[]; method: PaymentMethodId}
+	/**
 	 * Asking the owner to authorise this browser. A SIGNATURE, not a
 	 * transaction: free, and for a hosted account not even a prompt, because the
 	 * credential was minted at sign-in.
@@ -108,6 +120,8 @@ export type PurchaseStore = Readable<PurchaseState> & {
 	buy(): Promise<void>;
 	/** Answer `ChoosingPayer`. */
 	choose(method: PaymentMethodId): Promise<void>;
+	/** Answer `Consent`: yes, ask my wallet to sign it. */
+	confirmConsent(): Promise<void>;
 	/** Put an error away without buying. */
 	dismiss(): void;
 };
@@ -154,6 +168,15 @@ export function createPurchase(params: {
 	config: WorldConfig;
 	/** The account the avatar will belong to. */
 	owner: Readable<`0x${string}` | undefined>;
+	/**
+	 * What this app's browser key is for, for the consent step.
+	 *
+	 * A parameter rather than a context field, because `context/game.ts` already
+	 * holds the one this app declares (`SIGNER_GRANT`) and importing it back from
+	 * there would be a cycle. Same list the top-up flow shows, from the same
+	 * source, so the two cannot describe two different keys.
+	 */
+	grant: SignerGrant;
 	/** Called once the avatar is on chain, so the deposited read can catch up. */
 	onPurchased?: () => void;
 }): PurchaseStore {
@@ -324,19 +347,65 @@ export function createPurchase(params: {
 			});
 			return;
 		}
-		if (usable.length === 1) {
-			// One answer is not a question. Asking would be ceremony.
+		if (offered.length === 1) {
+			// Genuinely nothing to choose between: one method exists at all.
 			await run(usable[0].id);
 			return;
 		}
-		// Every method is shown, available or not, so an unavailable one carries
-		// its reason instead of simply being missing.
+		// SHOWN WHENEVER THERE IS MORE THAN ONE METHOD, available or not, rather
+		// than only when more than one CAN be used.
+		//
+		// Skipping to the single usable method looked like a kindness and was not.
+		// A player whose account holds nothing went straight into a wallet picker
+		// having never been told that paying from their account was an option, let
+		// alone why it was refused. `paymentMethods` gives every entry an
+		// `unavailableReason` precisely so it can be shown greyed out WITH the
+		// reason, which is the difference between a choice and a closed door.
 		state.set({step: 'ChoosingPayer', methods: offered});
 	}
 
 	async function choose(method: PaymentMethodId) {
 		if (value.step !== 'ChoosingPayer') return;
+
+		/**
+		 * ASK BEFORE THE WALLET DOES, when a wallet is going to be asked.
+		 *
+		 * `fetchDelegation` opens a signature request for a wallet-owned account,
+		 * and going straight into it meant the first the player heard of
+		 * authorising this browser was MetaMask showing them a message to sign. A
+		 * signature prompt with no preceding explanation is the one thing a
+		 * careful user is right to refuse.
+		 *
+		 * The top-up flow has had a consent step for exactly this since before I
+		 * wrote any of this file, with the same list from the same grant, and I
+		 * skipped it. Not shown when nothing will be prompted: a hosted account
+		 * hands back a credential minted at sign-in, and consenting to a dialog
+		 * that never opens is ceremony.
+		 */
+		if (needsConsent()) {
+			state.set({
+				step: 'Consent',
+				bullets: consentBullets(params.grant),
+				method,
+			});
+			return;
+		}
 		await run(method);
+	}
+
+	/** Whether authorising this browser will actually open the owner's wallet. */
+	function needsConsent(): boolean {
+		if (isRegistered(get(deps.delegation))) return false;
+		if (get(deps.signerExecutor).status !== 'ready') return false;
+		// A hosted account signs without prompting, so there is nothing to warn
+		// about and nothing to agree to in advance.
+		return !signsWithoutPrompt(get(deps.connection));
+	}
+
+	async function confirmConsent() {
+		const current = value;
+		if (current.step !== 'Consent') return;
+		await run(current.method);
 	}
 
 	async function run(method: PaymentMethodId) {
@@ -497,6 +566,7 @@ export function createPurchase(params: {
 		},
 		buy,
 		choose,
+		confirmConsent,
 		dismiss: () => state.set({step: 'Idle'}),
 	};
 }

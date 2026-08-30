@@ -1,6 +1,8 @@
 import {describe, expect, it} from 'vitest';
 import {decodeAbiParameters, zeroAddress} from 'viem';
 import {purchaseArgs} from '$lib/world/purchase';
+import {availablePaymentMethods, paymentMethods} from '$lib/core/funding';
+import {consentBullets} from '$lib/ui/delegation/grant';
 import {
 	avatarIDFor,
 	ownerOfAvatarID,
@@ -100,5 +102,52 @@ describe('the random subID', () => {
 		const seen = new Set<bigint>();
 		for (let i = 0; i < 64; i++) seen.add(randomSubID());
 		expect(seen.size).toBe(64);
+	});
+});
+
+describe('what the player is shown before their wallet opens', () => {
+	/**
+	 * Two shortcuts I took, both of which put a wallet dialog in front of someone
+	 * who had not been told what it was.
+	 *
+	 * Neither is testable end to end without a wallet, so what is pinned here is
+	 * the DECISION each one turns on. Both were wrong in the same direction:
+	 * skipping a step the template already had, because with one obvious answer
+	 * the step looked like ceremony.
+	 */
+	it('offers the choice whenever there is more than one method to show', () => {
+		// The bug: with an empty account the only USABLE method was the payment
+		// rail, so the chooser was skipped and the player went straight into a
+		// wallet picker, never told that paying from their account was an option
+		// or why it was refused. `paymentMethods` fills in `unavailableReason` for
+		// exactly that, which is worth nothing if the entry is never rendered.
+		const methods = paymentMethods({
+			accountSpendable: 0n,
+			ownerCanSend: true,
+			walletsAvailable: 1,
+		});
+		expect(methods).toHaveLength(2);
+		expect(availablePaymentMethods(methods)).toHaveLength(1);
+
+		const account = methods.find((m) => m.id === 'account');
+		expect(account?.available).toBe(false);
+		// The reason is the whole point of showing it greyed out rather than not
+		// at all.
+		expect(account?.unavailableReason).toBeTruthy();
+	});
+
+	it('has something to say before asking for a signature', () => {
+		// The consent list, from the app's own grant. The bug was not that this
+		// list was wrong; it was that nothing showed it, so the first the player
+		// heard of authorising this browser was their wallet presenting a message
+		// to sign. A signature prompt with no preceding explanation is the one
+		// thing a careful user is right to refuse.
+		const bullets = consentBullets({action: 'play your moves'});
+		expect(bullets.length).toBeGreaterThan(1);
+		expect(bullets[0]).toContain('play your moves');
+		// It has to say what the key CANNOT do, or "authorise" is the word every
+		// drainer uses and nothing distinguishes this from one.
+		expect(bullets.join(' ')).toMatch(/cannot move your funds/i);
+		expect(bullets.join(' ')).toMatch(/withdraw it later/i);
 	});
 });

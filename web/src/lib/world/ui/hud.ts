@@ -264,6 +264,8 @@ export function purchaseBusyLabel(state: PurchaseState): string | undefined {
 			return 'Buying your avatar...';
 		case 'ChoosingPayer':
 			return 'Choose how to pay...';
+		case 'Consent':
+			return 'Authorise this browser...';
 		case 'Registering':
 			// No prompt for this one: the signer sends it itself, out of the stipend
 			// the purchase just gave it. Unexplained it looks like a hang after the
