@@ -214,6 +214,14 @@ describe('Stopping waiting for the wallet', () => {
 		page,
 	}) => {
 		await sendAndStall(page, ADDRESSES.staysConnected);
+		// Captured rather than named, for the same reason as the locked test below:
+		// which step a connected app rests on is its TARGET step. The claim here is
+		// that stopping waiting moves NOTHING, and comparing against what it was
+		// says that directly instead of encoding one app's answer.
+		const stepBefore = await page.evaluate(
+			() =>
+				(globalThis as any).get((globalThis as any).context.connection).step,
+		);
 		await stopWaiting(page);
 
 		// The blocking modal is gone, which is what the user asked for.
@@ -226,9 +234,7 @@ describe('Stopping waiting for the wallet', () => {
 				.step,
 			accountDataReady: (globalThis as any).context.accountData.isReady(),
 		}));
-		// SignedIn rather than WalletConnected: this app signs in, and the point is
-		// that stopping waiting left the connection exactly where it was.
-		expect(state.step).toBe('SignedIn');
+		expect(state.step).toBe(stepBefore);
 		expect(state.accountDataReady).toBe(true);
 
 		// It must not claim anything about a request it is still listening for.
