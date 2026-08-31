@@ -96,11 +96,21 @@ In the order I would take it. `web-port.md` has the detail.
    one piece of work. `docs/audits/03-renderer.md` 3.4 wants the input layer
    rebuilt as intent recognisers in the shape `game/render/gestures.ts` uses,
    and lists four defects in the old implementation not to carry over.
-2. **A purchase should survive a reload.** Blocked on the payment rail's
-   transactions being tracked, which is reported upstream and not yet fixed. Do
-   NOT solve it by persisting state here; the operations ledger exists to hold
-   exactly this, and the reason a purchase is invisible to it is the upstream
-   defect.
+2. **A purchase should survive a reload.** NO LONGER BLOCKED: the upstream fix
+   landed and is merged, so `context/core.ts` now tracks the payment rail
+   (`trackerBuilder.using(rawPayment.walletClient, rawPayment.publicClient)`)
+   and `createTrackedWalletConnector` takes a `clients` list carrying it. Rail
+   transactions therefore reach account data like any other.
+
+   What is left is app-level. Reloading while a purchase is in flight loses it:
+   the state lives only in `lib/world/purchase.ts`'s store, so the setup gate
+   returns to "Buy an avatar" and the player can pay a second time for an avatar
+   the first transaction is already minting (the subIDs are random, so the second
+   does not collide, it simply buys another). The fix is to read the pending
+   operation out of account data, which is the machinery the signer's moves
+   already use across reloads. Do NOT persist state in local storage: that would
+   be a second copy of what the operations ledger holds, which is the mistake
+   this repo has made five times already.
 3. **The red "you cannot move" border**, which wants restyling to match shadcn.
 4. **The home page**, which still shows the template's copy rather than this
    game's.
