@@ -4,7 +4,12 @@ import {createPlanning} from '$lib/world/planning';
 import type {WorldConfig} from '$lib/world/config';
 import type {Action} from '$lib/world/commit-reveal';
 import type {RoundState, RoundStore} from '$lib/game/core/round';
-import {ActionType, bigIntIDToXY, type Position} from 'reveal-or-die-contracts';
+import {
+	ActionType,
+	bigIntIDToXY,
+	xyToBigIntID,
+	type Position,
+} from 'reveal-or-die-contracts';
 
 /**
  * The walkable neighbourhood used throughout, taken from the single generated
@@ -152,6 +157,138 @@ describe('planning: stepping', () => {
 	it('refuses to step when the avatar is not in the world', () => {
 		const {planning} = setup({at: undefined});
 		expect(planning.stepTo({x: 0, y: 2})).toBe(false);
+	});
+});
+
+describe('planning: stepping by direction', () => {
+	/**
+	 * The same rule as `stepTo`, reached the way a key or a d-pad reaches it.
+	 * Worth its own tests only because of the one thing it decides on its own:
+	 * WHERE the direction is measured from.
+	 */
+	it('steps from the end of the plan, not from where the avatar stands', () => {
+		const {planning, round} = setup();
+		// START is (0,1); south twice down the corridor.
+		expect(planning.stepBy({x: 0, y: 1})).toBe(true);
+		expect(planning.stepBy({x: 0, y: 1})).toBe(true);
+		expect(
+			positionsOf((round.value as unknown as {actions: Action[]}).actions),
+		).toEqual([
+			{x: 0, y: 2},
+			{x: 0, y: 3},
+		]);
+	});
+
+	it('treats a negative y as north, which is how the board is stored', () => {
+		// (0,0) is a wall, so north from START is refused rather than planned. That
+		// IS the assertion: a direction that flipped the sign would step to (0,2),
+		// which is legal, and nothing else here would notice.
+		const {planning, round} = setup();
+		expect(planning.stepBy({x: 0, y: -1})).toBe(false);
+		expect(
+			(round.value as unknown as {actions: Action[]}).actions,
+		).toHaveLength(0);
+	});
+
+	it('refuses a direction when the avatar is not in the world', () => {
+		const {planning} = setup({at: undefined});
+		expect(planning.stepBy({x: 0, y: 1})).toBe(false);
+	});
+});
+
+describe('planning: leaving the world', () => {
+	it('plans an exit from where the avatar stands', () => {
+		const {planning, round} = setup();
+		expect(planning.exitAt()).toBe(true);
+		const actions = (round.value as unknown as {actions: Action[]}).actions;
+		expect(actions).toHaveLength(1);
+		expect(actions[0].actionType).toEqual(ActionType.Exit);
+		expect(bigIntIDToXY(actions[0].data)).toEqual(START);
+	});
+
+	it('plans an exit from where the MOVES end, not from where they started', () => {
+		// `_exit` resolves after the moves ahead of it, so that is where the avatar
+		// will be standing. The data is display-only, but a display that names the
+		// starting cell would draw the exit marker on the wrong square.
+		const {planning, round} = setup();
+		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
+		expect(planning.exitAt()).toBe(true);
+		const actions = (round.value as unknown as {actions: Action[]}).actions;
+		expect(actions).toHaveLength(2);
+		expect(bigIntIDToXY(actions[1].data)).toEqual({x: 0, y: 2});
+	});
+
+	it('permits an exit from a cell that is not the exit tile', () => {
+		// The contract does not check the position: `_exit` ignores its action data
+		// and `UnableToExitFromThisPosition` is declared and never thrown. START is
+		// plain floor, so this passing is the client agreeing with the chain rather
+		// than inventing a rule of its own. If the contract ever gains the check,
+		// this test is the one that has to change WITH it.
+		const {planning} = setup();
+		expect(planning.exitAt()).toBe(true);
+	});
+
+	it('refuses to exit when the avatar is not in the world', () => {
+		// Not merely pointless: `_resolveActions` would call `_removeFromZone` for
+		// an avatar that is not in that zone's list, popping whoever is.
+		const {planning} = setup({at: undefined});
+		expect(planning.exitAt()).toBe(false);
+	});
+
+	it('refuses to exit while the position is still UNKNOWN, plan or no plan', () => {
+		// The case the check above cannot reach on its own, and the one that
+		// actually happens: on a reload the round comes back from storage with its
+		// moves intact, while `currentPosition` is undefined until the account's
+		// avatars have been read. The plan then has an end, so an exit built from
+		// the plan alone looks perfectly valid, and would be committed for an
+		// avatar nobody has yet confirmed is in the world.
+		const {planning} = setup({
+			at: undefined,
+			actions: [{actionType: ActionType.Move, data: xyToBigIntID(0, 2)}],
+		});
+		expect(planning.exitAt()).toBe(false);
+	});
+
+	it('refuses to exit in the same turn as an entry', () => {
+		const {planning} = setup({at: undefined});
+		expect(planning.enterAt({x: 0, y: 1})).toBe(true);
+		expect(planning.exitAt()).toBe(false);
+	});
+
+	it('refuses a second exit', () => {
+		const {planning, round} = setup();
+		expect(planning.exitAt()).toBe(true);
+		expect(planning.exitAt()).toBe(false);
+		expect(
+			(round.value as unknown as {actions: Action[]}).actions,
+		).toHaveLength(1);
+	});
+
+	it('refuses to step after an exit, which ends the reveal', () => {
+		// The same rule as after an entry, and the one that costs the player most:
+		// the steps would be dropped by the reveal without a word, and the avatar
+		// would leave from where it was standing rather than from where they walked
+		// it to.
+		const {planning} = setup();
+		expect(planning.exitAt()).toBe(true);
+		expect(planning.stepTo({x: 0, y: 2})).toBe(false);
+		expect(planning.stepBy({x: 0, y: 1})).toBe(false);
+	});
+
+	it('reports the exit to the view, so it can be drawn', () => {
+		const {planning} = setup();
+		planning.stepTo({x: 0, y: 2});
+		planning.exitAt();
+		expect(get(planning.plan).planned).toEqual([
+			{type: 'move', to: {x: 0, y: 2}},
+			{type: 'exit', to: {x: 0, y: 2}},
+		]);
+	});
+
+	it('refuses to exit once the round is no longer plannable', () => {
+		const {planning, state} = setup();
+		state.set({step: 'Committed'} as unknown as RoundState<Action>);
+		expect(planning.exitAt()).toBe(false);
 	});
 });
 
