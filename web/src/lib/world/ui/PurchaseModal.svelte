@@ -18,9 +18,19 @@
 	import * as Modal from '$lib/core/ui/modal/index.js';
 	import Button from '$lib/shadcn/ui/button/button.svelte';
 	import {getAppContext} from '$lib';
+	import {formatAmount} from '$lib/core/funding';
 
-	const {game} = getAppContext();
+	const context = getAppContext();
+	const {game} = context;
 	const purchase = game.purchase;
+
+	// The chain's own currency, for the figure above. `formatAmount` rounds DOWN
+	// and never prefixes a `~`: this is money about to be spent, not a balance
+	// being reported, so an amount that reads higher than what is sent would be
+	// worse than one that reads lower.
+	const chain = context.deployments.get().chain;
+	const decimals = chain.nativeCurrency.decimals;
+	const symbol = chain.nativeCurrency.symbol;
 </script>
 
 <!--
@@ -96,11 +106,22 @@
 	openWhen={$purchase.step === 'Consent'}
 	onCancel={() => purchase.dismiss()}
 >
-	<Modal.Title>Let this browser play for you</Modal.Title>
+	<Modal.Title>One signature, then the purchase</Modal.Title>
 	{#if $purchase.step === 'Consent'}
+		<!-- RESTATES WHO AND HOW MUCH. The player last saw a figure on a button
+		     several dialogs ago and has since picked a wallet; being asked to sign
+		     something with neither fact on screen is how a signature request
+		     starts to look like it came from somewhere else. -->
+		<dl class="mb-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+			<dt class="text-muted-foreground">Paying from</dt>
+			<dd class="font-mono break-all">{$purchase.payer}</dd>
+			<dt class="text-muted-foreground">Total</dt>
+			<dd>{formatAmount($purchase.total, decimals)} {symbol}</dd>
+		</dl>
 		<p class="text-sm text-muted-foreground">
-			Your wallet will ask you to sign a message. It is not a transaction and
-			costs nothing.
+			First your wallet asks you to sign a message, which authorises this
+			browser to play for you. It is not a transaction and costs nothing. The
+			payment comes after it.
 		</p>
 		<ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
 			{#each $purchase.bullets as bullet (bullet)}

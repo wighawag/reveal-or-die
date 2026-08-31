@@ -101,7 +101,14 @@ export type PurchaseState =
 	 * asking it to consent to something that is not about to happen would be
 	 * ceremony. Same split the top-up flow makes.
 	 */
-	| {step: 'Consent'; bullets: readonly string[]; method: PaymentMethodId}
+	| {
+			step: 'Consent';
+			bullets: readonly string[];
+			/** Who is paying, so the dialog can restate it rather than assume it. */
+			payer: `0x${string}`;
+			/** What they are about to pay, in wei. */
+			total: bigint;
+	  }
 	/**
 	 * Asking the owner to authorise this browser. A SIGNATURE, not a
 	 * transaction: free, and for a hosted account not even a prompt, because the
@@ -366,30 +373,6 @@ export function createPurchase(params: {
 
 	async function choose(method: PaymentMethodId) {
 		if (value.step !== 'ChoosingPayer') return;
-
-		/**
-		 * ASK BEFORE THE WALLET DOES, when a wallet is going to be asked.
-		 *
-		 * `fetchDelegation` opens a signature request for a wallet-owned account,
-		 * and going straight into it meant the first the player heard of
-		 * authorising this browser was MetaMask showing them a message to sign. A
-		 * signature prompt with no preceding explanation is the one thing a
-		 * careful user is right to refuse.
-		 *
-		 * The top-up flow has had a consent step for exactly this since before I
-		 * wrote any of this file, with the same list from the same grant, and I
-		 * skipped it. Not shown when nothing will be prompted: a hosted account
-		 * hands back a credential minted at sign-in, and consenting to a dialog
-		 * that never opens is ceremony.
-		 */
-		if (needsConsent()) {
-			state.set({
-				step: 'Consent',
-				bullets: consentBullets(params.grant),
-				method,
-			});
-			return;
-		}
 		await run(method);
 	}
 
@@ -402,22 +385,84 @@ export function createPurchase(params: {
 		return !signsWithoutPrompt(get(deps.connection));
 	}
 
+	/**
+	 * The payer resolved by `run`, held across the consent step.
+	 *
+	 * Kept rather than re-derived, because re-deriving means calling `payerFor`
+	 * again, and for the rail that opens the wallet picker a SECOND time. Asking
+	 * someone to choose a wallet twice for one purchase is how they conclude the
+	 * first answer was not heard.
+	 */
+	let awaitingConsent: Awaited<ReturnType<typeof payerFor>> | undefined;
+
 	async function confirmConsent() {
-		const current = value;
-		if (current.step !== 'Consent') return;
-		await run(current.method);
+		if (value.step !== 'Consent' || !awaitingConsent) return;
+		const payer = awaitingConsent;
+		awaitingConsent = undefined;
+		await execute(payer);
 	}
 
+	/**
+	 * Connect the chosen payer, then ask for consent if a wallet is going to be
+	 * asked to sign.
+	 *
+	 * THE PAYER IS CONNECTED FIRST, and the order is the whole point. It used to
+	 * take the delegation signature before connecting, so the sequence was:
+	 * choose "pay with another wallet", get a signature request out of nowhere,
+	 * and only then be asked WHICH wallet. The question the player had just
+	 * answered was interrupted by an unrelated one, and the thread between
+	 * choosing to pay and picking a payer was cut.
+	 *
+	 * Connecting immediately keeps that thread. The signature comes after, with
+	 * a dialog that restates who is paying and how much, so the consent step
+	 * carries the context the wallet picker used to lose.
+	 */
 	async function run(method: PaymentMethodId) {
 		const $owner = get(owner);
 		if (!$owner) return;
 
 		try {
 			await deps.connection.ensureConnected();
+
+			// Leaves `ChoosingPayer` before the wallet picker opens: the question is
+			// answered, and a chooser still on screen behind a picker invites a
+			// second answer.
+			state.set({step: 'Purchasing'});
+			const payer = await payerFor(method);
+			logger.debug(`payer connected: ${payer.kind} ${payer.address}`);
+
+			if (needsConsent()) {
+				awaitingConsent = payer;
+				state.set({
+					step: 'Consent',
+					bullets: consentBullets(params.grant),
+					payer: payer.address,
+					// Restated here because the player last saw a figure on a button,
+					// several dialogs ago, and is about to be asked to sign something.
+					total: purchaseValue({
+						price: config.sale.price,
+						stipend: config.sale.stipend,
+					}),
+				});
+				return;
+			}
+
+			await execute(payer);
+		} catch (error) {
+			fail(error);
+		}
+	}
+
+	async function execute(payer: Awaited<ReturnType<typeof payerFor>>) {
+		const $owner = get(owner);
+		if (!$owner) return;
+
+		try {
 			const deployments = get(deps.deployments);
 
-			// Signature first: free, refusable, and it decides whether the purchase
-			// needs to carry a stipend at all.
+			// The signature, now that the player has agreed to it and knows who is
+			// paying. Still before the transaction: it is free and refusable, and it
+			// decides whether the purchase needs to carry a stipend at all.
 			const authorisation = await credentialIfNeeded($owner);
 
 			// Only fund a signer that is going to be registered. Sending a stipend
@@ -429,15 +474,7 @@ export function createPurchase(params: {
 			logger.debug(
 				`purchasing: price=${config.sale.price} stipend=${stipend} to=${stipendTo ?? 'nobody'}`,
 			);
-			// BEFORE `payerFor`, which is what connects a paying wallet and can
-			// raise the wallet picker. Two reasons, and only one is cosmetic: the
-			// payer chooser must be off screen before something else asks a
-			// question, and "Buying your avatar" is true from here on whereas
-			// leaving the state at `ChoosingPayer` would keep asking a question the
-			// player has already answered.
 			state.set({step: 'Purchasing'});
-			const payer = await payerFor(method);
-			logger.debug(`purchasing via ${payer.kind}`);
 
 			const request = {
 				address: config.sale.address,
@@ -525,38 +562,49 @@ export function createPurchase(params: {
 			state.set({step: 'Idle'});
 			params.onPurchased?.();
 		} catch (error) {
-			logger.debug(`failed at step "${value.step}": ${String(error)}`);
-			// REJECTING IS AN ANSWER, NOT A FAULT. The player pressed no in their
-			// wallet, which is a decision they made deliberately and already know
-			// about; reporting it back to them as an error, in viem's words, is the
-			// app telling them off for using it correctly. Back to Idle, so the
-			// button simply reads as ready again.
-			if (isUserRejectionError(error)) {
-				state.set({step: 'Idle'});
-				return;
-			}
-			// ALREADY REPORTED, and far better than this could. `ensureCanAfford`
-			// throws this only after the insufficient-funds modal has named the
-			// account, shown the shortfall, offered the faucet and waited for the
-			// balance to arrive; the player then chose to stop. Painting a summary
-			// underneath is the app telling them again, worse, in a panel with no
-			// remedy on it. Same reasoning as the rejection above.
-			if (error instanceof InsufficientFundsError) {
-				state.set({step: 'Idle'});
-				return;
-			}
-			state.set({
-				step: 'Error',
-				error,
-				// SUMMARISED, not `error.message`. A viem error message is the whole
-				// request pretty-printed - from, to, value, data, gas, nonce, the ABI
-				// signature, every argument, a docs link and a version - and it was
-				// being rendered verbatim into a panel over the board. `txErrorSummary`
-				// is the app's own one-sentence version, and the full text is still
-				// reachable through the error-details modal.
-				message: txErrorSummary(error),
-			});
+			fail(error);
 		}
+	}
+
+	/**
+	 * One place decides what a failure is worth saying.
+	 *
+	 * Shared by `run` and `execute` because the consent step splits one attempt
+	 * across two functions, and a rejection means the same thing whichever half
+	 * it happened in.
+	 */
+	function fail(error: unknown) {
+		logger.debug(`failed at step "${value.step}": ${String(error)}`);
+		// REJECTING IS AN ANSWER, NOT A FAULT. The player pressed no in their
+		// wallet, which is a decision they made deliberately and already know
+		// about; reporting it back to them as an error, in viem's words, is the
+		// app telling them off for using it correctly. Back to Idle, so the
+		// button simply reads as ready again.
+		if (isUserRejectionError(error)) {
+			state.set({step: 'Idle'});
+			return;
+		}
+		// ALREADY REPORTED, and far better than this could. `ensureCanAfford`
+		// throws this only after the insufficient-funds modal has named the
+		// account, shown the shortfall, offered the faucet and waited for the
+		// balance to arrive; the player then chose to stop. Painting a summary
+		// underneath is the app telling them again, worse, in a panel with no
+		// remedy on it. Same reasoning as the rejection above.
+		if (error instanceof InsufficientFundsError) {
+			state.set({step: 'Idle'});
+			return;
+		}
+		state.set({
+			step: 'Error',
+			error,
+			// SUMMARISED, not `error.message`. A viem error message is the whole
+			// request pretty-printed - from, to, value, data, gas, nonce, the ABI
+			// signature, every argument, a docs link and a version - and it was
+			// being rendered verbatim into a panel over the board. `txErrorSummary`
+			// is the app's own one-sentence version, and the full text is still
+			// reachable through the error-details modal.
+			message: txErrorSummary(error),
+		});
 	}
 
 	return {
