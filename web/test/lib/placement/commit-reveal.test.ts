@@ -1,4 +1,5 @@
 import {describe, it, expect} from 'vitest';
+import {readable} from 'svelte/store';
 import {
 	ContractFunctionExecutionError,
 	ContractFunctionRevertedError,
@@ -29,6 +30,14 @@ import {SignerOutOfFundsError} from '$lib/placement/errors';
  * outside: the player is sent to buy gas they already have.
  */
 
+/**
+ * A signer with gas, which is the precondition for these tests being ABOUT
+ * anything: `send` now refuses before it reaches the node when this reads a
+ * loaded zero (see `refuseWhenTheSignerHoldsNothing`), so a fake that left it
+ * out would make every case below pass for the wrong reason.
+ */
+const FUNDED = readable({step: 'Loaded', value: 10n ** 18n}) as never;
+
 const doItAbi = [
 	{
 		type: 'function',
@@ -47,6 +56,7 @@ function sendThrowing(error: unknown) {
 				throw new Error('should not have got as far as waiting');
 			},
 		},
+		signerBalance: FUNDED,
 	} as unknown as CommitRevealDeps;
 	const executor = {
 		client: {
@@ -149,6 +159,7 @@ describe('the game move boundary', () => {
 			publicClient: {
 				waitForTransactionReceipt: async () => ({status: 'reverted'}),
 			},
+			signerBalance: FUNDED,
 		} as unknown as CommitRevealDeps;
 		const executor = {
 			client: {writeContract: async () => '0xdead' as `0x${string}`},
@@ -173,6 +184,7 @@ describe('the game move boundary', () => {
 			publicClient: {
 				waitForTransactionReceipt: async () => ({status: 'success'}),
 			},
+			signerBalance: FUNDED,
 		} as unknown as CommitRevealDeps;
 		const executor = {
 			client: {writeContract: async () => '0xbeef' as `0x${string}`},
@@ -181,5 +193,70 @@ describe('the game move boundary', () => {
 		await expect(
 			sendPlacementTransaction(deps, executor, {}, 'The reveal'),
 		).resolves.toBe('0xbeef');
+	});
+});
+
+describe('a signer with nothing in it never reaches the node', () => {
+	/**
+	 * WHY THIS REFUSAL EXISTS AT ALL, since "let the node say no" is the simpler
+	 * design and is what this file used to do.
+	 *
+	 * On the local node this game develops and tests against, a transaction the
+	 * node REJECTS for want of gas still advances that account's pending nonce,
+	 * and nothing puts it back (`hardhat_setNonce` will not lower it). The signer
+	 * is then wedged for good: every later move is built at a nonce the chain
+	 * will never reach, gets a hash, and is never mined.
+	 *
+	 * The cost lands on the remedy rather than the fault. The player tops up, the
+	 * round retries, and the retry hangs in `Committing` forever, so a stake that
+	 * was recoverable is lost. That is precisely what `out-of-gas.e2e.ts` exists
+	 * to prevent, and it was reaching it through the fix instead of the failure.
+	 */
+	function sendWithBalance(balance: {step: string; value?: bigint}) {
+		let reachedTheNode = false;
+		const deps = {
+			publicClient: {
+				waitForTransactionReceipt: async () => ({status: 'success'}),
+			},
+			signerBalance: readable(balance) as never,
+		} as unknown as CommitRevealDeps;
+		const executor = {
+			client: {
+				writeContract: async () => {
+					reachedTheNode = true;
+					return '0xhash' as `0x${string}`;
+				},
+			},
+		};
+		return {
+			run: () => sendPlacementTransaction(deps, executor, {}, 'The commitment'),
+			reachedTheNode: () => reachedTheNode,
+		};
+	}
+
+	it('refuses, and says the thing the player can act on', async () => {
+		const {run, reachedTheNode} = sendWithBalance({step: 'Loaded', value: 0n});
+		await expect(run()).rejects.toBeInstanceOf(SignerOutOfFundsError);
+		// The whole point: nothing was sent, so no nonce was burned.
+		expect(reachedTheNode(), 'a doomed move must not reach the node').toBe(
+			false,
+		);
+	});
+
+	it('sends when the signer has gas', async () => {
+		const {run, reachedTheNode} = sendWithBalance({step: 'Loaded', value: 1n});
+		await expect(run()).resolves.toBe('0xhash');
+		expect(reachedTheNode()).toBe(true);
+	});
+
+	it('does NOT refuse on a balance it has not read yet', async () => {
+		// The guard asserts about what the app already SHOWS the player, so an
+		// unloaded store falls through to the behaviour that shipped before it.
+		// Refusing here would block a funded signer's move on a slow first poll,
+		// which is a worse failure than the one being prevented and would look
+		// exactly like the app being broken at startup.
+		const {run, reachedTheNode} = sendWithBalance({step: 'Unloaded'});
+		await expect(run()).resolves.toBe('0xhash');
+		expect(reachedTheNode()).toBe(true);
 	});
 });

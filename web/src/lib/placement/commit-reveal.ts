@@ -62,7 +62,11 @@ export function buildPlacementCommitment(params: {
  */
 export type CommitRevealDeps = Pick<
 	Context,
-	'connection' | 'signerExecutor' | 'deployments' | 'publicClient'
+	| 'connection'
+	| 'signerExecutor'
+	| 'deployments'
+	| 'publicClient'
+	| 'signerBalance'
 >;
 
 /**
@@ -82,6 +86,12 @@ export type CommitRevealDeps = Pick<
  * player can top up, not discovered mid-round. See `signerBalance` in the
  * context.
  *
+ * WHAT IT DOES DO, since 'after the fact' turned out not to be free: it refuses
+ * to put a move on the wire when the app ALREADY knows the signer holds nothing.
+ * See {@link refuseWhenTheSignerHoldsNothing}. That is not the modal-opening
+ * pre-flight check above, and costs no RPC call: it reads the balance the player
+ * is already being shown.
+ *
  * Waiting for inclusion matters more than it looks. `writeContract` resolves as soon as
  * the transaction is BROADCAST, so without this a commitment that reverts (an
  * empty reserve, a bond the reserve cannot cover) would still resolve happily,
@@ -95,6 +105,49 @@ export type CommitRevealDeps = Pick<
  * Nothing about the VALUE is wrong - commit and reveal are payable in the ABI
  * and neither sends ether.
  */
+/**
+ * Refuse a move the signer demonstrably cannot pay for, BEFORE it is sent.
+ *
+ * A DOOMED SEND IS NOT FREE, which is the whole reason this exists. On the local
+ * node this game develops and tests against, a transaction the node REJECTS for
+ * want of gas still advances that account's pending nonce, permanently: the
+ * account is then wedged, because every later transaction is built at a nonce
+ * the chain will never reach, gets a hash, and is never mined. Reproduced in
+ * isolation, with no app code involved, in
+ * `work/notes/findings/a-rejected-transaction-burns-a-nonce-on-edr.md` (the
+ * `work` branch, as ADR-0004 records):
+ * drain an account, send, watch the send be refused and `pending` go up anyway.
+ * `hardhat_setNonce` will not put it back.
+ *
+ * The cost of that lands squarely on the feature this file is most careful
+ * about: the player tops up, the round retries, and the retry can never mine, so
+ * a stake that was recoverable is lost to a stuck `Committing` instead. That is
+ * the exact failure `out-of-gas.e2e.ts` exists to prevent, arriving through the
+ * remedy rather than the original fault.
+ *
+ * THE CHECK IS DELIBERATELY NARROW, and reads as an assertion about the app
+ * rather than about the chain. It fires only when the balance the player is
+ * ALREADY being shown says zero: a store that has loaded, and loaded a nought.
+ * So it costs no RPC round trip, it cannot contradict the UI (if it refuses, the
+ * screen is already offering the top-up), and an unloaded or stale store simply
+ * falls through to the behaviour below, which is what shipped before this.
+ *
+ * It does NOT try to answer "can this afford THIS move", which would need a gas
+ * estimate on a per-move path and would still be a guess. A partially funded
+ * signer can still be rejected by the node and still burn a nonce there. That is
+ * a smaller window and a node defect rather than this app's, and paying an
+ * estimate on every commit and every reveal to narrow it is not a trade worth
+ * making silently.
+ */
+function refuseWhenTheSignerHoldsNothing(deps: CommitRevealDeps): void {
+	const balance = get(deps.signerBalance);
+	if (balance.step === 'Loaded' && balance.value === 0n) {
+		throw new SignerOutOfFundsError(
+			new Error('the signer holds no gas, so this move was not sent'),
+		);
+	}
+}
+
 async function send(
 	deps: CommitRevealDeps,
 	executor: {
@@ -103,6 +156,7 @@ async function send(
 	request: unknown,
 	what: string,
 ): Promise<`0x${string}`> {
+	refuseWhenTheSignerHoldsNothing(deps);
 	let hash: `0x${string}`;
 	try {
 		hash = await executor.client.writeContract(request as never);

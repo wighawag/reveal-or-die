@@ -48,9 +48,16 @@ export type MissedRevealStore = Readable<MissedRevealState> & {
 	acknowledge(): Promise<void>;
 };
 
+// `signerBalance` because the forfeit goes out through the same `send()` funnel
+// as a move, and is signed by the same signer: it must refuse for the same
+// reason and would otherwise wedge the account the same way.
 export type MissedRevealDeps = Pick<
 	Context,
-	'connection' | 'signerExecutor' | 'deployments' | 'publicClient'
+	| 'connection'
+	| 'signerExecutor'
+	| 'deployments'
+	| 'publicClient'
+	| 'signerBalance'
 >;
 
 export function createMissedReveal(params: {

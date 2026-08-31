@@ -22,6 +22,8 @@ function fakeDeps(options: {
 	account?: `0x${string}` | undefined;
 	writeFails?: boolean;
 	readFails?: boolean;
+	/** The signer's gas. Zero makes `send()` refuse before it reaches the node. */
+	signerBalance?: bigint;
 }) {
 	const writes: string[] = [];
 	const deps = {
@@ -47,6 +49,13 @@ function fakeDeps(options: {
 				return o.contract;
 			},
 		} as never,
+		// Funded unless a test says otherwise. `send()` refuses outright when this
+		// reads a loaded zero, because a rejected transaction burns a nonce on the
+		// node this game runs against and wedges the signer for good.
+		signerBalance: writable({
+			step: 'Loaded',
+			value: options.signerBalance ?? 10n ** 18n,
+		}) as unknown as never,
 		publicClient: {
 			readContract: async ({functionName}: {functionName: string}) => {
 				if (options.readFails) throw new Error('rpc down');
