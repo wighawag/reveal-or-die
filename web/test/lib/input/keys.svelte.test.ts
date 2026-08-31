@@ -58,16 +58,21 @@ describe('a keyboard bound to the document', () => {
 		expect(intents).toHaveLength(0);
 	});
 
-	it('gives a keystroke to the control it was aimed at, and takes nothing', () => {
-		// The defect the audit names, reached through the DOM: a focused button
-		// already acts on Space and Enter. Answering them here as well makes one
-		// press do two things - press the button AND take a turn.
+	it('leaves a focused button the keys that press it, and keeps the arrows', () => {
+		// A focused button already acts on Space and Enter; answering them here as
+		// well makes one press do two things. The arrows are the other half of the
+		// rule and matter just as much: pressing the on-screen d-pad with a mouse
+		// leaves its button focused, and a blanket rule would kill the keyboard
+		// from then on.
 		const intents = listening();
 		const button = document.createElement('button');
 		document.body.appendChild(button);
 		expect(press(button, ' ').defaultPrevented).toBe(false);
-		expect(press(button, 'ArrowLeft').defaultPrevented).toBe(false);
+		expect(press(button, 'Enter').defaultPrevented).toBe(false);
 		expect(intents).toHaveLength(0);
+
+		expect(press(button, 'ArrowLeft').defaultPrevented).toBe(true);
+		expect(intents).toEqual([{type: 'direction', direction: 'left'}]);
 	});
 
 	it('recognises a control by ancestry, not just by what was clicked', () => {
@@ -82,12 +87,13 @@ describe('a keyboard bound to the document', () => {
 		expect(intents).toHaveLength(0);
 	});
 
-	it('keeps its hands off a text field', () => {
+	it('keeps its hands off a text field, arrows included', () => {
 		const intents = listening();
 		const input = document.createElement('input');
 		document.body.appendChild(input);
 		press(input, 'a');
 		press(input, ' ');
+		expect(press(input, 'ArrowLeft').defaultPrevented).toBe(false);
 		expect(intents).toHaveLength(0);
 	});
 

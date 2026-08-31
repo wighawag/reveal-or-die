@@ -42,22 +42,36 @@ describe('the keystrokes it deliberately does not take', () => {
 		expect(recognizeKey({key: 'ArrowLeft', modified: true})).toBeUndefined();
 	});
 
-	it('leaves the keystroke to whatever has focus', () => {
-		// The defect the audit names: the old controller bound to `document` with
-		// no check at all, so arrows and space acted on the board while the player
-		// typed in a modal. Broadened here from "a text field" to "anything that
-		// answers keys", because a focused button already acts on Space and Enter.
-		expect(recognizeKey({key: 'ArrowUp', intoControl: true})).toBeUndefined();
+	it('leaves every key to a field the player is typing in', () => {
+		// The defect the audit names: the old controller bound to `document` with no
+		// check at all, so arrows and space acted on the board while the player
+		// typed in a modal. The arrows count - they move a caret.
+		expect(recognizeKey({key: 'ArrowUp', intoText: true})).toBeUndefined();
+		expect(recognizeKey({key: ' ', intoText: true})).toBeUndefined();
+		expect(recognizeKey({key: 'x', intoText: true})).toBeUndefined();
+	});
+
+	it('leaves a focused control the two keys that press it, and no more', () => {
+		// A button already acts on Enter and Space, so answering them here makes one
+		// press do two things.
+		expect(recognizeKey({key: 'Enter', intoControl: true})).toBeUndefined();
 		expect(recognizeKey({key: ' ', intoControl: true})).toBeUndefined();
+		// But it has no use for the arrows, and this is not hypothetical: pressing
+		// the on-screen d-pad with a mouse leaves that button focused, so a blanket
+		// rule would make the keyboard stop working with nothing to explain why.
+		expect(recognizeKey({key: 'ArrowUp', intoControl: true})).toEqual({
+			type: 'direction',
+			direction: 'up',
+		});
 	});
 
 	it('does not repeat a held key, unless asked to', () => {
 		// A turn is a handful of moves. Auto-repeat at thirty a second spends all
 		// of them before a finger comes off the key.
 		expect(recognizeKey({key: 'ArrowUp', repeat: true})).toBeUndefined();
-		expect(recognizeKey({key: 'ArrowUp', repeat: true}, {repeats: true})).toEqual(
-			{type: 'direction', direction: 'up'},
-		);
+		expect(
+			recognizeKey({key: 'ArrowUp', repeat: true}, {repeats: true}),
+		).toEqual({type: 'direction', direction: 'up'});
 	});
 
 	it('still answers the first press of a key that goes on to repeat', () => {

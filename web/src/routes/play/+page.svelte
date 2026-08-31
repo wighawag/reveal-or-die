@@ -43,6 +43,33 @@
 	 * page is identical whichever is chosen.
 	 */
 	const canvasModule = browser ? loadCanvasComponent() : undefined;
+
+	/**
+	 * THE KEYBOARD AND ANY GAMEPAD LISTEN FOR AS LONG AS THIS PAGE IS MOUNTED.
+	 *
+	 * A decision, not a detail, and the two alternatives are each wrong in a way
+	 * somebody would have to debug:
+	 *
+	 * - THE CANVAS'S lifetime is shorter than the game's. It mounts late (the
+	 *   dynamic import above) and not at all when the chunk fails, so binding
+	 *   input to it means keys that do nothing for the first moments of every
+	 *   visit and a board that is silently uncontrollable whenever the `:catch`
+	 *   branch is up. That coupling is what `docs/audits/03-renderer.md` 4.2 says
+	 *   to undo, and the previous build had it: input was owned by the renderer,
+	 *   and its teardown called `removeAllListeners()` on an emitter the canvas
+	 *   was using too.
+	 *
+	 * - THE APP'S lifetime is longer. `context.start()` runs from the layout for
+	 *   the whole session (`context/Context.svelte`), so binding there would leave
+	 *   the arrow keys planning moves while the player is reading the account
+	 *   panel on another route - invisibly, since the board is not on screen to
+	 *   show it.
+	 *
+	 * The route is exactly the span where a key press means a move, which is why
+	 * the binding lives in this file and the MAPPING does not: `game.controls`
+	 * is built in the context, so the d-pad and this share one set of rules.
+	 */
+	$effect(() => game.controls.listen());
 </script>
 
 <DefaultHead />

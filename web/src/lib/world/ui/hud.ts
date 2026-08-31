@@ -442,7 +442,11 @@ export function createHud(context: Context): Readable<HudModel> {
 				instruction: needsSetup
 					? ''
 					: inWorld
-						? 'Click a neighbouring cell to step onto it. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn.'
+						? // Says the arrow keys exist, because nothing else on screen
+							// does: the d-pad shows what can be pressed but not what can be
+							// typed, and a player who never discovers the keyboard plays a
+							// slower game than the one that was built.
+							'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn.'
 						: 'Click anywhere to choose where to appear. Entering is the whole turn, so nothing can follow it.',
 
 				roundLabel: round.label,

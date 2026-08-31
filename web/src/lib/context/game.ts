@@ -56,6 +56,7 @@ import {
 	roundStorageKey,
 } from '$lib/world/storage';
 import {createPlanning, type PlanningStore} from '$lib/world/planning';
+import {createControls, type Controls} from '$lib/world/controls';
 import {SignerOutOfFundsError} from '$lib/world/errors';
 import {isRegistered, type DelegationValue} from '$lib/onchain/delegation';
 import {
@@ -118,6 +119,19 @@ export type Game = {
 	round: RoundStore<bigint, Action>;
 	/** Clicks into a planned entry or a planned path. */
 	planning: PlanningStore;
+	/**
+	 * Keys, a gamepad and the on-screen d-pad, translated into game actions.
+	 *
+	 * Here rather than in `Render` because input is not a rendering concern and
+	 * the two have different lifetimes: `docs/audits/03-renderer.md` 4.2 is about
+	 * exactly this, and the previous build's version lived inside the renderer,
+	 * where its teardown called `removeAllListeners()` on an emitter the canvas
+	 * was also using.
+	 *
+	 * Exposed so the d-pad can call it: a component is a third input device, and
+	 * one that reached past this into `planning` would be a second mapping.
+	 */
+	controls: Controls;
 	/**
 	 * The avatars the contract holds for this account: what the player has at
 	 * stake, and what there is to play with.
@@ -567,6 +581,23 @@ export function createGameContext(core: CoreServices): GameContext {
 
 	const readyToPlay = derived(setup, ($setup) => $setup === undefined);
 
+	/**
+	 * Built here, but NOT listening here.
+	 *
+	 * Constructing it in the context is what gives every device one mapping;
+	 * binding it to a keyboard is a lifetime question, and this file is the wrong
+	 * scope to answer it. `start()` runs for the whole session (see
+	 * `context/Context.svelte`), so attaching the keyboard here would plan moves
+	 * while the player is on another page. The play route owns the binding
+	 * instead, and says why.
+	 */
+	const controls = createControls({
+		planning,
+		round,
+		missedReveal,
+		readyToPlay,
+	});
+
 	function start() {
 		const stopRound = round.start();
 
@@ -665,6 +696,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			twoPhase,
 			round,
 			planning,
+			controls,
 			deposited,
 			purchase,
 			missedReveal,

@@ -126,7 +126,22 @@ export class AvatarObject extends Container {
 		const offset = (this.cellSize - size) / 2 - this.cellSize / 2;
 
 		for (const action of entity.planned) {
-			if (action.type === 'exit') continue;
+			if (action.type === 'exit') {
+				// LEAVING IS DRAWN, and it used to be skipped, which was fine only
+				// while nothing could plan one. An exit has no destination cell of its
+				// own - it happens where the moves end - so a dot like the others would
+				// be invisible under the last step. A ring round that cell is the
+				// difference between a player seeing their turn and pressing a key that
+				// appears to do nothing until their avatar vanishes a round later.
+				const half = this.cellSize / 2;
+				const ring = new Graphics()
+					.rect(-half + 1, -half + 1, this.cellSize - 2, this.cellSize - 2)
+					.stroke({width: 2, color: 0xffcc00});
+				ring.x = action.to.x * this.cellSize;
+				ring.y = action.to.y * this.cellSize;
+				this.path.addChild(ring);
+				continue;
+			}
 			const dot = new Graphics()
 				.rect(offset, offset, size, size)
 				.fill(0x00ff00);

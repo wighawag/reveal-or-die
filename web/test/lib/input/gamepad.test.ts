@@ -153,9 +153,9 @@ describe('reading the stick', () => {
 		// pushed hard right, on a pad reporting a broken vertical axis, comes out as
 		// "down" - a step in a direction the player did not choose.
 		const recognizer = createGamepadRecognizer();
-		expect(recognizer.poll([{index: 0, buttons: [], axes: [0.9, NaN]}])).toEqual(
-			[{type: 'direction', direction: 'right'}],
-		);
+		expect(
+			recognizer.poll([{index: 0, buttons: [], axes: [0.9, NaN]}]),
+		).toEqual([{type: 'direction', direction: 'right'}]);
 	});
 });
 

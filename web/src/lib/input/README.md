@@ -20,7 +20,7 @@ The same reason `gestures.ts` gives: the interesting cases are the ones a human 
 
 ## What the DOM halves decide, and what they refuse to
 
-`attachKeys` calls `preventDefault` **only for keys that produced an intent**, so every key the game does not use keeps doing what the browser and the page would have done. It ignores keystrokes aimed at an interactive element entirely: a focused button already answers Space and Enter, and a game that also answers them makes one press do two things.
+`attachKeys` calls `preventDefault` **only for keys that produced an intent**, so every key the game does not use keeps doing what the browser and the page would have done. Where a keystroke is aimed is asked in two kinds rather than one: a text field consumes every key including the arrows, while a button consumes only Enter and Space. Collapsing those two is a bug in whichever direction you collapse them, and the second one bites immediately: pressing the on-screen d-pad with a mouse leaves that button focused, so a blanket rule would stop the keyboard working with nothing on screen to explain why.
 
 `attachGamepad` polls only while a pad is connected, and starts on `gamepadconnected`. A player with no gamepad pays nothing.
 

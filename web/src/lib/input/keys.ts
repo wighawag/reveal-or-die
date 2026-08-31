@@ -12,11 +12,15 @@
  * `docs/audits/03-renderer.md` 3.4 lists the defects by name. The deleted
  * `render/keyboard-controller.ts` bound to `document` unconditionally, with no
  * `preventDefault` and no check for where the keystroke was going, so arrows
- * and space acted on the board while the player was typing in a modal. Both
- * halves of that are fixed below, and the second one is broadened: a keystroke
- * aimed at ANY interactive element belongs to that element, not to the game,
- * because a focused button already answers Space and Enter itself and would
- * otherwise do its own job and the game's at once.
+ * and space acted on the board while the player was typing in a modal.
+ *
+ * WHERE A KEYSTROKE IS AIMED comes in two kinds here rather than one, because
+ * "is it an interactive element" is too blunt in both directions. A text field
+ * consumes EVERY key, so the game must hear none of them. A button consumes
+ * only the keys that activate it, so a game that ignored the arrows as well
+ * would go dead the moment the player pressed the on-screen d-pad with a mouse:
+ * the button keeps focus, and the keyboard stops working with nothing on screen
+ * to explain why.
  */
 import type {ControlIntent, ControlIntentHandler} from './intents';
 
@@ -35,8 +39,13 @@ export type KeySample = {
 	/** Any of ctrl / meta / alt, which make this a browser or OS shortcut. */
 	modified?: boolean;
 	/**
-	 * The keystroke is going somewhere that owns it: a text field, a button, a
-	 * link, anything focusable that answers keys itself.
+	 * The keystroke is going somewhere that consumes EVERY key: a text field, a
+	 * select, anything editable.
+	 */
+	intoText?: boolean;
+	/**
+	 * The keystroke is going to something that is ACTIVATED by a key: a button, a
+	 * link, a summary. Such an element owns Enter and Space and nothing else.
 	 */
 	intoControl?: boolean;
 };
@@ -80,6 +89,12 @@ const KEYS: Record<string, ControlIntent> = {
 };
 
 /**
+ * The keys a focusable control activates on, and therefore the only ones it
+ * takes from the game.
+ */
+const ACTIVATION_KEYS = new Set(['Enter', ' ']);
+
+/**
  * The intent a keystroke carries, or undefined for one that is not ours.
  *
  * Undefined is load-bearing rather than a null object: the DOM half only calls
@@ -94,27 +109,38 @@ export function recognizeKey(
 	// Alt+Left goes back; answering the bare letter and the chord alike makes
 	// the game fight the browser.
 	if (sample.modified) return undefined;
-	// Whatever has focus answers its own keys. A focused button already acts on
-	// Space and Enter, so without this one press does two things.
-	if (sample.intoControl) return undefined;
+	// Someone is typing. Every key belongs to them, including the arrows, which
+	// move a caret.
+	if (sample.intoText) return undefined;
+	// A focused button already acts on Enter and Space, so without this one press
+	// does two things: it presses the button AND takes a turn. It has no use for
+	// the arrows, so those still reach the game.
+	if (sample.intoControl && ACTIVATION_KEYS.has(sample.key)) return undefined;
 	if (sample.repeat && !options.repeats) return undefined;
 	return KEYS[sample.key];
 }
 
 /**
- * Elements that answer keystrokes themselves, so the game must not.
+ * Elements that consume every keystroke, and elements that consume only the
+ * two that activate them.
  *
- * Broader than "is it a text field", which is where the deleted implementation
- * stopped. `closest` rather than a tag check on the target, because focus can
- * land on something inside a control (a span in a button, a label in a
- * summary).
+ * `closest` rather than a check on the target's own tag, because the event
+ * target can be a child of the thing with focus: a span inside a button, a
+ * label inside a summary.
  */
+const TEXT_SELECTOR =
+	'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"]';
 const CONTROL_SELECTOR =
-	'input, textarea, select, button, a[href], summary, [contenteditable=""], [contenteditable="true"], [role="button"], [role="textbox"], [tabindex]:not([tabindex="-1"])';
+	'button, a[href], summary, [role="button"], [tabindex]:not([tabindex="-1"])';
 
-function intoControl(target: EventTarget | null): boolean {
-	if (!(target instanceof Element)) return false;
-	return target.closest(CONTROL_SELECTOR) !== null;
+function matches(target: EventTarget | null, selector: string): boolean {
+	// Duck-typed rather than `instanceof Element`, and not for style: `Element`
+	// is a global that does not exist off-browser, so naming it here would make
+	// this module throw wherever there is no DOM instead of quietly finding
+	// nothing. Anything that answers `closest` is an element for this purpose.
+	const element = target as {closest?: (selector: string) => unknown} | null;
+	if (!element || typeof element.closest !== 'function') return false;
+	return element.closest(selector) !== null;
 }
 
 /**
@@ -141,7 +167,8 @@ export function attachKeys(
 				key: event.key,
 				repeat: event.repeat,
 				modified: event.ctrlKey || event.metaKey || event.altKey,
-				intoControl: intoControl(event.target),
+				intoText: matches(event.target, TEXT_SELECTOR),
+				intoControl: matches(event.target, CONTROL_SELECTOR),
 			},
 			options,
 		);
@@ -155,5 +182,6 @@ export function attachKeys(
 	}
 
 	target.addEventListener('keydown', onKeyDown as EventListener);
-	return () => target.removeEventListener('keydown', onKeyDown as EventListener);
+	return () =>
+		target.removeEventListener('keydown', onKeyDown as EventListener);
 }
