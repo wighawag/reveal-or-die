@@ -70,6 +70,14 @@ describe('app context off-browser', () => {
 		// navigator/window absent means "not offline", not a crash.
 		expect(get(context.offline)).toEqual({offline: false});
 
+		// The purchase reads the OPERATIONS LEDGER to find one that outlived its
+		// tab, and the ledger is backed by local storage. Reading it here is the
+		// ADR-0002 check for that: `get` subscribes and unsubscribes, which is what
+		// a server render does, and on the server the honest answer is that this
+		// account has no purchase in flight rather than an exception from a browser
+		// API that is not there.
+		expect(get(context.game.purchase)).toEqual({step: 'Idle'});
+
 		// Nothing scheduled anything: a prerender must not leave work behind.
 		expect(vi.getTimerCount()).toBe(0);
 	});

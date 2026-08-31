@@ -271,6 +271,15 @@ export function purchaseBusyLabel(state: PurchaseState): string | undefined {
 			// the purchase just gave it. Unexplained it looks like a hang after the
 			// money has already gone.
 			return 'Setting up your play key...';
+		case 'Pending':
+			// A FOURTH kind of wait, and the one that needs saying most: this browser
+			// is not doing anything, and the player has no memory of starting it in
+			// this tab, because they reloaded. What they must not be told is "buy an
+			// avatar", which is what they were told before this existed - and they
+			// would have, for a second time, with their own money.
+			return state.landed
+				? 'Your avatar has been bought. Getting it onto the board...'
+				: 'Finishing a purchase you already paid for...';
 		default:
 			return undefined;
 	}

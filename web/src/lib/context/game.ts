@@ -74,7 +74,11 @@ import {
 	createMissedReveal,
 	type MissedRevealStore,
 } from '$lib/world/missed-reveal';
-import {createPurchase, type PurchaseStore} from '$lib/world/purchase';
+import {
+	createPurchase,
+	refreshWhenPendingPurchaseSettles,
+	type PurchaseStore,
+} from '$lib/world/purchase';
 import {
 	createWorldReader,
 	emptyWorld,
@@ -656,6 +660,15 @@ export function createGameContext(core: CoreServices): GameContext {
 			signerBalance: core.signerBalance,
 		});
 
+		// A purchase that was in flight when the tab was last closed finishes with
+		// nobody watching: this browser did not send it, so none of the code that
+		// normally follows one runs. Without this the player waits on "finishing
+		// your purchase" until they reload again, having already reloaded once.
+		const unsubscribePurchase = refreshWhenPendingPurchaseSettles({
+			purchase,
+			onSettled: () => void deposited.update(),
+		});
+
 		// Re-check when the epoch turns over.
 		//
 		// Whether a commitment counts as MISSED is a question about the current
@@ -680,6 +693,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			unsubscribeRound();
 			unsubscribeEpoch();
 			unsubscribeGas();
+			unsubscribePurchase();
 		};
 	}
 

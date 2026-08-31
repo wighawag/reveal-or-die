@@ -39,7 +39,7 @@
  * an avatar and this browser is not yet authorised, which is exactly the state
  * the `authorise` setup step exists for.
  */
-import {get, readable, writable, type Readable} from 'svelte/store';
+import {derived, get, readable, writable, type Readable} from 'svelte/store';
 import {logs} from 'named-logs';
 import type {Context} from '$lib/context/types';
 import {
@@ -72,6 +72,7 @@ import {
 	type RegistrationWriter,
 } from '$lib/ui/delegation/register-delegate';
 import {consentBullets, type SignerGrant} from '$lib/ui/delegation/grant';
+import {findPendingPurchase, type PendingPurchase} from './pending-purchase';
 import type {WorldConfig} from './config';
 
 /**
@@ -119,6 +120,17 @@ export type PurchaseState =
 	| {step: 'Purchasing'}
 	/** Paid for. The signer is now registering itself out of its stipend. */
 	| {step: 'Registering'}
+	/**
+	 * A purchase this browser is not running, but has already paid for.
+	 *
+	 * Read out of the operations ledger rather than remembered here, which is
+	 * what makes it survive the reload that loses everything else. It is the
+	 * state a player is in after closing the tab on a transaction that was still
+	 * in flight, and the reason it is a STEP rather than a footnote is that
+	 * `buy()` must refuse from it: the alternative is charging them twice for an
+	 * avatar they are already getting.
+	 */
+	| {step: 'Pending'; hash?: `0x${string}`; landed: boolean}
 	| {step: 'Error'; error: unknown; message: string};
 
 export type PurchaseStore = Readable<PurchaseState> & {
@@ -135,6 +147,9 @@ export type PurchaseStore = Readable<PurchaseState> & {
 
 export type PurchaseDeps = Pick<
 	Context,
+	// The durable record of what this account has sent, which is where a purchase
+	// that outlived its tab is found. See ./pending-purchase.ts.
+	| 'accountData'
 	| 'connection'
 	| 'accountExecutor'
 	| 'accountBalance'
@@ -170,6 +185,61 @@ function isRestable(step: PurchaseState['step']): boolean {
 	return step === 'Idle' || step === 'Error' || step === 'NoPaymentMethod';
 }
 
+/**
+ * What the player is shown: this browser's attempt, or the ledger's.
+ *
+ * THE LOCAL FLOW WINS whenever there is one, because it is more specific: it
+ * knows which of "waiting for a signature", "waiting for a wallet" and "the
+ * signer is registering" is happening, and it is the only one that can be
+ * answered (`choose`, `confirmConsent`). The ledger is consulted only when this
+ * browser is doing nothing, which is exactly the case a reload produces.
+ *
+ * An `Error` therefore also wins, and should: a purchase whose transaction
+ * landed but whose registration failed has a real error to show, and covering
+ * it with "still buying" would hide the one thing the player can act on.
+ *
+ * Pure, and exported for the tests, because it is the whole of the recovery
+ * rule and neither half of it is reachable from a unit test otherwise.
+ */
+export function resolvePurchaseState(
+	local: PurchaseState,
+	pending: PendingPurchase | undefined,
+): PurchaseState {
+	if (local.step !== 'Idle' || !pending) return local;
+	return {step: 'Pending', hash: pending.hash, landed: pending.landed};
+}
+
+/**
+ * Re-read what the account owns once a recovered purchase is over.
+ *
+ * A purchase found in the ledger completes with nobody watching: this browser
+ * did not send it, so none of the code that normally follows a purchase runs,
+ * and without this the player sits on "finishing your purchase" until they
+ * reload AGAIN - having already reloaded once, which is how they got here.
+ *
+ * Its own function, taking only the store it watches, for the same reason
+ * `resumeWhenGasArrives` is: it is wiring that acts on the player's behalf,
+ * that deserves a test, and that a test should not need an app context for.
+ */
+export function refreshWhenPendingPurchaseSettles(params: {
+	purchase: Readable<PurchaseState>;
+	onSettled: () => void;
+}): () => void {
+	let wasPending = false;
+	return params.purchase.subscribe(($purchase) => {
+		if ($purchase.step === 'Pending') {
+			wasPending = true;
+			return;
+		}
+		// Only a TRANSITION out of it, and only after one was actually seen. The
+		// first reading is this browser learning what was already true, and firing
+		// on it would re-read the account on every load for nothing.
+		if (!wasPending) return;
+		wasPending = false;
+		params.onSettled();
+	});
+}
+
 export function createPurchase(params: {
 	deps: PurchaseDeps;
 	config: WorldConfig;
@@ -189,9 +259,37 @@ export function createPurchase(params: {
 }): PurchaseStore {
 	const {deps, config, owner} = params;
 
+	/** What THIS browser is doing. Dies with the tab, deliberately. */
 	const state = writable<PurchaseState>({step: 'Idle'});
-	let value: PurchaseState = {step: 'Idle'};
-	state.subscribe((v) => (value = v));
+	let local: PurchaseState = {step: 'Idle'};
+	state.subscribe((v) => (local = v));
+
+	/**
+	 * What this ACCOUNT has in flight, which outlives the tab.
+	 *
+	 * `watchField` is lazy: nothing is read until something subscribes, so this
+	 * stays a synchronous, IO-free construction (ADR-0002) and the server never
+	 * touches storage. That is also why `value` below resolves on demand rather
+	 * than being kept up to date by a permanent subscription here.
+	 */
+	const pending = derived(deps.accountData.watchField('operations'), ($ops) =>
+		findPendingPurchase({operations: $ops, sale: config.sale.address}),
+	);
+
+	const state$ = derived([state, pending], ([$local, $pending]) =>
+		resolvePurchaseState($local, $pending),
+	);
+
+	/**
+	 * The same answer the subscribers get, for the code paths that ask directly.
+	 *
+	 * It matters most for `buy()`: the guard against buying twice is a question
+	 * about the ACCOUNT, not about this tab, and asking the local store alone is
+	 * the bug this whole file's recovery exists to fix.
+	 */
+	function value(): PurchaseState {
+		return resolvePurchaseState(local, get(pending));
+	}
 
 	/**
 	 * Authorise this browser, without a transaction from the owner.
@@ -327,7 +425,11 @@ export function createPurchase(params: {
 		// with the first: it mints a SECOND avatar and charges for it again. The
 		// guard is here rather than in the button because a disabled button is a
 		// suggestion and this is the player's money.
-		if (!isRestable(value.step)) return;
+		//
+		// `value()` and not the local store, which is the whole of the reload fix:
+		// after a reload this tab is doing nothing at all, and the only thing that
+		// knows a purchase is already paid for is the operations ledger.
+		if (!isRestable(value().step)) return;
 
 		if (!get(owner)) {
 			state.set({
@@ -372,7 +474,7 @@ export function createPurchase(params: {
 	}
 
 	async function choose(method: PaymentMethodId) {
-		if (value.step !== 'ChoosingPayer') return;
+		if (value().step !== 'ChoosingPayer') return;
 		await run(method);
 	}
 
@@ -396,7 +498,7 @@ export function createPurchase(params: {
 	let awaitingConsent: Awaited<ReturnType<typeof payerFor>> | undefined;
 
 	async function confirmConsent() {
-		if (value.step !== 'Consent' || !awaitingConsent) return;
+		if (value().step !== 'Consent' || !awaitingConsent) return;
 		const payer = awaitingConsent;
 		awaitingConsent = undefined;
 		await execute(payer);
@@ -574,7 +676,7 @@ export function createPurchase(params: {
 	 * it happened in.
 	 */
 	function fail(error: unknown) {
-		logger.debug(`failed at step "${value.step}": ${String(error)}`);
+		logger.debug(`failed at step "${value().step}": ${String(error)}`);
 		// REJECTING IS AN ANSWER, NOT A FAULT. The player pressed no in their
 		// wallet, which is a decision they made deliberately and already know
 		// about; reporting it back to them as an error, in viem's words, is the
@@ -608,9 +710,9 @@ export function createPurchase(params: {
 	}
 
 	return {
-		subscribe: state.subscribe,
+		subscribe: state$.subscribe,
 		get value() {
-			return value;
+			return value();
 		},
 		buy,
 		choose,
