@@ -396,6 +396,19 @@ abstract contract UsingGameInternal is
         }
     }
 
+    // TODO two known gaps, recorded rather than fixed: both are decisions.
+    //
+    // 1. THE POSITION IS NOT CHECKED. `actionData` is ignored entirely, so an
+    //    avatar may leave from any cell rather than from an exit tile, while
+    //    `UnableToExitFromThisPosition` sits declared in UsingGameErrors.sol and
+    //    thrown nowhere. The map draws an exit, so a player reasonably assumes
+    //    the rule exists. The web client mirrors what this DOES (see
+    //    web/src/lib/world/planning.ts) rather than pretending otherwise.
+    // 2. EXITING WHILE NOT IN THE GAME CORRUPTS A ZONE. `left` is set
+    //    unconditionally, and `_resolveActions` then calls `_removeFromZone`
+    //    with the avatar's start zone for an avatar that is not in that zone's
+    //    list: it pops whoever is last in it, evicting another player. Nothing
+    //    on chain prevents committing such an action.
     function _exit(
         ActionResolution memory resolution,
         uint128 actionData
