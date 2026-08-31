@@ -63,8 +63,53 @@ export function buildWorldCommitment(params: {
  */
 export type CommitRevealDeps = Pick<
 	Context,
-	'connection' | 'signerExecutor' | 'deployments' | 'publicClient'
+	| 'connection'
+	| 'signerExecutor'
+	| 'deployments'
+	| 'publicClient'
+	// Read, never spent: see `refuseWhenTheSignerHoldsNothing`.
+	| 'signerBalance'
 >;
+
+/**
+ * Refuse a move the signer demonstrably cannot pay for, BEFORE it is sent.
+ *
+ * A DOOMED SEND IS NOT FREE. On the local node this game develops against
+ * (hardhat 3 / EDR, interval mining), a transaction the node REJECTS for want of
+ * gas still advances that account's pending nonce, permanently. The account is
+ * then wedged: every later transaction is built at a nonce the chain will never
+ * reach, gets a hash, and is never mined.
+ *
+ * The cost lands squarely on the feature this file is most careful about.
+ * `resumeWhenGasArrives` exists so a player who tops up has their round carry on
+ * by itself; if the failed send burned a nonce, the retry can never mine, and a
+ * turn that was recoverable is lost to a stuck `Committing` instead. Worse here
+ * than in the template it came from: a reveal that never lands also blocks the
+ * NEXT epoch until `acknowledgeMissedReveal` is called.
+ *
+ * DELIBERATELY NARROW, and an assertion about the app rather than about the
+ * chain. It fires only when the balance the player is ALREADY being shown says
+ * zero: a store that has loaded, and loaded a nought. So it costs no RPC round
+ * trip, it cannot contradict the screen (if it refuses, the HUD is already
+ * offering the top-up), and an unloaded or stale store falls through to the
+ * behaviour that shipped before it.
+ *
+ * It does NOT try to answer "can this afford THIS move". That needs a gas
+ * estimate on a per-move path and would still be a guess, and a partially funded
+ * signer can be rejected and burn a nonce anyway. That is a smaller window and a
+ * node defect rather than this app's; paying an estimate on every commit and
+ * every reveal to narrow it is not a trade worth making silently.
+ *
+ * Ported from `placement/commit-reveal.ts`, which is where this file came from.
+ */
+function refuseWhenTheSignerHoldsNothing(deps: CommitRevealDeps): void {
+	const balance = get(deps.signerBalance);
+	if (balance.step === 'Loaded' && balance.value === 0n) {
+		throw new SignerOutOfFundsError(
+			new Error('the signer holds no gas, so this move was not sent'),
+		);
+	}
+}
 
 /**
  * Send a game move and wait for it to be included.
@@ -89,6 +134,10 @@ async function send(
 	request: unknown,
 	what: string,
 ): Promise<`0x${string}`> {
+	// Before anything is put on the wire: a send the node will refuse costs a
+	// nonce on EDR and wedges the account.
+	refuseWhenTheSignerHoldsNothing(deps);
+
 	let hash: `0x${string}`;
 	const startedAt = Date.now();
 	logger.debug(`${what}: dispatching (signer, no prompt)`);

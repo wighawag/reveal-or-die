@@ -51,6 +51,10 @@ export function blocksCommitting(state: MissedRevealState): boolean {
 	);
 }
 
+// `CommitRevealDeps` now carries `signerBalance`, and that is load-bearing here
+// rather than incidental: acknowledging goes out through the same `send()`
+// funnel as a move, signed by the same signer, so it must refuse for the same
+// reason and would otherwise wedge the account the same way.
 export type MissedRevealDeps = CommitRevealDeps &
 	Pick<Context, 'deployments' | 'publicClient'>;
 
