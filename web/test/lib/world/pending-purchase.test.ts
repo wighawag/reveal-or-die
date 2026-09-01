@@ -151,6 +151,7 @@ describe('which of the two states the player is shown', () => {
 			bullets: [],
 			payer: SALE,
 			total: 1n,
+			authorisation: 'live-signature',
 		};
 		expect(resolvePurchaseState(local, pending)).toBe(local);
 		expect(resolvePurchaseState({step: 'Purchasing'}, pending)).toEqual({

@@ -5,6 +5,7 @@ import {
 	describeMissedReveal,
 	describeRound,
 	describeSetup,
+	purchaseBusyLabel,
 } from '$lib/world/ui/hud';
 import type {Context} from '$lib/context/types';
 import {SignerOutOfFundsError} from '$lib/world/errors';
@@ -195,7 +196,7 @@ function fakeContext(
 		currentPosition?: {x: number; y: number};
 		currentEpoch?: number;
 		setup?: {step: 'sign-in' | 'authorise' | 'deposit'};
-		purchase?: {step: string; message?: string};
+		purchase?: {step: string; message?: string; authorisation?: string};
 	} = {},
 ) {
 	return {
@@ -368,7 +369,10 @@ describe('buying an avatar, through the HUD', () => {
 					createHud(
 						fakeContext(
 							{step: 'Idle'},
-							{setup: {step: 'deposit'}, purchase: {step}},
+							{
+								setup: {step: 'deposit'},
+								purchase: {step, authorisation: 'live-signature'},
+							},
 						),
 					),
 				).setup?.busyLabel,
@@ -377,6 +381,22 @@ describe('buying an avatar, through the HUD', () => {
 		for (const label of labels) expect(label).toBeTruthy();
 		// The one nobody was prompted for has to explain itself.
 		expect(labels[2]).toMatch(/play key/i);
+	});
+
+	it('only sends the player to their wallet when a wallet will open', () => {
+		// It said "Confirm in your wallet" for every route, under a comment claiming
+		// a hosted account never reached this step. It does reach it - its
+		// credential is simply handed back without a prompt - so the player was
+		// being pointed at a window that was never going to appear, while the thing
+		// they were waiting for had already finished.
+		expect(
+			purchaseBusyLabel({step: 'Authorising', authorisation: 'live-signature'}),
+		).toMatch(/in your wallet/i);
+		for (const authorisation of ['pre-signed', 'silent-signature'] as const) {
+			const label = purchaseBusyLabel({step: 'Authorising', authorisation});
+			expect(label).toBeTruthy();
+			expect(label).not.toMatch(/wallet/i);
+		}
 	});
 
 	it('reports the purchase in flight on the button itself', () => {

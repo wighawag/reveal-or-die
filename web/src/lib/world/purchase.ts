@@ -66,6 +66,7 @@ import {
 import {effectiveGasPrice} from '$lib/core/connection/gasFee';
 import {registrationRequest} from '$lib/ui/delegation/registration';
 import {
+	delegationAccountOf,
 	fetchDelegation,
 	signsWithoutPrompt,
 	submitRegistration,
@@ -82,6 +83,65 @@ import type {WorldConfig} from './config';
  */
 const logger = logs('world:purchase');
 
+/**
+ * How the owner's authorisation will be obtained for THIS purchase.
+ *
+ * The template's vocabulary, from `ui/delegation/registration.ts`, minus the
+ * routes that cannot happen here: the owner never sends the registration
+ * itself, because the SIGNER sends it out of the stipend the purchase forwards,
+ * so `direct` is not among these however the avatar is paid for.
+ *
+ * `silent-signature` is the development burner, which signs live from a key in
+ * this browser and opens nothing. It is the template's `silentSigner` flag by
+ * another name, folded in here because from the player's side it is the same
+ * question as the other two: is a window about to open?
+ */
+export type PurchaseAuthorisation =
+	/** Minted at sign-in and already held. Nothing opens. */
+	| 'pre-signed'
+	/** The owner's wallet will be asked to sign, now. */
+	| 'live-signature'
+	/** Signed live, by a wallet that never prompts. */
+	| 'silent-signature';
+
+/** Whether this route puts a signature request in front of the player. */
+export function opensAWallet(authorisation: PurchaseAuthorisation): boolean {
+	return authorisation === 'live-signature';
+}
+
+/**
+ * How this purchase will authorise the browser, or undefined if it will not.
+ *
+ * Pure, and stated in terms of what the SHARED readers already answer, because
+ * every input here is one of theirs: `isRegistered` for the chain read,
+ * `delegationAccountOf(...).canSignLive` for whether the owner can be asked to
+ * sign right now (it folds together a wallet on the connection and a host that
+ * reports `sign-on-demand`), and `signsWithoutPrompt` for the one wallet that
+ * signs without showing anything. Nothing is re-derived from account types
+ * here; `registration.ts` explains at length why branching on those is wrong.
+ *
+ * Exported because it is the whole of the rule that this file got wrong, and
+ * because the case that was wrong - a hosted account - cannot be reached from a
+ * test any other way.
+ */
+export function purchaseAuthorisation(params: {
+	/** Whether this browser's signer is already a delegate of the account. */
+	registered: boolean;
+	/** Whether there is a local signer to authorise at all. */
+	hasSigner: boolean;
+	/** `DelegationAccount.canSignLive`: the owner can be asked to sign now. */
+	ownerCanSignLive: boolean;
+	/** `signsWithoutPrompt`: that wallet signs without showing anything. */
+	silentWallet: boolean;
+}): PurchaseAuthorisation | undefined {
+	// Nothing to authorise: the signer may already act, or there is no signer to
+	// act with (a build with no sign-in, where the player plays through their
+	// wallet). Either way the purchase is only a purchase.
+	if (params.registered || !params.hasSigner) return undefined;
+	if (!params.ownerCanSignLive) return 'pre-signed';
+	return params.silentWallet ? 'silent-signature' : 'live-signature';
+}
+
 export type PurchaseState =
 	| {step: 'Idle'}
 	/**
@@ -94,13 +154,22 @@ export type PurchaseState =
 	/** Nothing here can pay, with the reason. */
 	| {step: 'NoPaymentMethod'; message: string}
 	/**
-	 * Waiting for the player to agree to authorise this browser, BEFORE their
-	 * wallet is asked to sign anything.
+	 * Waiting for the player to agree, BEFORE anything is signed or spent.
 	 *
-	 * Only reached when a wallet will actually be prompted. A hosted account
-	 * hands back a credential minted at sign-in with no dialog at all, and
-	 * asking it to consent to something that is not about to happen would be
-	 * ceremony. Same split the top-up flow makes.
+	 * Reached whenever this purchase also AUTHORISES this browser, whether or
+	 * not a wallet is going to open. It used to be shown only when one would,
+	 * on the grounds that consenting in advance to something that is not about
+	 * to happen is ceremony - and it asked that question with
+	 * `signsWithoutPrompt`, which recognises only the development burner, so a
+	 * hosted account got the dialog anyway AND got the wording written for a
+	 * wallet: "one signature, then the purchase", for a signature that had been
+	 * minted at sign-in and would never be asked for.
+	 *
+	 * So the split moved into the state instead of deciding whether there is
+	 * one. The dialog has a second job that applies to every payer - it restates
+	 * who pays and how much, immediately before money moves, and lists what the
+	 * key being authorised may do - and `authorisation` is what lets it tell the
+	 * truth about the signature in each case.
 	 */
 	| {
 			step: 'Consent';
@@ -109,13 +178,23 @@ export type PurchaseState =
 			payer: `0x${string}`;
 			/** What they are about to pay, in wei. */
 			total: bigint;
+			/**
+			 * How the authorisation will be obtained, which is what the dialog is
+			 * about and therefore what its words and its button depend on.
+			 */
+			authorisation: PurchaseAuthorisation;
 	  }
 	/**
 	 * Asking the owner to authorise this browser. A SIGNATURE, not a
 	 * transaction: free, and for a hosted account not even a prompt, because the
 	 * credential was minted at sign-in.
+	 *
+	 * Which of those two is happening is carried, because they are different
+	 * waits: one the player has to answer in a wallet, one that is over before
+	 * they can read about it. Telling a hosted account to "confirm in your
+	 * wallet" names a window that will never open.
 	 */
-	| {step: 'Authorising'}
+	| {step: 'Authorising'; authorisation: PurchaseAuthorisation}
 	/** The wallet has been asked to pay; the player may still refuse. */
 	| {step: 'Purchasing'}
 	/** Paid for. The signer is now registering itself out of its stipend. */
@@ -292,15 +371,53 @@ export function createPurchase(params: {
 	}
 
 	/**
+	 * How this purchase will authorise the browser, read off the connection.
+	 *
+	 * The reading is here and the RULE is in `purchaseAuthorisation` above, so
+	 * the rule can be tested and this stays a translation of three shared
+	 * readers into its arguments.
+	 */
+	function authorisationRoute(): PurchaseAuthorisation | undefined {
+		const $connection = get(deps.connection);
+		const deployments = get(deps.deployments);
+		const account = delegationAccountOf($connection, {
+			chainId: deployments.chain.id,
+			contract: deployments.contracts.Game.address,
+		});
+		return purchaseAuthorisation({
+			registered: isRegistered(get(deps.delegation)),
+			hasSigner: get(deps.signerExecutor).status === 'ready',
+			// False when there is no signed-in account to read at all, which is the
+			// honest answer: nobody can be asked to sign.
+			ownerCanSignLive: account?.canSignLive ?? false,
+			silentWallet: signsWithoutPrompt($connection),
+		});
+	}
+
+	/**
 	 * Authorise this browser, without a transaction from the owner.
 	 *
-	 * Returns the credential, or undefined when the signer is already registered
-	 * and there is nothing to do. Gathered BEFORE the purchase on purpose: it is
-	 * the step the player can refuse, and refusing it should cost them nothing.
+	 * Returns the credential, or undefined when there is nothing to authorise.
+	 * Gathered BEFORE the purchase on purpose: it is the step the player can
+	 * refuse, and refusing it should cost them nothing.
+	 *
+	 * Takes the route decided at the consent step rather than deciding again: the
+	 * player has just been told which of these is about to happen, and a second
+	 * reading could disagree with what they read.
 	 */
-	async function credentialIfNeeded(owner: `0x${string}`) {
-		const $delegation = get(deps.delegation);
-		if (isRegistered($delegation)) return undefined;
+	async function credentialIfNeeded(
+		owner: `0x${string}`,
+		authorisation: PurchaseAuthorisation | undefined,
+	) {
+		if (!authorisation) return undefined;
+
+		// RE-READ, because the dialog above sat on screen for as long as the player
+		// took to read it, and both of these can change underneath it: another tab
+		// can register this signer, and a signer can go away with the account it
+		// belongs to. Neither is a failure - there is simply nothing left to
+		// authorise - so the purchase goes ahead without a stipend, exactly as it
+		// does for a browser that was already authorised.
+		if (isRegistered(get(deps.delegation))) return undefined;
 
 		const $signer = get(deps.signerExecutor);
 		if ($signer.status !== 'ready') {
@@ -309,8 +426,8 @@ export function createPurchase(params: {
 			return undefined;
 		}
 
-		logger.debug(`authorising: asking the owner for a delegation credential`);
-		state.set({step: 'Authorising'});
+		logger.debug(`authorising: ${authorisation}`);
+		state.set({step: 'Authorising', authorisation});
 		const deployments = get(deps.deployments);
 		return {
 			delegate: $signer.address,
@@ -478,15 +595,6 @@ export function createPurchase(params: {
 		await run(method);
 	}
 
-	/** Whether authorising this browser will actually open the owner's wallet. */
-	function needsConsent(): boolean {
-		if (isRegistered(get(deps.delegation))) return false;
-		if (get(deps.signerExecutor).status !== 'ready') return false;
-		// A hosted account signs without prompting, so there is nothing to warn
-		// about and nothing to agree to in advance.
-		return !signsWithoutPrompt(get(deps.connection));
-	}
-
 	/**
 	 * The payer resolved by `run`, held across the consent step.
 	 *
@@ -494,19 +602,28 @@ export function createPurchase(params: {
 	 * again, and for the rail that opens the wallet picker a SECOND time. Asking
 	 * someone to choose a wallet twice for one purchase is how they conclude the
 	 * first answer was not heard.
+	 *
+	 * The ROUTE is held with it, for a smaller version of the same reason: it is
+	 * what the dialog the player is reading says, so re-deciding it after they
+	 * press the button could do something other than what the button promised.
 	 */
-	let awaitingConsent: Awaited<ReturnType<typeof payerFor>> | undefined;
+	let awaitingConsent:
+		| {
+				payer: Awaited<ReturnType<typeof payerFor>>;
+				authorisation: PurchaseAuthorisation;
+		  }
+		| undefined;
 
 	async function confirmConsent() {
 		if (value().step !== 'Consent' || !awaitingConsent) return;
-		const payer = awaitingConsent;
+		const {payer, authorisation} = awaitingConsent;
 		awaitingConsent = undefined;
-		await execute(payer);
+		await execute(payer, authorisation);
 	}
 
 	/**
-	 * Connect the chosen payer, then ask for consent if a wallet is going to be
-	 * asked to sign.
+	 * Connect the chosen payer, then ask for consent if this also authorises
+	 * this browser.
 	 *
 	 * THE PAYER IS CONNECTED FIRST, and the order is the whole point. It used to
 	 * take the delegation signature before connecting, so the sequence was:
@@ -533,29 +650,34 @@ export function createPurchase(params: {
 			const payer = await payerFor(method);
 			logger.debug(`payer connected: ${payer.kind} ${payer.address}`);
 
-			if (needsConsent()) {
-				awaitingConsent = payer;
+			const authorisation = authorisationRoute();
+			if (authorisation) {
+				awaitingConsent = {payer, authorisation};
 				state.set({
 					step: 'Consent',
 					bullets: consentBullets(params.grant),
 					payer: payer.address,
 					// Restated here because the player last saw a figure on a button,
-					// several dialogs ago, and is about to be asked to sign something.
+					// several dialogs ago, and is one press away from spending it.
 					total: purchaseValue({
 						price: config.sale.price,
 						stipend: config.sale.stipend,
 					}),
+					authorisation,
 				});
 				return;
 			}
 
-			await execute(payer);
+			await execute(payer, undefined);
 		} catch (error) {
 			fail(error);
 		}
 	}
 
-	async function execute(payer: Awaited<ReturnType<typeof payerFor>>) {
+	async function execute(
+		payer: Awaited<ReturnType<typeof payerFor>>,
+		authorisationRouteChosen: PurchaseAuthorisation | undefined,
+	) {
 		const $owner = get(owner);
 		if (!$owner) return;
 
@@ -565,7 +687,10 @@ export function createPurchase(params: {
 			// The signature, now that the player has agreed to it and knows who is
 			// paying. Still before the transaction: it is free and refusable, and it
 			// decides whether the purchase needs to carry a stipend at all.
-			const authorisation = await credentialIfNeeded($owner);
+			const authorisation = await credentialIfNeeded(
+				$owner,
+				authorisationRouteChosen,
+			);
 
 			// Only fund a signer that is going to be registered. Sending a stipend
 			// to a key that cannot act for the account would be money parked where

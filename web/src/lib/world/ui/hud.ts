@@ -22,7 +22,7 @@ import type {DepositedState} from '../deposited';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import {SignerOutOfFundsError} from '../errors';
 import type {SetupAction, SetupNeeded} from '$lib/context/game';
-import type {PurchaseState} from '../purchase';
+import {opensAWallet, type PurchaseState} from '../purchase';
 import {purchaseValue} from 'reveal-or-die-contracts';
 import {formatBalance} from '$lib/core/utils/format/balance';
 
@@ -257,9 +257,14 @@ export function describeMissedReveal(
 export function purchaseBusyLabel(state: PurchaseState): string | undefined {
 	switch (state.step) {
 		case 'Authorising':
-			// A hosted account never sees this: its credential was minted at
-			// sign-in, so `fetchDelegation` returns without prompting.
-			return 'Confirm in your wallet to authorise this browser...';
+			// ONLY THE ROUTE THAT ACTUALLY OPENS A WALLET is told to look at one.
+			// This used to say so unconditionally, with a comment claiming a hosted
+			// account never got here; it does get here, its credential is simply
+			// handed back without a prompt, and it was being sent to a window that
+			// was never going to open.
+			return opensAWallet(state.authorisation)
+				? 'Confirm in your wallet to authorise this browser...'
+				: 'Authorising this browser...';
 		case 'Purchasing':
 			return 'Buying your avatar...';
 		case 'ChoosingPayer':

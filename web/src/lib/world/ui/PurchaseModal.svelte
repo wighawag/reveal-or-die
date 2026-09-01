@@ -19,6 +19,7 @@
 	import Button from '$lib/shadcn/ui/button/button.svelte';
 	import {getAppContext} from '$lib';
 	import {formatAmount} from '$lib/core/funding';
+	import {opensAWallet} from '$lib/world/purchase';
 
 	const context = getAppContext();
 	const {game} = context;
@@ -94,19 +95,31 @@
 	explanation the template already wrote for it.
 -->
 <!--
-	Consent, before the wallet is asked for a signature.
+	Consent, before anything is signed or spent.
 
 	The same list the top-up flow shows, from the same grant, because they are
 	describing the same key. Its own dialog rather than a line in the chooser:
 	this is the moment the player agrees to something, and it must be readable
 	before MetaMask opens rather than behind it.
+
+	WHAT IT SAYS DEPENDS ON HOW THE AUTHORISATION IS OBTAINED, which the store
+	puts in the state. Every word of this was written for the wallet route and
+	shown to all three, so an account whose credential was minted at sign-in was
+	promised a signature request that never came and offered a button reading
+	"Sign and buy" for a purchase with nothing to sign. The template's own top-up
+	modal already words this per route (`$topUp.route`, `silentSigner`); this is
+	the same distinction in this game's dialog.
 -->
 <Modal.Root
 	layer="modal"
 	openWhen={$purchase.step === 'Consent'}
 	onCancel={() => purchase.dismiss()}
 >
-	<Modal.Title>One signature, then the purchase</Modal.Title>
+	<Modal.Title>
+		{$purchase.step === 'Consent' && opensAWallet($purchase.authorisation)
+			? 'One signature, then the purchase'
+			: 'Confirm your purchase'}
+	</Modal.Title>
 	{#if $purchase.step === 'Consent'}
 		<!-- RESTATES WHO AND HOW MUCH. The player last saw a figure on a button
 		     several dialogs ago and has since picked a wallet; being asked to sign
@@ -118,19 +131,38 @@
 			<dt class="text-muted-foreground">Total</dt>
 			<dd>{formatAmount($purchase.total, decimals)} {symbol}</dd>
 		</dl>
-		<p class="text-sm text-muted-foreground">
-			First your wallet asks you to sign a message, which authorises this
-			browser to play for you. It is not a transaction and costs nothing. The
-			payment comes after it.
-		</p>
+		{#if $purchase.authorisation === 'live-signature'}
+			<p class="text-sm text-muted-foreground">
+				First your wallet asks you to sign a message, which authorises this
+				browser to play for you. It is not a transaction and costs nothing. The
+				payment comes after it.
+			</p>
+		{:else if $purchase.authorisation === 'silent-signature'}
+			<!-- The development burner signs from a key in this browser and opens
+			     nothing, so promising a prompt leaves the user waiting for a window
+			     that never appears. Same sentence the top-up modal makes for it. -->
+			<p class="text-sm text-muted-foreground">
+				This also authorises this browser to play for you. Your development
+				wallet signs that for you with no prompt, so the next thing that happens
+				is the payment.
+			</p>
+		{:else}
+			<p class="text-sm text-muted-foreground">
+				Your account already authorised this browser when you signed in, so
+				there is nothing to sign. The next thing that happens is the payment.
+			</p>
+		{/if}
 		<ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
 			{#each $purchase.bullets as bullet (bullet)}
 				<li>{bullet}</li>
 			{/each}
 		</ul>
 		<div class="mt-4 flex gap-2">
+			<!-- The button names what pressing it does. "Sign and buy" in front of a
+			     purchase with nothing to sign describes a step that will not
+			     happen. -->
 			<Button size="sm" onclick={() => purchase.confirmConsent()}>
-				Sign and buy
+				{opensAWallet($purchase.authorisation) ? 'Sign and buy' : 'Buy'}
 			</Button>
 			<Button size="sm" variant="outline" onclick={() => purchase.dismiss()}>
 				Cancel
