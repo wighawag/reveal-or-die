@@ -209,9 +209,11 @@ export function describeRound(
 			// had moved once an epoch forever - and one who left the world was told
 			// the same thing about an avatar that is no longer on the board.
 			//
-			// It describes what was REVEALED rather than what the chain made of it:
-			// a refused move sets `stopProcessing` and reports nothing, so "moved"
-			// is the player's intent, which is the most that can be said honestly.
+			// It describes what was REVEALED rather than what the chain accepted, so
+			// "moved" is the player's intent: a step into a wall is refused, and the
+			// only place that shows is the `CommitmentRevealed` log, which carries the
+			// accepted prefix and which nothing here reads yet. See
+			// ../reveal-outcome.ts.
 			switch (about.outcome) {
 				case 'entered':
 					return {

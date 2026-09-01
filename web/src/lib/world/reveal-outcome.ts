@@ -13,11 +13,21 @@
  * rather than derives. It is the smallest amount of memory that can answer the
  * question: the last actions seen, read only while the round says Revealed.
  *
- * Deliberately NOT read off the board. What the avatar looks like afterwards
- * cannot tell a turn that moved from one that was refused, and the chain does
- * not report per-action outcomes at all (a rejected move sets `stopProcessing`
- * and says nothing). So this describes what the player REVEALED, which is what
- * they chose and the only thing that can be stated honestly.
+ * WHAT IT DESCRIBES IS WHAT THE PLAYER REVEALED, not what the chain made of
+ * it, and that is a limitation of this store rather than of the chain. The
+ * contract DOES say which actions it accepted: `_reveal` emits
+ * `CommitmentRevealed` with `actions[0:numActionsResolved]`, and since a
+ * refused action sets `stopProcessing` and increments nothing, that slice is
+ * exactly the prefix it carried out. So a turn whose third step walked into a
+ * wall is reported here as "moved" and by the log as two moves.
+ *
+ * Reading that means a LOG FEED, which this app does not have yet and which is
+ * the same missing piece as the reveal animation: `bomber-world` fetches those
+ * logs per camera zone and hands each avatar its resolved actions, which is
+ * how it animates every avatar's turn rather than only the player's. See
+ * `docs/plans/web-port.md`. Until then this is the honest answer available
+ * without one, and it is right about the case it was written for: an empty
+ * turn is empty whatever the chain does with it.
  */
 import {derived, type Readable} from 'svelte/store';
 import type {RoundState} from '$lib/game/core/round';
