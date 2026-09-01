@@ -10,8 +10,9 @@
  * avatar IS from where they have said it should go.
  */
 import type {ViewMerge} from '$lib/view';
-import type {Position} from 'reveal-or-die-contracts';
-import type {Avatar, WorldState} from './state';
+import {ActionType, bigIntIDToXY, type Position} from 'reveal-or-die-contracts';
+import type {Action} from './commit-reveal';
+import type {Avatar, ResolvedTurn, WorldState} from './state';
 
 /** A planned action for this epoch, before it is committed. */
 export type PlannedAction = {
@@ -19,7 +20,44 @@ export type PlannedAction = {
 	to: Position;
 };
 
-export type AvatarView = Avatar & {
+/**
+ * The contract's actions in the shape the view and the renderer read.
+ *
+ * Here rather than beside the planning code because BOTH sides of the board
+ * need it now: what the player has planned, and what the chain says it carried
+ * out (`CommitmentRevealed`). One mapping, so a plan and its outcome cannot be
+ * drawn from two different vocabularies.
+ */
+export function toPlannedActions(actions: readonly Action[]): PlannedAction[] {
+	return actions.map((a) => ({
+		type:
+			a.actionType === ActionType.Enter
+				? ('enter' as const)
+				: a.actionType === ActionType.Exit
+					? ('exit' as const)
+					: ('move' as const),
+		to: bigIntIDToXY(a.data),
+	}));
+}
+
+/**
+ * What the chain says an avatar's last turn actually was.
+ *
+ * THE ACCEPTED PREFIX, not what the player revealed: `_reveal` emits
+ * `actions[0:numActionsResolved]`, and a refused action sets `stopProcessing`
+ * without incrementing that counter, so a turn whose third step walked into a
+ * wall arrives here as two moves. That is what makes it worth drawing - it is
+ * what HAPPENED, for every avatar on the board rather than only the player's.
+ */
+export type ResolvedTurnView = {
+	epoch: number;
+	actions: readonly PlannedAction[];
+};
+
+// `lastTurn` is REPLACED rather than inherited: the state layer holds the
+// contract's own actions, and the view holds them mapped into the renderer's
+// vocabulary, under the same name because they are the same fact.
+export type AvatarView = Omit<Avatar, 'lastTurn'> & {
 	/**
 	 * WHOSE avatar this is, from the client's point of view.
 	 *
@@ -41,6 +79,15 @@ export type AvatarView = Avatar & {
 	plannedPosition: Position;
 	/** Planned to enter this epoch, so it is not on chain yet at all. */
 	entering: boolean;
+	/**
+	 * The turn the chain last resolved for this avatar, when it is recent enough
+	 * to have been fetched.
+	 *
+	 * Undefined for an avatar whose reveal is outside the fetched block range, or
+	 * that has not acted since. The renderer treats it as "nothing to replay" and
+	 * draws the avatar where it stands.
+	 */
+	lastTurn?: ResolvedTurnView;
 };
 
 export type WorldView = {
@@ -69,6 +116,14 @@ export type LocalPlan = {
  * the single source of truth, and a re-derive must not leave a `planned` field
  * behind on it that a later merge would read as confirmed.
  */
+/** The chain's own account of a turn, in the renderer's vocabulary. */
+function resolvedTurnView(
+	turn: ResolvedTurn | undefined,
+): ResolvedTurnView | undefined {
+	if (!turn) return undefined;
+	return {epoch: turn.epoch, actions: toPlannedActions(turn.actions)};
+}
+
 export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 	onchain,
 	local,
@@ -83,6 +138,7 @@ export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 			planned: [],
 			plannedPosition: avatar.position,
 			entering: false,
+			lastTurn: resolvedTurnView(avatar.lastTurn),
 		});
 	}
 

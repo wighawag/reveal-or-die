@@ -48,7 +48,12 @@ export const avatarChanged: Changed<AvatarView> = (previous, next) =>
 	previous.entering !== next.entering ||
 	previous.plannedPosition.x !== next.plannedPosition.x ||
 	previous.plannedPosition.y !== next.plannedPosition.y ||
-	previous.planned.length !== next.planned.length;
+	previous.planned.length !== next.planned.length ||
+	// The epoch of the last RESOLVED turn, which is what starts a replay. It is
+	// compared because a turn can arrive without moving the avatar at all - a
+	// step the contract refused, an exit - and `update` is the only place the
+	// object hears about it.
+	previous.lastTurn?.epoch !== next.lastTurn?.epoch;
 
 export function createAvatarRenderer(params: {
 	viewState: ViewStateStore<WorldView>;
@@ -63,6 +68,19 @@ export function createAvatarRenderer(params: {
 	 * because what changes is the CAMERA and not the chain. See ./terrain.ts.
 	 */
 	let terrain: TerrainLayer | undefined;
+
+	/**
+	 * The live avatar objects, so each can be advanced every frame.
+	 *
+	 * A SECOND COLLECTION, kept in step by the two handlers below, and it should
+	 * not have to exist: `Reconciler` already holds the key-to-object map and
+	 * exposes only `get` and `size`, so there is no way to enumerate what is on
+	 * screen. `docs/audits/03-renderer.md` 3.8 names that as the gap and the
+	 * backport that closes it (`values()` on the reconciler, which the template's
+	 * own README implies exists when it sells the stateful renderer for
+	 * "per-object animation"). When that lands upstream, this set goes away.
+	 */
+	const live = new Set<AvatarObject>();
 
 	return createStatefulRenderer<
 		Container,
@@ -91,6 +109,9 @@ export function createAvatarRenderer(params: {
 		onStopped() {
 			terrain?.destroy();
 			terrain = undefined;
+			// The reconciler destroys the objects themselves; this only lets go of
+			// the references, so a remount does not tick objects that are gone.
+			live.clear();
 		},
 
 		// Terrain follows the camera, so it is redrawn per frame rather than per
@@ -98,6 +119,11 @@ export function createAvatarRenderer(params: {
 		// actually moved by a whole cell.
 		tick({frame}) {
 			terrain?.update(frame);
+			// The frame loop is the only clock the objects get: an avatar replaying a
+			// turn advances here rather than holding a timer of its own, so a
+			// backgrounded tab, a paused loop or an unmounted canvas stops the
+			// animation with everything else.
+			for (const object of live) object.tick(frame.delta);
 		},
 
 		add({entity, surface}) {
@@ -106,6 +132,7 @@ export function createAvatarRenderer(params: {
 			// The planned path is positioned in WORLD space, so it is a sibling of
 			// the avatar rather than a child; a child would move with it.
 			surface.addChild(object.pathLayer);
+			live.add(object);
 			return object;
 		},
 
@@ -114,6 +141,7 @@ export function createAvatarRenderer(params: {
 		},
 
 		remove({object, surface}) {
+			live.delete(object);
 			surface.removeChild(object);
 			object.onRemoved();
 		},

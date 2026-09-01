@@ -92,3 +92,32 @@ describe('avatarChanged', () => {
 		expect(avatarChanged(view(), view({inGame: false}))).toBe(false);
 	});
 });
+
+describe('a resolved turn arriving', () => {
+	/**
+	 * The diff decides whether `update` is called at all, so anything the object
+	 * needs to HEAR about has to be compared here. A resolved turn is the one
+	 * fact that can arrive without moving the avatar: a step the contract
+	 * refused, or an exit, leaves every other field where it was.
+	 */
+	const turn = (epoch: number) => ({
+		epoch,
+		actions: [{type: 'move' as const, to: {x: 1, y: 2}}],
+	});
+
+	it('is a change, even when nothing else about the avatar is', () => {
+		expect(avatarChanged(view(), view({lastTurn: turn(4)}))).toBe(true);
+		expect(
+			avatarChanged(view({lastTurn: turn(4)}), view({lastTurn: turn(5)})),
+		).toBe(true);
+	});
+
+	it('is not a change when the same turn is re-read', () => {
+		// The poller re-reads every few seconds and hands back the same turn until
+		// the next epoch resolves. Treating that as a change would restart the
+		// animation on every poll.
+		expect(
+			avatarChanged(view({lastTurn: turn(4)}), view({lastTurn: turn(4)})),
+		).toBe(false);
+	});
+});

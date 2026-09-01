@@ -86,7 +86,7 @@ import {
 import {
 	createWorldReader,
 	emptyWorld,
-	zonesForCamera,
+	createZonesForCamera,
 	type WorldState,
 } from '$lib/world/state';
 import {mergeWorldView, type WorldView} from '$lib/world/view';
@@ -413,7 +413,9 @@ export function createGameContext(core: CoreServices): GameContext {
 		camera,
 		epochInfo,
 		chainTime,
-		zonesForCamera,
+		// A turn's worth of travel beyond the camera, because the same zones scope
+		// the reveal logs and an avatar's log is filed under the zone it ended in.
+		zonesForCamera: createZonesForCamera({reach: config.numMoves}),
 		read: createWorldReader({publicClient: core.publicClient, deployments}),
 		emptyState: emptyWorld,
 		fetchGate: core.chainFetchGate,

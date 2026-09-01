@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {zonesForCamera} from '$lib/world/state';
+import {createWorldReader, createZonesForCamera} from '$lib/world/state';
 import {
 	ZONE_OFFSET,
 	ZONE_SIZE,
@@ -48,6 +48,12 @@ describe('zoneIDFromZoneCoords', () => {
 	});
 });
 
+/**
+ * The camera-to-zones rule, with no travel allowance, which is the shape every
+ * test below was written against. What the reach ADDS has its own block.
+ */
+const zonesForCamera = createZonesForCamera({reach: 0});
+
 describe('zonesForCamera', () => {
 	it('covers every zone the camera can see', () => {
 		const camera = {x: 0, y: 0, width: 40, height: 40};
@@ -71,7 +77,9 @@ describe('zonesForCamera', () => {
 
 	it('works west and north of the origin, where the ids wrap', () => {
 		const zones = zonesForCamera({x: -40, y: -40, width: 4, height: 4});
-		expect(zones).toContain(zoneIDFromZoneCoords(zoneCoord(-40), zoneCoord(-40)));
+		expect(zones).toContain(
+			zoneIDFromZoneCoords(zoneCoord(-40), zoneCoord(-40)),
+		);
 		// and none of them came out negative
 		for (const z of zones) expect(z >= 0n).toBe(true);
 	});
@@ -98,5 +106,211 @@ describe('zonesForCamera', () => {
 			height: 1,
 		};
 		expect(zonesForCamera(camera)).toEqual([zoneIDFromZoneCoords(2, -3)]);
+	});
+});
+
+describe('the travel allowance on top of the camera', () => {
+	/**
+	 * Zones are what BOTH reads are scoped by: the avatars standing in them, and
+	 * the `CommitmentRevealed` logs, which are filed under the zone an avatar
+	 * ENDED its turn in. So a turn that crosses a boundary is only found when
+	 * the destination zone is loaded, and an avatar that walks into view is only
+	 * animated if the zone it walked from was loaded too.
+	 *
+	 * The proportional margin already covers this when zoomed out, and does not
+	 * when zoomed in, which is where the reach earns its place: at four cells
+	 * visible it is worth a fifth of a cell.
+	 */
+	it('loads a turn\u2019s travel beyond the camera when zoomed right in', () => {
+		const camera = {x: 0, y: 0, width: 2, height: 2};
+		const tight = new Set(createZonesForCamera({reach: 0})(camera));
+		const roomy = new Set(createZonesForCamera({reach: 16})(camera));
+
+		// (0,0) is in zone (0,0); sixteen cells west is the zone before it, which
+		// only the second one asks for.
+		const westward = zoneIDFromZoneCoords(zoneCoord(-16), zoneCoord(0));
+		expect(tight.has(westward)).toBe(false);
+		expect(roomy.has(westward)).toBe(true);
+	});
+
+	it('never asks for less than the camera alone would', () => {
+		const camera = {x: 3, y: -7, width: 60, height: 60};
+		const tight = createZonesForCamera({reach: 0})(camera);
+		const roomy = new Set(createZonesForCamera({reach: 4})(camera));
+		for (const zone of tight) expect(roomy.has(zone)).toBe(true);
+	});
+
+	it('still caps what one fetch may cover', () => {
+		// The reach widens the box, so the cap has to hold against it too: a
+		// zoomed-out camera plus a travel allowance is still a bounded read.
+		const zones = createZonesForCamera({reach: 100})({
+			x: 0,
+			y: 0,
+			width: 5000,
+			height: 5000,
+		});
+		expect(zones.length).toBeLessThanOrEqual(64);
+	});
+});
+
+/**
+ * The reveal-log half of the reader.
+ *
+ * Storage says where an avatar IS; only `CommitmentRevealed` says how it got
+ * there, and only that says which parts of a turn the contract accepted (it
+ * emits `actions[0:numActionsResolved]`, and a refused action increments
+ * nothing). Both are needed to draw a board that moves, so both are read here,
+ * and the interesting behaviour is what happens when the second one fails.
+ */
+function fakeClient(options: {
+	avatars?: {
+		owner: `0x${string}`;
+		avatarID: bigint;
+		inGame: boolean;
+		position: bigint;
+		lastEpoch: bigint;
+		life: number;
+	}[];
+	events?: {
+		args: {
+			avatarID: bigint;
+			epoch: bigint;
+			actions: {actionType: number; data: bigint}[];
+		};
+	}[];
+	eventsFail?: boolean;
+	epoch?: bigint;
+}) {
+	const calls: {logRanges: {from: bigint; to: bigint}[]} = {logRanges: []};
+	const client = {
+		readContract: async () => [
+			options.avatars ?? [],
+			false,
+			options.epoch ?? 7n,
+		],
+		getContractEvents: async (args: {fromBlock: bigint; toBlock: bigint}) => {
+			calls.logRanges.push({from: args.fromBlock, to: args.toBlock});
+			if (options.eventsFail) throw new Error('this RPC does not do logs');
+			return options.events ?? [];
+		},
+	};
+	return {client, calls};
+}
+
+const deployments = {
+	contracts: {
+		Game: {address: '0x00000000000000000000000000000000000000aa', abi: []},
+	},
+} as never;
+
+const someAvatar = {
+	owner: '0x1111111111111111111111111111111111111111' as const,
+	avatarID: 5n,
+	inGame: true,
+	position: 0n,
+	lastEpoch: 6n,
+	life: 1,
+};
+
+describe('reading what the chain resolved, not just where things stand', () => {
+	it('hands each avatar the turn the chain says it took', async () => {
+		const {client} = fakeClient({
+			avatars: [someAvatar],
+			events: [
+				{
+					args: {
+						avatarID: 5n,
+						epoch: 7n,
+						actions: [{actionType: 1, data: 1n}],
+					},
+				},
+			],
+		});
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		const state = await read({
+			zones: [0n],
+			fromBlock: 0,
+			toBlock: 10,
+			expectedEpoch: 7,
+		});
+		expect(state?.avatars.get(5n)?.lastTurn).toEqual({
+			epoch: 7,
+			actions: [{actionType: 1, data: 1n}],
+		});
+	});
+
+	it('keeps the LATEST turn when two epochs were asked for', async () => {
+		// Two epochs are fetched so a client arriving after a boundary still has
+		// the turn that produced the board. The older one is history.
+		const {client} = fakeClient({
+			avatars: [someAvatar],
+			events: [
+				{args: {avatarID: 5n, epoch: 6n, actions: [{actionType: 1, data: 9n}]}},
+				{args: {avatarID: 5n, epoch: 7n, actions: [{actionType: 1, data: 1n}]}},
+			],
+		});
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		const state = await read({
+			zones: [0n],
+			fromBlock: 0,
+			toBlock: 10,
+			expectedEpoch: 7,
+		});
+		expect(state?.avatars.get(5n)?.lastTurn?.epoch).toEqual(7);
+	});
+
+	it('still reports the board when the logs cannot be read', async () => {
+		// THE IMPORTANT ONE. A throw here would reach the polling store as a
+		// failed read: exponential backoff behind an RPC-health banner, and a
+		// blank board until the player happens to pan. Losing the animation is a
+		// far smaller thing than losing the world.
+		const {client} = fakeClient({avatars: [someAvatar], eventsFail: true});
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		const state = await read({
+			zones: [0n],
+			fromBlock: 0,
+			toBlock: 10,
+			expectedEpoch: 7,
+		});
+		expect(state?.avatars.get(5n)?.position).toEqual({x: 0, y: 0});
+		expect(state?.avatars.get(5n)?.lastTurn).toBeUndefined();
+	});
+
+	it('cuts the block range into pieces a provider will answer', async () => {
+		// `eth_getLogs` ranges are capped, and providers disagree about where. A
+		// single request over the whole range works against a local node and
+		// fails against whichever public RPC a player happens to be on.
+		const {client, calls} = fakeClient({avatars: [someAvatar]});
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		await read({zones: [0n], fromBlock: 0, toBlock: 2500, expectedEpoch: 7});
+		expect(calls.logRanges.length).toBeGreaterThan(1);
+		for (const range of calls.logRanges) {
+			expect(Number(range.to - range.from)).toBeLessThan(1000);
+		}
+		// and together they cover it exactly, with no gap to lose a reveal in
+		expect(calls.logRanges[0].from).toEqual(0n);
+		expect(calls.logRanges.at(-1)?.to).toEqual(2500n);
+	});
+
+	it('asks for nothing at all when the camera has no zones', async () => {
+		const {client, calls} = fakeClient({});
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		await read({zones: [], fromBlock: 0, toBlock: 10, expectedEpoch: 7});
+		expect(calls.logRanges).toEqual([]);
 	});
 });

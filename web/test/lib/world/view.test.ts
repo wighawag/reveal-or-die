@@ -131,3 +131,69 @@ describe('mergeWorldView', () => {
 		expect(view.avatars.get(1n)!.plannedPosition).toEqual({x: 0, y: 0});
 	});
 });
+
+describe('the turn the chain resolved', () => {
+	/**
+	 * `CommitmentRevealed` carries the actions the contract ACCEPTED, per
+	 * avatar. Carrying them onto the view is what lets the renderer replay every
+	 * avatar's turn rather than teleporting each one to its new cell, and it is
+	 * the only thing on the entity that says what HAPPENED as opposed to what is.
+	 */
+	it('arrives in the renderer\u2019s vocabulary, not the contract\u2019s', () => {
+		const view = mergeWorldView({
+			onchain: world(
+				avatar({
+					avatarID: 1n,
+					lastTurn: {
+						epoch: 7,
+						// Move to (1,0), then Exit named at the same cell.
+						actions: [
+							{actionType: 1, data: 1n},
+							{actionType: 2, data: 1n},
+						],
+					},
+				}),
+			),
+			local: noPlan,
+			epoch: 7,
+		});
+		expect(view.avatars.get(1n)?.lastTurn).toEqual({
+			epoch: 7,
+			actions: [
+				{type: 'move', to: {x: 1, y: 0}},
+				{type: 'exit', to: {x: 1, y: 0}},
+			],
+		});
+	});
+
+	it('is absent for an avatar whose reveal was not fetched', () => {
+		// Outside the block range, or it has not acted since. The renderer reads
+		// that as "nothing to replay" rather than as an empty turn.
+		const view = mergeWorldView({
+			onchain: world(avatar({avatarID: 1n})),
+			local: noPlan,
+			epoch: 7,
+		});
+		expect(view.avatars.get(1n)?.lastTurn).toBeUndefined();
+	});
+
+	it('is carried for OTHER players too, which is the point of it', () => {
+		// The event is per avatar and indexed by zone, so the client learns every
+		// visible avatar's turn, not only the one it is playing.
+		const view = mergeWorldView({
+			onchain: world(
+				avatar({avatarID: 1n}),
+				avatar({
+					avatarID: 2n,
+					owner: OTHER,
+					lastTurn: {epoch: 7, actions: [{actionType: 1, data: 1n}]},
+				}),
+			),
+			local: {planned: [], activeAvatarID: 1n, player: PLAYER},
+			epoch: 7,
+		});
+		const other = view.avatars.get(2n);
+		expect(other?.isPlayer).toBe(false);
+		expect(other?.lastTurn?.actions).toHaveLength(1);
+	});
+});

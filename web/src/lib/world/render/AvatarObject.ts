@@ -12,8 +12,19 @@
 import {AnimatedSprite, Container, Graphics, Texture} from 'pixi.js';
 import {LoadingSprite} from './LoadingSprite';
 import {Blockie} from '$lib/core/utils/ethereum/blockie';
+import type {Position} from 'reveal-or-die-contracts';
 import type {AvatarView} from '../view';
 import {sprites, spritesReady} from './assets';
+import {createWalk, type Walk} from './walk';
+
+/**
+ * How long one cell of a replayed turn takes, and the whole turn at most.
+ *
+ * The reveal window is short and the next epoch does not wait, so an animation
+ * that outlasts it would draw a board one turn behind the chain.
+ */
+const SECONDS_PER_STEP = 0.18;
+const MAX_WALK_SECONDS = 1.2;
 
 /** Frames of the spawn animation, named entry_001.png .. entry_021.png. */
 function entryTextures(): Texture[] | undefined {
@@ -34,6 +45,25 @@ export class AvatarObject extends Container {
 	private readonly highlight: Graphics;
 	private readonly deadCross: Graphics;
 	private entering: AnimatedSprite | undefined;
+	/**
+	 * The turn being replayed, and which epoch's turn it is.
+	 *
+	 * The epoch is what makes it play ONCE: the state store re-reads every few
+	 * seconds and hands the same resolved turn back each time until the next
+	 * epoch resolves.
+	 */
+	private walk: Walk | undefined;
+	private walkedEpoch: number | undefined;
+	/**
+	 * Where the chain says this avatar stands, kept so a finished walk can land
+	 * on it exactly.
+	 *
+	 * The last cell of an accepted turn IS the avatar's new position, so the two
+	 * agree by construction - but `update` is only called when the diff says
+	 * something changed, so a walk that ended anywhere else would stay there
+	 * indefinitely. One assignment is cheaper than that class of drift.
+	 */
+	private destination: Position;
 
 	constructor(
 		private readonly cellSize: number,
@@ -72,6 +102,15 @@ export class AvatarObject extends Container {
 		// same reason.
 		this.path.zIndex = 0;
 
+		// AN AVATAR THAT IS ALREADY ON THE BOARD DOES NOT REPLAY ITS LAST TURN.
+		// Everything visible was fetched with whatever turn produced it, so
+		// without this every avatar would walk its previous move again on arrival:
+		// on a page load, on an account switch, and every time one is panned into
+		// view. Marking that turn as already seen is what makes the animation mean
+		// "this just happened".
+		this.walkedEpoch = entity.lastTurn?.epoch;
+		this.destination = entity.position;
+
 		this.update(entity);
 	}
 
@@ -81,16 +120,74 @@ export class AvatarObject extends Container {
 	}
 
 	update(entity: AvatarView) {
-		this.position.set(
-			entity.position.x * this.cellSize,
-			entity.position.y * this.cellSize,
-		);
+		this.destination = entity.position;
+		this.updateWalk(entity);
+		if (!this.walk) {
+			this.position.set(
+				entity.position.x * this.cellSize,
+				entity.position.y * this.cellSize,
+			);
+		}
 
 		this.deadCross.visible = entity.life === 0;
 		this.highlight.visible = entity.isPlayer && !entity.entering;
 
 		this.updateEntering(entity);
 		this.updatePath(entity);
+	}
+
+	/**
+	 * Start replaying a turn the chain has just reported, if there is a new one.
+	 *
+	 * The path comes from `CommitmentRevealed`, so it is what the contract
+	 * ACCEPTED rather than what the player asked for: a step that walked into a
+	 * wall is not in it, and the walk ends where the avatar actually stands.
+	 * That is also why it works for every avatar rather than just this client's.
+	 */
+	private updateWalk(entity: AvatarView) {
+		const turn = entity.lastTurn;
+		if (!turn || turn.epoch === this.walkedEpoch) return;
+		this.walkedEpoch = turn.epoch;
+
+		// Only the steps. An Enter names the cell the avatar appeared on and an
+		// Exit names the one it left from, and neither is a journey: the entering
+		// animation covers the first, and the second ends with the avatar gone.
+		const path = turn.actions
+			.filter((action) => action.type === 'move')
+			.map((action) => action.to);
+		if (path.length === 0) return;
+
+		// From where it is DRAWN, not from where the turn started: on a slow frame
+		// or a re-render mid-walk that is the honest starting point, and it is
+		// already the previous cell in the ordinary case.
+		const from: Position = {
+			x: this.position.x / this.cellSize,
+			y: this.position.y / this.cellSize,
+		};
+		this.walk = createWalk({
+			from,
+			path,
+			secondsPerStep: SECONDS_PER_STEP,
+			maxSeconds: MAX_WALK_SECONDS,
+		});
+	}
+
+	/**
+	 * Advance the replay by one frame. Called by the renderer, which owns the
+	 * frame loop; the object never reaches for a clock of its own.
+	 */
+	tick(delta: number) {
+		if (!this.walk) return;
+		const at = this.walk.advance(delta);
+		if (this.walk.done) {
+			this.walk = undefined;
+			this.position.set(
+				this.destination.x * this.cellSize,
+				this.destination.y * this.cellSize,
+			);
+			return;
+		}
+		this.position.set(at.x * this.cellSize, at.y * this.cellSize);
 	}
 
 	private updateEntering(entity: AvatarView) {

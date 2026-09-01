@@ -25,7 +25,7 @@ import {
 	type Position,
 } from 'reveal-or-die-contracts';
 import type {Action} from './commit-reveal';
-import type {LocalPlan, PlannedAction} from './view';
+import {toPlannedActions, type LocalPlan} from './view';
 import type {WorldConfig} from './config';
 
 /** The plan is only changeable while the round has not been committed. */
@@ -58,21 +58,6 @@ function endsTheTurn(action: Action): boolean {
 		action.actionType === ActionType.Enter ||
 		action.actionType === ActionType.Exit
 	);
-}
-
-const typeName = (actionType: number): PlannedAction['type'] =>
-	actionType === ActionType.Enter
-		? 'enter'
-		: actionType === ActionType.Exit
-			? 'exit'
-			: 'move';
-
-/** The contract's actions, in the shape the view and the renderer read. */
-export function toPlannedActions(actions: readonly Action[]): PlannedAction[] {
-	return actions.map((a) => ({
-		type: typeName(a.actionType),
-		to: bigIntIDToXY(a.data),
-	}));
 }
 
 export type PlanningStore = {
