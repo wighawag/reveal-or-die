@@ -197,6 +197,7 @@ function fakeContext(
 		currentEpoch?: number;
 		setup?: {step: 'sign-in' | 'authorise' | 'deposit'};
 		purchase?: {step: string; message?: string; authorisation?: string};
+		canExit?: boolean;
 	} = {},
 ) {
 	return {
@@ -207,6 +208,7 @@ function fakeContext(
 			planning: {
 				movesLeft: writable(10),
 				plan: writable({planned: []}),
+				canExit: writable(overrides.canExit ?? false),
 			},
 			deposited: writable({
 				step: 'Loaded',
@@ -276,6 +278,24 @@ describe('what a click will do', () => {
 		expect(model.instruction).toMatch(
 			/stops processing at the first move it refuses/,
 		);
+		// And says where the way out is. Leaving is the one action with no cell to
+		// click on, so without this the exit tile is scenery and the disabled
+		// button beside it has no explanation.
+		expect(model.instruction).toMatch(/exit tile/i);
+		expect(model.canLeave).toBe(false);
+	});
+
+	it('tells an avatar standing on the way out that it can leave', () => {
+		const model = get(
+			createHud(
+				fakeContext(
+					{step: 'Idle'},
+					{currentPosition: {x: 3, y: 5}, canExit: true},
+				),
+			),
+		);
+		expect(model.canLeave).toBe(true);
+		expect(model.instruction).toMatch(/leave the world/i);
 	});
 });
 

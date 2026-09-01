@@ -260,6 +260,10 @@ abstract contract UsingGameInternal is
         uint64 currentZone;
         bool left;
         bool entering;
+        /// @notice Whether the avatar was in the world when the reveal began.
+        /// @dev Read once, at the start: an Enter sets `stopProcessing`, so no
+        ///  action can follow one and nothing here can change it mid-reveal.
+        bool inGame;
         uint256 numActionsResolved;
     }
 
@@ -287,6 +291,7 @@ abstract contract UsingGameInternal is
             currentZone: startZone,
             left: false,
             entering: false,
+            inGame: avatar.inGame,
             numActionsResolved: 0
         });
 
@@ -396,23 +401,46 @@ abstract contract UsingGameInternal is
         }
     }
 
-    // TODO two known gaps, recorded rather than fixed: both are decisions.
-    //
-    // 1. THE POSITION IS NOT CHECKED. `actionData` is ignored entirely, so an
-    //    avatar may leave from any cell rather than from an exit tile, while
-    //    `UnableToExitFromThisPosition` sits declared in UsingGameErrors.sol and
-    //    thrown nowhere. The map draws an exit, so a player reasonably assumes
-    //    the rule exists. The web client mirrors what this DOES (see
-    //    web/src/lib/world/planning.ts) rather than pretending otherwise.
-    // 2. EXITING WHILE NOT IN THE GAME CORRUPTS A ZONE. `left` is set
-    //    unconditionally, and `_resolveActions` then calls `_removeFromZone`
-    //    with the avatar's start zone for an avatar that is not in that zone's
-    //    list: it pops whoever is last in it, evicting another player. Nothing
-    //    on chain prevents committing such an action.
+    /// @notice Leave the world, which is only possible from an exit tile.
+    /// @dev THE ACTION DATA IS IGNORED, and the parameter is unnamed to say so.
+    ///  Leaving happens where the avatar STANDS once the moves ahead of it have
+    ///  resolved, so a position carried in the action would be a second, older
+    ///  claim about the same thing: a client that computed it before a refused
+    ///  move would name a cell the avatar never reached. The web client fills it
+    ///  in for DISPLAY only, and this is why that is safe.
+    ///
+    ///  A REFUSED EXIT DROPS THE ACTION, it does not revert, which is the same
+    ///  treatment `_move` gives a step it will not make. Reverting would be
+    ///  worse than the mistake: the reveal is a transaction against a commitment
+    ///  that is already made, so a revert costs the player every action in the
+    ///  turn AND blocks the next epoch until `acknowledgeMissedReveal` is
+    ///  called.
+    ///  `UnableToExitFromThisPosition` stays declared in UsingGameErrors.sol
+    ///  with the rest of the rules that are stated there and enforced elsewhere.
     function _exit(
         ActionResolution memory resolution,
-        uint128 actionData
+        uint128
     ) internal pure {
+        // NOT IN THE WORLD, so there is nothing to leave - and this was not
+        // merely pointless. `left` used to be set unconditionally, and
+        // `_resolveActions` then called `_removeFromZone` with the start zone of
+        // an avatar that is not in that zone's list, which pops whoever IS last
+        // in it: committing an exit for an avatar outside the world evicted
+        // another player from the board.
+        if (!resolution.inGame) {
+            resolution.stopProcessing = true;
+            return;
+        }
+
+        UsingGameTypes.Area memory area = GameUtils.areaAt(
+            resolution.currentX,
+            resolution.currentY
+        );
+        if (!GameUtils.exitAt(area, resolution.currentX, resolution.currentY)) {
+            resolution.stopProcessing = true;
+            return;
+        }
+
         resolution.numActionsResolved++;
         resolution.left = true;
         resolution.stopProcessing = true;

@@ -27,8 +27,22 @@ import {
  *
  * So (0,0) is an obstacle, (0,1) (0,2) (0,3) form a corridor north to south,
  * and it turns east at y=3 because y=4 is solid.
+ *
+ * The area's ONE exit tile is at (3,5). Its neighbourhood, columns x=2..5:
+ *
+ *   y=4   x#.#
+ *   y=5   x!..
+ *   y=6   x#.#
+ *
+ * so it is walled north and south, boxed to the west, and reached from the
+ * east at (4,5). That single approach is what the "walk to it and leave" tests
+ * below use.
  */
 const START: Position = {x: 0, y: 1};
+/** The way out. `_exit` accepts an exit from here and from nowhere else. */
+const EXIT: Position = {x: 3, y: 5};
+/** The only cell an avatar can step onto the exit from. */
+const BESIDE_EXIT: Position = {x: 4, y: 5};
 
 function fakeRound(initial: Action[] = []) {
 	const state = writable<RoundState<Action>>({
@@ -107,16 +121,18 @@ describe('planning: stepping', () => {
 	it('appends an adjacent, walkable step', () => {
 		const {planning, round} = setup();
 		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
-		expect(positionsOf((round.value as unknown as {actions: Action[]}).actions)).toEqual([
-			{x: 0, y: 2},
-		]);
+		expect(
+			positionsOf((round.value as unknown as {actions: Action[]}).actions),
+		).toEqual([{x: 0, y: 2}]);
 	});
 
 	it('chains steps from where the PLAN ends, not from where the avatar is', () => {
 		const {planning, round} = setup();
 		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
 		expect(planning.stepTo({x: 0, y: 3})).toBe(true);
-		expect(positionsOf((round.value as unknown as {actions: Action[]}).actions)).toEqual([
+		expect(
+			positionsOf((round.value as unknown as {actions: Action[]}).actions),
+		).toEqual([
 			{x: 0, y: 2},
 			{x: 0, y: 3},
 		]);
@@ -144,7 +160,9 @@ describe('planning: stepping', () => {
 		expect(get(planning.movesLeft)).toEqual(0);
 		// numMoves is 3, and the contract silently ignores the rest
 		expect(planning.stepTo({x: 2, y: 3})).toBe(false);
-		expect((round.value as unknown as {actions: Action[]}).actions).toHaveLength(3);
+		expect(
+			(round.value as unknown as {actions: Action[]}).actions,
+		).toHaveLength(3);
 	});
 
 	it('refuses to step after an entry, which ends the reveal', () => {
@@ -197,40 +215,52 @@ describe('planning: stepping by direction', () => {
 });
 
 describe('planning: leaving the world', () => {
-	it('plans an exit from where the avatar stands', () => {
-		const {planning, round} = setup();
+	it('plans an exit from the exit tile the avatar stands on', () => {
+		const {planning, round} = setup({at: EXIT});
 		expect(planning.exitAt()).toBe(true);
 		const actions = (round.value as unknown as {actions: Action[]}).actions;
 		expect(actions).toHaveLength(1);
 		expect(actions[0].actionType).toEqual(ActionType.Exit);
-		expect(bigIntIDToXY(actions[0].data)).toEqual(START);
+		expect(bigIntIDToXY(actions[0].data)).toEqual(EXIT);
 	});
 
 	it('plans an exit from where the MOVES end, not from where they started', () => {
-		// `_exit` resolves after the moves ahead of it, so that is where the avatar
-		// will be standing. The data is display-only, but a display that names the
-		// starting cell would draw the exit marker on the wrong square.
-		const {planning, round} = setup();
-		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
+		// `_exit` resolves after the moves ahead of it and reads the cell UNDER
+		// the avatar at that point, so the plan end is what decides both whether
+		// the exit is legal and where it happens. Judged from the starting cell,
+		// this walk onto the exit would be refused, and the marker would be drawn
+		// on the wrong square.
+		const {planning, round} = setup({at: BESIDE_EXIT});
+		expect(planning.stepTo(EXIT)).toBe(true);
 		expect(planning.exitAt()).toBe(true);
 		const actions = (round.value as unknown as {actions: Action[]}).actions;
 		expect(actions).toHaveLength(2);
-		expect(bigIntIDToXY(actions[1].data)).toEqual({x: 0, y: 2});
+		expect(bigIntIDToXY(actions[1].data)).toEqual(EXIT);
 	});
 
-	it('permits an exit from a cell that is not the exit tile', () => {
-		// The contract does not check the position: `_exit` ignores its action data
-		// and `UnableToExitFromThisPosition` is declared and never thrown. START is
-		// plain floor, so this passing is the client agreeing with the chain rather
-		// than inventing a rule of its own. If the contract ever gains the check,
-		// this test is the one that has to change WITH it.
+	it('refuses an exit from a cell that is not the exit tile', () => {
+		// The rule the map has been drawing all along and the contract did not
+		// have: `_exit` ignored its action data and set `left` unconditionally, so
+		// leaving worked from anywhere and the one goal on the board was
+		// decoration. Now `_exit` reads the cell the avatar stands on, and this
+		// mirrors it. START is plain floor.
 		const {planning} = setup();
-		expect(planning.exitAt()).toBe(true);
+		expect(planning.exitAt()).toBe(false);
+	});
+
+	it('refuses an exit planned to end beside the way out, rather than on it', () => {
+		// The off-by-one that a rule read from the wrong cell would produce: the
+		// plan ends NEXT to the exit, which the contract would refuse, dropping
+		// the action and leaving the avatar standing there wondering.
+		const {planning} = setup({at: EXIT});
+		expect(planning.stepTo(BESIDE_EXIT)).toBe(true);
+		expect(planning.exitAt()).toBe(false);
 	});
 
 	it('refuses to exit when the avatar is not in the world', () => {
-		// Not merely pointless: `_resolveActions` would call `_removeFromZone` for
-		// an avatar that is not in that zone's list, popping whoever is.
+		// Not merely pointless: `_exit` used to set `left` for it, and
+		// `_resolveActions` then called `_removeFromZone` for an avatar that is not
+		// in that zone's list, popping whoever is. Both sides refuse it now.
 		const {planning} = setup({at: undefined});
 		expect(planning.exitAt()).toBe(false);
 	});
@@ -244,19 +274,21 @@ describe('planning: leaving the world', () => {
 		// avatar nobody has yet confirmed is in the world.
 		const {planning} = setup({
 			at: undefined,
-			actions: [{actionType: ActionType.Move, data: xyToBigIntID(0, 2)}],
+			actions: [{actionType: ActionType.Move, data: xyToBigIntID(3, 5)}],
 		});
 		expect(planning.exitAt()).toBe(false);
 	});
 
 	it('refuses to exit in the same turn as an entry', () => {
+		// Even an entry ONTO the exit tile: `_enter` sets `stopProcessing`, so the
+		// exit behind it would be dropped by the reveal without a word.
 		const {planning} = setup({at: undefined});
-		expect(planning.enterAt({x: 0, y: 1})).toBe(true);
+		expect(planning.enterAt(EXIT)).toBe(true);
 		expect(planning.exitAt()).toBe(false);
 	});
 
 	it('refuses a second exit', () => {
-		const {planning, round} = setup();
+		const {planning, round} = setup({at: EXIT});
 		expect(planning.exitAt()).toBe(true);
 		expect(planning.exitAt()).toBe(false);
 		expect(
@@ -269,26 +301,61 @@ describe('planning: leaving the world', () => {
 		// the steps would be dropped by the reveal without a word, and the avatar
 		// would leave from where it was standing rather than from where they walked
 		// it to.
-		const {planning} = setup();
+		const {planning} = setup({at: EXIT});
 		expect(planning.exitAt()).toBe(true);
-		expect(planning.stepTo({x: 0, y: 2})).toBe(false);
-		expect(planning.stepBy({x: 0, y: 1})).toBe(false);
+		expect(planning.stepTo(BESIDE_EXIT)).toBe(false);
+		expect(planning.stepBy({x: 1, y: 0})).toBe(false);
 	});
 
 	it('reports the exit to the view, so it can be drawn', () => {
-		const {planning} = setup();
-		planning.stepTo({x: 0, y: 2});
+		const {planning} = setup({at: BESIDE_EXIT});
+		planning.stepTo(EXIT);
 		planning.exitAt();
 		expect(get(planning.plan).planned).toEqual([
-			{type: 'move', to: {x: 0, y: 2}},
-			{type: 'exit', to: {x: 0, y: 2}},
+			{type: 'move', to: EXIT},
+			{type: 'exit', to: EXIT},
 		]);
 	});
 
 	it('refuses to exit once the round is no longer plannable', () => {
-		const {planning, state} = setup();
+		const {planning, state} = setup({at: EXIT});
 		state.set({step: 'Committed'} as unknown as RoundState<Action>);
 		expect(planning.exitAt()).toBe(false);
+	});
+});
+
+describe('planning: whether leaving is offered at all', () => {
+	/**
+	 * `canExit` and `exitAt` answer the same question, and they have to: the
+	 * button that offers leaving reads the first and the press calls the second,
+	 * so two rules would mean a button that offers what the action refuses.
+	 */
+	it('is false on plain floor and true on the exit tile', () => {
+		expect(get(setup().planning.canExit)).toBe(false);
+		expect(get(setup({at: EXIT}).planning.canExit)).toBe(true);
+	});
+
+	it('follows the PLAN onto the exit, and off it again', () => {
+		const {planning} = setup({at: BESIDE_EXIT});
+		expect(get(planning.canExit)).toBe(false);
+		planning.stepTo(EXIT);
+		expect(get(planning.canExit)).toBe(true);
+		planning.undo();
+		expect(get(planning.canExit)).toBe(false);
+	});
+
+	it('is false for an avatar that is not in the world', () => {
+		expect(get(setup({at: undefined}).planning.canExit)).toBe(false);
+	});
+
+	it('is false once an exit is already planned, and while the round is closed', () => {
+		const {planning} = setup({at: EXIT});
+		planning.exitAt();
+		expect(get(planning.canExit)).toBe(false);
+
+		const closed = setup({at: EXIT});
+		closed.state.set({step: 'Committed'} as unknown as RoundState<Action>);
+		expect(get(closed.planning.canExit)).toBe(false);
 	});
 });
 
@@ -298,16 +365,18 @@ describe('planning: undo, clear and reporting', () => {
 		planning.stepTo({x: 0, y: 2});
 		planning.stepTo({x: 0, y: 3});
 		planning.undo();
-		expect(positionsOf((round.value as unknown as {actions: Action[]}).actions)).toEqual([
-			{x: 0, y: 2},
-		]);
+		expect(
+			positionsOf((round.value as unknown as {actions: Action[]}).actions),
+		).toEqual([{x: 0, y: 2}]);
 	});
 
 	it('clears everything', () => {
 		const {planning, round} = setup();
 		planning.stepTo({x: 0, y: 2});
 		planning.clear();
-		expect((round.value as unknown as {actions: Action[]}).actions).toHaveLength(0);
+		expect(
+			(round.value as unknown as {actions: Action[]}).actions,
+		).toHaveLength(0);
 	});
 
 	it('reports the plan in the shape the view merge wants', () => {

@@ -529,6 +529,109 @@ describe('Game', function () {
 			]),
 		).toEqual(pos(0n, 1n));
 	});
+
+	it('only lets an avatar leave from the exit tile', async function () {
+		/**
+		 * The exit tile has been drawn on the map since before anything checked
+		 * for one: `_exit` ignored its action data entirely and set `left`
+		 * unconditionally, so leaving worked from any cell and the one goal on the
+		 * board was decoration. Both halves are asserted here, because a check
+		 * that only ever refuses is as broken as one that only ever allows.
+		 *
+		 * `!` is at (3,5) in the single generated area, which is also what
+		 * `cellTypeAt` says in js/zones.ts - the same agreement between the two
+		 * implementations that the test above pins for obstacles.
+		 */
+		const {
+			env,
+			Game,
+			AvatarsSale,
+			unnamedAccounts,
+			advanceToEpoch,
+			advanceToRevealPhase,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
+
+		const player = unnamedAccounts[0];
+		const secret =
+			'0x00000000000000000000000000000000000000000000000000000000000000ee' as const;
+
+		async function buy(subID: bigint) {
+			await env.execute(AvatarsSale, {
+				account: player,
+				functionName: 'purchase',
+				args: purchaseArgs({
+					gameAddress: Game.address,
+					owner: player,
+					subID,
+				}),
+				value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			});
+			return avatarIDFor(player, subID);
+		}
+
+		const commit = (avatarID: bigint, actions: Action[]) =>
+			env.execute(Game, {
+				account: player,
+				functionName: 'commit',
+				args: [avatarID, commitmentHash(secret, actions), zeroAddress],
+			});
+		const reveal = (avatarID: bigint, actions: Action[]) =>
+			env.execute(Game, {
+				account: player,
+				functionName: 'reveal',
+				args: [avatarID, actions, secret, zeroAddress],
+			});
+		const avatar = (avatarID: bigint) =>
+			env.read(Game, {functionName: 'getAvatar', args: [avatarID]});
+
+		const onTheExit = await buy(0n);
+		const onTheFloor = await buy(1n);
+		const {epoch: start} = getEpoch(await getTimestamp());
+
+		// `_enter` checks nothing, so both can be put exactly where they are
+		// wanted: one standing on the exit, one on plain floor. Both in ONE epoch,
+		// because a commitment can only be made in the commit phase and the first
+		// avatar's reveal has already taken the epoch into the second half.
+		const enterExit: Action[] = [{actionType: 0, data: pos(3n, 5n)}];
+		const enterFloor: Action[] = [{actionType: 0, data: pos(0n, 1n)}];
+		await advanceToEpoch(start + 2);
+		await commit(onTheExit, enterExit);
+		await commit(onTheFloor, enterFloor);
+		await advanceToRevealPhase(start + 2);
+		await reveal(onTheExit, enterExit);
+		await reveal(onTheFloor, enterFloor);
+
+		// Both try to leave in the same epoch, from the two kinds of cell.
+		const leaveExit: Action[] = [{actionType: 2, data: pos(3n, 5n)}];
+		const leaveFloor: Action[] = [{actionType: 2, data: pos(0n, 1n)}];
+		await advanceToEpoch(start + 3);
+		await commit(onTheExit, leaveExit);
+		await commit(onTheFloor, leaveFloor);
+		await advanceToRevealPhase(start + 3);
+		await reveal(onTheExit, leaveExit);
+		await reveal(onTheFloor, leaveFloor);
+
+		// The one on plain floor is refused, and the refusal costs it nothing
+		// else: it is still in the world, where it was.
+		const stayed = await avatar(onTheFloor);
+		expect(stayed.inGame).toEqual(true);
+		expect(stayed.position).toEqual(pos(0n, 1n));
+
+		// The one on the exit leaves: out of the world, and its position cleared.
+		const left = await avatar(onTheExit);
+		expect(left.inGame).toEqual(false);
+		expect(left.position).toEqual(0n);
+
+		// And leaving takes it off the board, rather than leaving a body behind in
+		// the zone listing.
+		const [inZone] = await env.read(Game, {
+			functionName: 'getAvatarsInZone',
+			args: [zoneID(3, 5), 0n, 100n],
+		});
+		expect(inZone.some((a) => a.avatarID === onTheExit)).toEqual(false);
+	});
 });
 
 describe('buying an avatar', () => {

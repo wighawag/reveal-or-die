@@ -101,12 +101,10 @@ In the order I would take it. `web-port.md` has the detail.
 1. **The red "you cannot move" border**, which wants restyling to match shadcn.
 2. **The home page**, which still shows the template's copy rather than this
    game's.
-3. **Decide what the exit tile MEANS.** A game-design question, and the one
-   thing the controls work deliberately did not settle. See the note below.
 
 Done since this was first written, all recorded in `web-port.md`: the controls
-(keyboard, gamepad and an on-screen d-pad), the Exit action, and a purchase
-surviving a reload.
+(keyboard, gamepad and an on-screen d-pad), the Exit action, the exit tile being
+the only way out (contract and client), and a purchase surviving a reload.
 
 ## Things that are known and deliberately not fixed
 
@@ -122,18 +120,12 @@ surviving a reload.
 - **`Avatars.mint` has no access control**, and `_enter` accepts an obstacle as
   an entry position. Both are recorded in the contracts and in
   `docs/plans/identity-without-consent.md`.
-- **An avatar may leave from ANY cell, not only from the exit tile.** `_exit`
-  ignores its action data and `UnableToExitFromThisPosition` is declared and
-  thrown nowhere, so `planning.exitAt` permits what the contract permits rather
-  than inventing a rule only this client would believe (the pre-port build had
-  exactly such a rule). The tile is still drawn as the goal, so the map and the
-  contract disagree, and reconciling them is a decision about what the game is:
-  either `_exit` gains the check the declared error was written for, or the tile
-  stops being drawn as a goal. Recorded next to `_exit` and in `web-port.md`.
-- **An Exit committed for an avatar that is NOT in the world corrupts a zone**,
-  popping another player out of `_zones[startZone].avatars`. `planning.exitAt`
-  refuses to plan one, so this client cannot cause it; nothing on chain stops
-  another. Found while building the Exit action; recorded next to `_exit`.
+- **A refused Exit is DROPPED, not reverted**, exactly as a refused move is.
+  `_exit` sets `stopProcessing` and the avatar stays where it is. Reverting the
+  reveal instead would cost the player every action in the turn and block the
+  next epoch until `acknowledgeMissedReveal`, which is far worse than the
+  mistake; `UnableToExitFromThisPosition` therefore stays declared and unthrown,
+  beside the other rules `UsingGameErrors.sol` states and enforces elsewhere.
 
 ## Verification, and what nobody has checked
 

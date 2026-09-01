@@ -116,6 +116,14 @@ export type HudModel = {
 	/** How many actions are planned, and how many moves the turn has left. */
 	plannedCount: number;
 	movesLeft: number;
+	/**
+	 * Whether the turn can end by leaving the world, which it can only do from
+	 * the exit tile.
+	 *
+	 * `planning.canExit`, passed through rather than re-derived: the button that
+	 * offers leaving and the call that does it must not be able to disagree.
+	 */
+	canLeave: boolean;
 	/** What a click will do right now, in one line. */
 	instruction: string;
 
@@ -348,6 +356,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.round,
 			game.planning.movesLeft,
 			game.planning.plan,
+			game.planning.canExit,
 			game.deposited,
 			game.activeAvatarID,
 			game.currentPosition,
@@ -361,6 +370,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			$round,
 			$movesLeft,
 			$plan,
+			$canExit,
 			$deposited,
 			$avatarID,
 			$position,
@@ -412,6 +422,7 @@ export function createHud(context: Context): Readable<HudModel> {
 					$epoch.currentEpoch >= Number(a.lastEpoch) + 1,
 			);
 			const plannedCount = $plan.planned.length;
+			const canLeave = $canExit as boolean;
 
 			return {
 				// Never invite a move the player cannot make: while they are still
@@ -453,15 +464,23 @@ export function createHud(context: Context): Readable<HudModel> {
 
 				plannedCount,
 				movesLeft: $movesLeft,
+				canLeave,
 				instruction: needsSetup
 					? ''
-					: inWorld
-						? // Says the arrow keys exist, because nothing else on screen
-							// does: the d-pad shows what can be pressed but not what can be
-							// typed, and a player who never discovers the keyboard plays a
-							// slower game than the one that was built.
-							'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn.'
-						: 'Click anywhere to choose where to appear. Entering is the whole turn, so nothing can follow it.',
+					: !inWorld
+						? 'Click anywhere to choose where to appear. Entering is the whole turn, so nothing can follow it.'
+						: canLeave
+							? // Standing on the way out. Said here because the button that
+								// does it is enabled for the first time at this exact moment,
+								// and nothing else on screen marks the difference.
+								'Your turn ends on the exit tile, so you can leave the world from here. Or keep stepping: a click, the arrow keys, or the pad.'
+							: // Says the arrow keys exist, because nothing else on screen
+								// does: the d-pad shows what can be pressed but not what can be
+								// typed, and a player who never discovers the keyboard plays a
+								// slower game than the one that was built. And says where the
+								// way out is, because leaving is the one action with no cell to
+								// click on and the exit tile is otherwise just scenery.
+								'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn. To leave the world, walk onto the exit tile.',
 
 				roundLabel: round.label,
 				roundTone: round.tone,

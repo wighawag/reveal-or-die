@@ -21,6 +21,10 @@
 
 	const {game} = getAppContext();
 	const controls = game.controls;
+	// The planning store's own answer, not a second reading of the board: the
+	// button that offers leaving and the call that performs it have to agree, and
+	// `exitAt` refuses from anywhere but the exit tile.
+	const canExit = game.planning.canExit;
 </script>
 
 <div class="pointer-events-auto flex flex-col items-center gap-2">
@@ -78,12 +82,19 @@
 	<!--
 		The only affordance for the Exit action, which is why it is spelled out
 		rather than given an icon. It is the whole point of the exit tile being
-		drawn on the map, and until now the goal was visible and unreachable.
+		drawn on the map, and until recently the goal was visible and unreachable.
+
+		DISABLED AWAY FROM THE EXIT, because that is now the contract's rule too:
+		`_exit` reads the cell under the avatar and drops the action anywhere else,
+		which from the player's side would look like a button that did nothing. The
+		HUD's instruction line says where the way out is, so the disabled state is
+		not the only thing they have to go on.
 	-->
 	<Button
 		size="sm"
 		variant="secondary"
 		class="w-full"
+		disabled={!$canExit}
 		aria-label="Leave the world"
 		onclick={() => controls.handle({type: 'secondary'})}
 	>

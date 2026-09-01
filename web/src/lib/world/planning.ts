@@ -15,6 +15,8 @@
 import {derived, type Readable} from 'svelte/store';
 import type {RoundState, RoundStore} from '$lib/game/core/round';
 import {
+	cellTypeAt,
+	CellType,
 	isObstacle,
 	isValidMove,
 	bigIntIDToXY,
@@ -101,21 +103,27 @@ export type PlanningStore = {
 	 */
 	stepBy(delta: Position): boolean;
 	/**
+	 * Whether leaving is possible right now: the affordance's own answer.
+	 *
+	 * Exposed rather than left to each caller, because "can this avatar leave"
+	 * has to be asked in two places - the button that offers it and the function
+	 * that does it - and two copies of a rule is how a button offers something
+	 * the action then refuses.
+	 */
+	canExit: Readable<boolean>;
+	/**
 	 * Leave the world, from wherever the plan ends up.
 	 *
 	 * Ends the turn, like an Enter and for the same reason: `_exit` sets
 	 * `stopProcessing`, so anything planned after it is silently dropped by the
 	 * reveal. Unlike an Enter it may FOLLOW moves, which the contract resolves in
-	 * order before it, so walking to a cell and leaving from it is one turn.
+	 * order before it, so walking to the exit and leaving from it is one turn.
 	 *
-	 * THE CONTRACT DOES NOT CHECK WHERE THE AVATAR IS STANDING. `_exit` ignores
-	 * its action data entirely and `UnableToExitFromThisPosition` is declared in
-	 * `UsingGameErrors.sol` and thrown nowhere, so an avatar may leave from any
-	 * cell, not only from the exit tile that is drawn on the map. This mirrors
-	 * that rather than inventing a stricter rule the chain would not enforce: a
-	 * client that refused an exit the contract permits would be denying a legal
-	 * action, and a player using a different client would simply do it anyway.
-	 * See `docs/plans/web-port.md` for the open decision.
+	 * ONLY FROM THE EXIT TILE, which is now the contract's rule as well as this
+	 * one: `_exit` reads the cell the avatar is standing on and drops the action
+	 * unless it is `CELL_EXIT`. It was neither for a while - the tile was drawn
+	 * and leaving worked anywhere - and this mirrors the chain rather than
+	 * leading it. `contracts/test/js/Game.test.ts` pins both sides.
 	 */
 	exitAt(): boolean;
 	/** Take back the last step. */
@@ -167,6 +175,39 @@ export function createPlanning(params: {
 		return actionsOf(round.value);
 	}
 
+	/**
+	 * Whether an Exit could be planned right now, and the ONE statement of the
+	 * rule: `exitAt` acts on it and `canExit` renders it.
+	 *
+	 * Every clause mirrors the contract. Nothing may follow an Enter or an Exit
+	 * (both set `stopProcessing`); an avatar out of the world has nothing to
+	 * leave, and `_exit` refuses that too because setting `left` for one would
+	 * make `_removeFromZone` evict another player; and leaving happens on the
+	 * EXIT TILE, which `_exit` now reads off the cell the avatar is standing on.
+	 */
+	function exitAllowed(
+		state: RoundState<Action>,
+		planned: readonly Action[],
+		onchain: Position | undefined,
+	): Position | undefined {
+		if (!isPlannable(state)) return undefined;
+		if (planned.some(endsTheTurn)) return undefined;
+		if (onchain === undefined) return undefined;
+		// Where the avatar will be STANDING when the exit resolves, which is the
+		// end of the plan rather than where it is now: the contract runs the moves
+		// ahead of it first and then reads the cell under it.
+		const from = planEnd(planned, onchain);
+		if (!from) return undefined;
+		if (cellTypeAt(from.x, from.y) !== CellType.Exit) return undefined;
+		return from;
+	}
+
+	const canExit = derived(
+		[round, plannedStore, currentPosition],
+		([$round, $planned, $onchain]) =>
+			exitAllowed($round, $planned, $onchain) !== undefined,
+	);
+
 	function enterAt(position: Position): boolean {
 		if (!isPlannable(round.value)) return false;
 
@@ -181,7 +222,10 @@ export function createPlanning(params: {
 		if (isObstacle(position.x, position.y)) return false;
 
 		round.plan([
-			{actionType: ActionType.Enter, data: xyToBigIntID(position.x, position.y)},
+			{
+				actionType: ActionType.Enter,
+				data: xyToBigIntID(position.x, position.y),
+			},
 		]);
 		return true;
 	}
@@ -225,30 +269,16 @@ export function createPlanning(params: {
 	}
 
 	function exitAt(): boolean {
-		if (!isPlannable(round.value)) return false;
-
 		const planned = currentPlan();
-		// Nothing follows an Enter or an Exit, including this.
-		if (planned.some(endsTheTurn)) return false;
-
 		let onchain: Position | undefined;
 		currentPosition.subscribe((v) => (onchain = v))();
-		// NOT IN THE WORLD, so there is nothing to leave - and this one is not
-		// merely pointless, it is destructive. `_exit` sets `left` unconditionally,
-		// and `_resolveActions` then calls `_removeFromZone(startZone, avatarID)`
-		// for an avatar that is not in that zone's list: it pops whoever IS last in
-		// it, so committing this would quietly evict another player from the board.
-		// Recorded in docs/plans/web-port.md; refused here meanwhile.
-		if (onchain === undefined) return false;
 
-		// The position is carried for DISPLAY only. `_exit` ignores its action data
-		// entirely, so this decides nothing on chain; it is what lets the renderer
-		// and the view say where the avatar is leaving from. Taken from the end of
-		// the plan rather than from the chain, because the moves planned ahead of it
-		// resolve first and that is where the avatar will actually be standing.
-		const from = planEnd(planned, onchain);
+		const from = exitAllowed(round.value, planned, onchain);
 		if (!from) return false;
 
+		// The position is carried for DISPLAY only: `_exit` ignores its action data
+		// entirely and reads the cell under the avatar instead. It is what lets the
+		// renderer draw the exit marker on the cell the turn ends at.
 		round.plan([
 			...planned,
 			{actionType: ActionType.Exit, data: xyToBigIntID(from.x, from.y)},
@@ -272,6 +302,7 @@ export function createPlanning(params: {
 		plan,
 		canPlan,
 		movesLeft,
+		canExit,
 		enterAt,
 		stepTo,
 		stepBy,

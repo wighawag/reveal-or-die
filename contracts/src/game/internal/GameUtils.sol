@@ -6,6 +6,15 @@ import "../../utils/PositionUtils.sol";
 import "../data/generated/Areas.sol";
 
 library GameUtils {
+    /// @notice plain ground: walkable, and nothing else
+    uint256 internal constant CELL_FLOOR = 0;
+    /// @notice `#` in the ascii source: cannot be stood on
+    uint256 internal constant CELL_WALL = 1;
+    /// @notice `x` in the ascii source: cannot be stood on
+    uint256 internal constant CELL_BOX = 2;
+    /// @notice `!` in the ascii source: the way out, and walkable
+    uint256 internal constant CELL_EXIT = 3;
+
     function computeArea(
         bytes32 areaHash
     ) internal pure returns (UsingGameTypes.Area memory) {
@@ -23,11 +32,16 @@ library GameUtils {
         area = computeArea(keccak256(abi.encodePacked(areaX, areaY)));
     }
 
-    function obstacleAt(
+    /// @notice The two bits the area packs for one cell.
+    /// @dev The unpacking was written out once per question - obstacle, wall,
+    ///  box - and each new question copied it again. One copy, asked four ways
+    ///  below: the same shape `js/zones.ts` has, where `cellTypeAt` is split out
+    ///  of `isObstacle` so drawing the map and judging a move read one lookup.
+    function cellAt(
         UsingGameTypes.Area memory area,
         int32 x,
         int32 y
-    ) internal pure returns (bool) {
+    ) internal pure returns (uint256) {
         uint8 xx = PositionUtils.zoneLocalCoord(x);
         uint8 yy = PositionUtils.zoneLocalCoord(y);
         uint8 i = yy * uint8(int8(PositionUtils.ZONE_SIZE)) + xx;
@@ -35,13 +49,19 @@ library GameUtils {
             int8((PositionUtils.ZONE_SIZE * PositionUtils.ZONE_SIZE) / 2)
         );
         if (i < MID) {
-            uint256 cellType = ((area.firstBytes32 >> (254 - i * 2)) & 0x3);
-            return cellType == 1 || cellType == 2;
+            return ((area.firstBytes32 >> (254 - i * 2)) & 0x3);
         } else {
-            uint256 cellType = ((area.secondBytes32 >> (254 - (i - MID) * 2)) &
-                0x3);
-            return cellType == 1 || cellType == 2;
+            return ((area.secondBytes32 >> (254 - (i - MID) * 2)) & 0x3);
         }
+    }
+
+    function obstacleAt(
+        UsingGameTypes.Area memory area,
+        int32 x,
+        int32 y
+    ) internal pure returns (bool) {
+        uint256 cellType = cellAt(area, x, y);
+        return cellType == CELL_WALL || cellType == CELL_BOX;
     }
 
     function wallAt(
@@ -49,20 +69,7 @@ library GameUtils {
         int32 x,
         int32 y
     ) internal pure returns (bool) {
-        uint8 xx = PositionUtils.zoneLocalCoord(x);
-        uint8 yy = PositionUtils.zoneLocalCoord(y);
-        uint8 i = yy * uint8(int8(PositionUtils.ZONE_SIZE)) + xx;
-        uint8 MID = uint8(
-            int8((PositionUtils.ZONE_SIZE * PositionUtils.ZONE_SIZE) / 2)
-        );
-        if (i < MID) {
-            uint256 cellType = ((area.firstBytes32 >> (254 - i * 2)) & 0x3);
-            return cellType == 1;
-        } else {
-            uint256 cellType = ((area.secondBytes32 >> (254 - (i - MID) * 2)) &
-                0x3);
-            return cellType == 1;
-        }
+        return cellAt(area, x, y) == CELL_WALL;
     }
 
     function boxAt(
@@ -70,19 +77,18 @@ library GameUtils {
         int32 x,
         int32 y
     ) internal pure returns (bool) {
-        uint8 xx = PositionUtils.zoneLocalCoord(x);
-        uint8 yy = PositionUtils.zoneLocalCoord(y);
-        uint8 i = yy * uint8(int8(PositionUtils.ZONE_SIZE)) + xx;
-        uint8 MID = uint8(
-            int8((PositionUtils.ZONE_SIZE * PositionUtils.ZONE_SIZE) / 2)
-        );
-        if (i < MID) {
-            uint256 cellType = ((area.firstBytes32 >> (254 - i * 2)) & 0x3);
-            return cellType == 2;
-        } else {
-            uint256 cellType = ((area.secondBytes32 >> (254 - (i - MID) * 2)) &
-                0x3);
-            return cellType == 2;
-        }
+        return cellAt(area, x, y) == CELL_BOX;
+    }
+
+    /// @notice Whether this cell is the way out of the world.
+    /// @dev The rule `_exit` enforces. The map has drawn an exit tile since
+    ///  before the contract checked for one, so the tile was decoration and
+    ///  leaving worked from anywhere.
+    function exitAt(
+        UsingGameTypes.Area memory area,
+        int32 x,
+        int32 y
+    ) internal pure returns (bool) {
+        return cellAt(area, x, y) == CELL_EXIT;
     }
 }
