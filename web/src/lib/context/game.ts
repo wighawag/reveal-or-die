@@ -57,6 +57,10 @@ import {
 } from '$lib/world/storage';
 import {createPlanning, type PlanningStore} from '$lib/world/planning';
 import {createControls, type Controls} from '$lib/world/controls';
+import {
+	createRevealOutcome,
+	type RevealOutcome,
+} from '$lib/world/reveal-outcome';
 import {SignerOutOfFundsError} from '$lib/world/errors';
 import {isRegistered, type DelegationValue} from '$lib/onchain/delegation';
 import {
@@ -123,6 +127,16 @@ export type Game = {
 	round: RoundStore<bigint, Action>;
 	/** Clicks into a planned entry or a planned path. */
 	planning: PlanningStore;
+	/**
+	 * What the turn that just resolved DID, while the round is reporting a
+	 * reveal.
+	 *
+	 * Here rather than in the HUD because it REMEMBERS: the round drops the
+	 * actions when it flips to `Revealed`, so whatever answers this has to have
+	 * been watching, and a store built per component would answer differently
+	 * depending on when that component mounted.
+	 */
+	revealOutcome: Readable<RevealOutcome | undefined>;
 	/**
 	 * Keys, a gamepad and the on-screen d-pad, translated into game actions.
 	 *
@@ -540,6 +554,8 @@ export function createGameContext(core: CoreServices): GameContext {
 		player: gameIdentity,
 	});
 
+	const revealOutcome = createRevealOutcome(round);
+
 	const viewState = createViewState({
 		onchainState,
 		localState: planning.plan,
@@ -710,6 +726,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			twoPhase,
 			round,
 			planning,
+			revealOutcome,
 			controls,
 			deposited,
 			purchase,

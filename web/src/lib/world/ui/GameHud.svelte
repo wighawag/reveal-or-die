@@ -58,12 +58,12 @@
 				<span class="text-sm font-semibold">{$hud.phaseLabel}</span>
 				<span class="text-xs text-muted-foreground">round {$hud.epoch}</span>
 			</div>
-			{#if $hud.avatarLabel}
+			{#if $hud.avatarLine}
+				<!-- One finished line from the model: what it says depends on whether
+				     the avatar is in the world at all, which is a decision and belongs
+				     in `hud.ts` rather than in an `{#if}` here. -->
 				<div id="stats" class="mt-1 text-xs text-muted-foreground">
-					Avatar {$hud.avatarLabel} &middot; {$hud.movesLeft} move{$hud.movesLeft ===
-					1
-						? ''
-						: 's'} left
+					{$hud.avatarLine}
 				</div>
 			{/if}
 			{#if $hud.walletSigningNotice}

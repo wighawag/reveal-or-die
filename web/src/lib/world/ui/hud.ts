@@ -22,6 +22,7 @@ import type {DepositedState} from '../deposited';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import {SignerOutOfFundsError} from '../errors';
 import type {SetupAction, SetupNeeded} from '$lib/context/game';
+import type {RevealOutcome} from '../reveal-outcome';
 import {opensAWallet, type PurchaseState} from '../purchase';
 import {purchaseValue} from 'reveal-or-die-contracts';
 import {formatBalance} from '$lib/core/utils/format/balance';
@@ -95,6 +96,15 @@ export type HudModel = {
 
 	/** Which avatar this client is playing, and which others it could play. */
 	avatarLabel?: string;
+	/**
+	 * The avatar line under the phase, finished.
+	 *
+	 * One string rather than parts, because what it says CHANGES with the
+	 * situation rather than only filling in a number: an avatar out of the world
+	 * has no move allowance to report, and a component assembling this from
+	 * pieces would be the one deciding that.
+	 */
+	avatarLine?: string;
 	avatarChoices: readonly AvatarChoice[];
 	/** In the world already, so a click is a step rather than a spawn. */
 	inWorld: boolean;
@@ -156,15 +166,36 @@ export function avatarLabel(avatarID: bigint): string {
 	return `#${(avatarID & 0xffffffffn).toString(16).padStart(8, '0')}`;
 }
 
-export function describeRound(state: RoundState<Action>): {
+export function describeRound(
+	state: RoundState<Action>,
+	/**
+	 * What the round is ABOUT, which the round itself cannot know.
+	 *
+	 * A turn belonging to an avatar that is not in the world is a turn about
+	 * appearing, and the reveal that ends one is not "your avatar has moved".
+	 * Both facts live outside the framework's round, so they arrive here rather
+	 * than being guessed at from the step.
+	 */
+	about: {inWorld: boolean; outcome?: RevealOutcome},
+): {
 	label: string;
 	tone: HudModel['roundTone'];
 } {
 	switch (state.step) {
 		case 'Idle':
-			return {label: 'Nothing planned', tone: 'idle'};
+			return about.inWorld
+				? {label: 'Nothing planned', tone: 'idle'}
+				: // NOT "nothing planned", which is true and useless: what the player
+					// needs to know is that there is nothing of theirs on the board yet,
+					// and the instruction line under this says how to fix it.
+					{label: 'Your avatar is not in the world', tone: 'idle'};
 		case 'Planning':
-			return {label: 'Planned, not yet committed', tone: 'idle'};
+			return {
+				label: about.inWorld
+					? 'Planned, not yet committed'
+					: 'Where to appear, planned but not yet committed',
+				tone: 'idle',
+			};
 		case 'Committing':
 			return {label: 'Sending commitment...', tone: 'busy'};
 		case 'Committed':
@@ -172,7 +203,38 @@ export function describeRound(state: RoundState<Action>): {
 		case 'Revealing':
 			return {label: 'Revealing...', tone: 'busy'};
 		case 'Revealed':
-			return {label: 'Revealed. Your avatar has moved.', tone: 'good'};
+			// WHAT THE TURN ACTUALLY DID. It said "your avatar has moved" after
+			// every reveal, including the empty ones the round commits by itself to
+			// keep an idle avatar alive, so a player standing still was told they
+			// had moved once an epoch forever - and one who left the world was told
+			// the same thing about an avatar that is no longer on the board.
+			//
+			// It describes what was REVEALED rather than what the chain made of it:
+			// a refused move sets `stopProcessing` and reports nothing, so "moved"
+			// is the player's intent, which is the most that can be said honestly.
+			switch (about.outcome) {
+				case 'entered':
+					return {
+						label: 'Revealed. Your avatar is in the world.',
+						tone: 'good',
+					};
+				case 'left':
+					return {
+						label: 'Revealed. Your avatar left the world.',
+						tone: 'good',
+					};
+				case 'stayed':
+					return {
+						label: 'Revealed. Your avatar stayed where it was.',
+						tone: 'good',
+					};
+				case 'moved':
+					return {label: 'Revealed. Your avatar has moved.', tone: 'good'};
+				default:
+					// A reveal nothing here watched happen, which is what a page opened
+					// after the fact sees. Saying only that it landed beats guessing.
+					return {label: 'Revealed. Your turn is on chain.', tone: 'good'};
+			}
 		case 'Missed':
 			return {
 				// NOT "the bond is forfeit", which is what the template says here.
@@ -364,6 +426,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.missedReveal,
 			game.setup,
 			game.purchase,
+			game.revealOutcome,
 		],
 		([
 			$phase,
@@ -378,8 +441,8 @@ export function createHud(context: Context): Readable<HudModel> {
 			$missedReveal,
 			$setup,
 			$purchase,
+			$revealOutcome,
 		]): HudModel => {
-			const round = describeRound($round);
 			const deposited = $deposited as DepositedState;
 			const blocked = blocksCommitting($missedReveal as MissedRevealState);
 
@@ -423,14 +486,26 @@ export function createHud(context: Context): Readable<HudModel> {
 			);
 			const plannedCount = $plan.planned.length;
 			const canLeave = $canExit as boolean;
+			const round = describeRound($round, {
+				inWorld,
+				outcome: $revealOutcome as RevealOutcome | undefined,
+			});
 
 			return {
 				// Never invite a move the player cannot make: while they are still
 				// being set up the clock is just a clock.
+				//
+				// "Make your move" is wrong for an avatar that is not in the world: it
+				// has no move to make, and the only thing it can do this round is
+				// choose where to appear. The clock is the biggest thing on screen and
+				// this is the line under it, so it is where the player is most likely
+				// to be told what turn it is they are taking.
 				phaseLabel: needsSetup
 					? 'Round in progress'
 					: playable
-						? 'Make your move'
+						? inWorld
+							? 'Make your move'
+							: 'Choose where to appear'
 						: 'Resolving the round',
 				phase: $phase.phase,
 				secondsLeft: Math.max(0, Math.ceil(timeLeft)),
@@ -452,6 +527,18 @@ export function createHud(context: Context): Readable<HudModel> {
 
 				avatarLabel:
 					$avatarID === undefined ? undefined : avatarLabel($avatarID),
+				// A MOVE ALLOWANCE MEANS NOTHING OUT OF THE WORLD. "3 moves left" was
+				// shown to an avatar that cannot take a step at all, next to a clock
+				// inviting it to move; entering is the whole turn, and the allowance
+				// only starts mattering once it is standing somewhere.
+				avatarLine:
+					$avatarID === undefined
+						? undefined
+						: inWorld
+							? `Avatar ${avatarLabel($avatarID)} \u00b7 ${$movesLeft} move${
+									$movesLeft === 1 ? '' : 's'
+								} left`
+							: `Avatar ${avatarLabel($avatarID)} \u00b7 not in the world`,
 				avatarChoices: avatars.map((a) => ({
 					avatarID: a.avatarID,
 					label: avatarLabel(a.avatarID),

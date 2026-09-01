@@ -12,6 +12,7 @@ import {SignerOutOfFundsError} from '$lib/world/errors';
 import type {RoundState} from '$lib/game/core/round';
 import type {Action} from '$lib/world/commit-reveal';
 import type {DepositedAvatar} from '$lib/world/deposited';
+import type {RevealOutcome} from '$lib/world/reveal-outcome';
 
 /**
  * What the player is TOLD, which is the only part of a failure they can act on.
@@ -36,10 +37,18 @@ const failed = (during: 'commit' | 'reveal', error: unknown): State => ({
 	error,
 });
 
+/**
+ * The situation the round is ABOUT, which the round state cannot say for itself.
+ * Standing in the world is the ordinary case; the cases where it is not are
+ * their own describe block below.
+ */
+const inTheWorld = {inWorld: true} as const;
+
 describe('what the HUD says about a failed round', () => {
 	it('names the gas problem, not the transaction, when the signer is empty', () => {
 		const commit = describeRound(
 			failed('commit', new SignerOutOfFundsError(new Error('whatever'))),
+			inTheWorld,
 		);
 		expect(commit.label).toBe(
 			'Your moves could not be sent: no gas left to play with.',
@@ -48,6 +57,7 @@ describe('what the HUD says about a failed round', () => {
 
 		const reveal = describeRound(
 			failed('reveal', new SignerOutOfFundsError(new Error('whatever'))),
+			inTheWorld,
 		);
 		expect(reveal.label).toBe(
 			'Your reveal could not be sent: no gas left to play with.',
@@ -61,6 +71,7 @@ describe('what the HUD says about a failed round', () => {
 		// and look at a balance that is fine. The game names whose shortfall it is.
 		const {label} = describeRound(
 			failed('commit', new SignerOutOfFundsError(new Error('whatever'))),
+			inTheWorld,
 		);
 		expect(label).not.toMatch(/this account/i);
 		expect(label).toMatch(/gas/i);
@@ -71,6 +82,7 @@ describe('what the HUD says about a failed round', () => {
 		// what the boundary decided, not what the text happens to say.
 		const {label, tone} = describeRound(
 			failed('commit', new Error('execution reverted: insufficient funds')),
+			inTheWorld,
 		);
 		expect(label).toBe('Commit failed: execution reverted: insufficient funds');
 		expect(label).not.toMatch(/no gas left/);
@@ -78,7 +90,10 @@ describe('what the HUD says about a failed round', () => {
 	});
 
 	it('tells the player to retry a failed reveal before the phase ends', () => {
-		const {label} = describeRound(failed('reveal', new Error('nonce too low')));
+		const {label} = describeRound(
+			failed('reveal', new Error('nonce too low')),
+			inTheWorld,
+		);
 		expect(label).toBe(
 			'Reveal failed: nonce too low. Retry before the phase ends.',
 		);
@@ -95,10 +110,10 @@ describe('what a missed reveal actually costs, in this game', () => {
 	 * which is a thing they can act on.
 	 */
 	it('reports being blocked, not a forfeit', () => {
-		const {label, tone} = describeRound({
-			step: 'Missed',
-			epoch: 7,
-		} as unknown as State);
+		const {label, tone} = describeRound(
+			{step: 'Missed', epoch: 7} as unknown as State,
+			inTheWorld,
+		);
 		expect(label).toMatch(/epoch 7/);
 		expect(label).not.toMatch(/bond|forfeit/i);
 		expect(label).toMatch(/blocked until you acknowledge it/);
@@ -198,6 +213,7 @@ function fakeContext(
 		setup?: {step: 'sign-in' | 'authorise' | 'deposit'};
 		purchase?: {step: string; message?: string; authorisation?: string};
 		canExit?: boolean;
+		revealOutcome?: RevealOutcome;
 	} = {},
 ) {
 	return {
@@ -210,6 +226,7 @@ function fakeContext(
 				plan: writable({planned: []}),
 				canExit: writable(overrides.canExit ?? false),
 			},
+			revealOutcome: writable(overrides.revealOutcome),
 			deposited: writable({
 				step: 'Loaded',
 				avatars: overrides.avatars ?? [avatar()],
@@ -296,6 +313,91 @@ describe('what a click will do', () => {
 		);
 		expect(model.canLeave).toBe(true);
 		expect(model.instruction).toMatch(/leave the world/i);
+	});
+});
+
+describe('an avatar that is not in the world', () => {
+	/**
+	 * Everything on screen was written for an avatar standing somewhere. Out of
+	 * the world it read as a set of small lies: a clock saying "make your move"
+	 * to something that cannot take a step, a move allowance for moves it cannot
+	 * spend, and a round panel reporting "nothing planned" when what is missing
+	 * is the avatar itself.
+	 */
+	it('asks for a spawn rather than a move, on the clock', () => {
+		const out = get(createHud(fakeContext({step: 'Idle'})));
+		expect(out.phaseLabel).toBe('Choose where to appear');
+
+		const inWorld = get(
+			createHud(fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}})),
+		);
+		expect(inWorld.phaseLabel).toBe('Make your move');
+	});
+
+	it('does not offer a move allowance to something that cannot move', () => {
+		const out = get(createHud(fakeContext({step: 'Idle'})));
+		expect(out.avatarLine).toMatch(/not in the world/i);
+		expect(out.avatarLine).not.toMatch(/moves? left/i);
+
+		const inWorld = get(
+			createHud(fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}})),
+		);
+		expect(inWorld.avatarLine).toMatch(/10 moves left/);
+	});
+
+	it('says what is missing in the round panel, rather than "nothing planned"', () => {
+		expect(
+			describeRound({step: 'Idle'} as unknown as State, {inWorld: false}).label,
+		).toMatch(/not in the world/i);
+		expect(
+			describeRound({step: 'Idle'} as unknown as State, inTheWorld).label,
+		).toBe('Nothing planned');
+	});
+
+	it('calls a planned entry what it is', () => {
+		const planning = {
+			step: 'Planning',
+			epoch: 3,
+			actions: [action],
+		} as unknown as State;
+		expect(describeRound(planning, {inWorld: false}).label).toMatch(
+			/where to appear/i,
+		);
+		expect(describeRound(planning, inTheWorld).label).toBe(
+			'Planned, not yet committed',
+		);
+	});
+});
+
+describe('what the reveal actually did', () => {
+	/**
+	 * It said "Revealed. Your avatar has moved." after EVERY reveal. The round
+	 * that commits itself when nothing is planned - which is how an idle avatar
+	 * stays alive - therefore told a player standing still that they had moved,
+	 * once an epoch, forever. So did the turn that left the world, about an
+	 * avatar that is no longer on the board.
+	 */
+	const revealed = {step: 'Revealed', epoch: 3} as unknown as State;
+
+	it('names each outcome, and claims movement only for a turn that moved', () => {
+		const label = (outcome: RevealOutcome) =>
+			describeRound(revealed, {inWorld: true, outcome}).label;
+		expect(label('moved')).toMatch(/has moved/);
+		expect(label('stayed')).toMatch(/stayed where it was/);
+		expect(label('stayed')).not.toMatch(/has moved/);
+		expect(label('entered')).toMatch(/is in the world/);
+		expect(label('left')).toMatch(/left the world/);
+		expect(label('left')).not.toMatch(/has moved/);
+	});
+
+	it('says only that the turn landed when it did not watch it happen', () => {
+		// A page opened after the reveal cannot know what was in it: the round
+		// drops the actions when it flips to `Revealed`. Guessing "moved" is how
+		// this went wrong in the first place.
+		const {label, tone} = describeRound(revealed, {inWorld: true});
+		expect(label).toMatch(/on chain/i);
+		expect(label).not.toMatch(/has moved/);
+		expect(tone).toBe('good');
 	});
 });
 
