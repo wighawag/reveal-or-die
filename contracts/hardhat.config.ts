@@ -86,8 +86,25 @@ const config: HardhatUserConfig = {
 							},
 							// this prevent EDR from not mining tx that fails
 							throwOnTransactionFailures: false,
+							// ONE SECOND, and it is the app's clock that needs it.
+							//
+							// Epochs are defined against `block.timestamp`, and the web
+							// client's clock interpolates from the wall clock between
+							// blocks (`game/core/chain-time.ts`), so the client crosses a
+							// round boundary as soon as real time says so while the chain
+							// only crosses when a block carries a later timestamp. Every
+							// second of the mining interval is a second of that gap, and
+							// the gap is what produces both of the faults the refresh
+							// policy in `onchain/state.ts` exists to absorb: a board stuck
+							// showing the previous round at every boundary, and a reveal
+							// landing in the gap appearing seconds into the next window.
+							//
+							// A deployed chain has its own block time and this is not a
+							// substitute for handling that - the client must cope either
+							// way, which is what the refresh policy is for. This is the
+							// dev node being made to behave more like a real one.
 							mining: {
-								interval: 3000,
+								interval: 1000,
 							},
 						},
 						// instant-mining network used by `pnpm test`
