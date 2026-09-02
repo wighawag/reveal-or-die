@@ -7,12 +7,15 @@
 	`twoPhase`, `localState` and `deployments` itself, and now it takes a finished
 	model as props. Everything it used to decide lives in `./hud.ts`.
 
-	TWO OVERALL STATES, as it always was: green while the round is yours to
-	change, red once it is resolving - where "resolving" is the commit lock, the
-	reveal and the catch-up at the boundary, all of them "not yours right now"
-	to exactly the same degree. WHICH one it is shows in the label beside the
-	dial and in its countdown, not in a third colour: a player acts on "can I
-	move?", and only a debugger wants the finer split.
+	TWO OVERALL STATES, as it always was - green while the round is yours to
+	change, red once it is resolving - plus ONE transient colour: the catch-up
+	flashes blue for the moment between the round changing and the fetch for it
+	landing. That one earns a colour of its own because it is the only part
+	that is neither play nor wait but a REFRESH, and because it is short
+	enough that a flash reads truer than a colour that lingers. WHICH of the
+	red parts it is shows in the label beside the dial and in its countdown,
+	not in a third shade of red: a player acts on "can I move?", and only a
+	debugger wants the finer split.
 
 	Purely presentational, so it can sit anywhere: the HUD renders it, and the
 	tutorial points at `#game-clock`.
@@ -48,17 +51,21 @@
 	const center = $derived(size / 2);
 	const radius = $derived(size * 0.4);
 
-	// Green while the window is open, red for everything after it - the lock,
-	// the reveal and the catch-up alike.
+	// Green while the window is open, red for the lock and the reveal, blue for
+	// the refresh at the boundary.
 	const colour = $derived(
 		phase === 'play'
 			? 'oklch(57.7% 0.245 27.325)'
-			: 'oklch(85.2% 0.199 91.936)',
+			: phase === 'catching-up'
+				? 'oklch(62% 0.15 250)'
+				: 'oklch(85.2% 0.199 91.936)',
 	);
 	const background = $derived(
 		phase === 'play'
 			? 'oklch(79.2% 0.209 151.711)'
-			: 'oklch(57.7% 0.245 27.325)',
+			: phase === 'catching-up'
+				? 'oklch(40% 0.12 250)'
+				: 'oklch(57.7% 0.245 27.325)',
 	);
 
 	function piePath(fraction: number): string {

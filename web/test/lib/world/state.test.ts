@@ -326,14 +326,12 @@ describe('reading what the chain resolved, not just where things stand', () => {
 		}
 	});
 
-	it('accepts a read from BEHIND the clock, and says which epoch it got', async () => {
+	it('accepts a read from BEHIND the clock, whatever epoch the chain reports', async () => {
 		// THE FALSE OUTAGE, FIXED. The client's clock crosses the epoch boundary
 		// ahead of the chain, and refusing the read for that turned a two-clock
 		// disagreement of seconds into a failed one: catchup budget expiring into
 		// backoff, an UNHEALTHY line, the RPC banner over a board that was merely
-		// a moment behind. The read is accepted and STAMPED with the chain's own
-		// epoch, which is what lets `boardBehindClock` call it "catching-up"
-		// instead of the banner calling it an outage.
+		// a moment behind.
 		const {client} = fakeClient({avatars: [someAvatar], epoch: 6n});
 		const read = createWorldReader({
 			publicClient: client as never,
@@ -346,10 +344,19 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			expectedEpoch: 7,
 		});
 		expect(state?.avatars.get(5n)).toBeTruthy();
-		expect(state?.epoch).toEqual(6);
+		// STAMPED WITH THE EPOCH THE FETCH WAS FOR, not the chain's answer: the
+		// chain's counter only advances when a block is mined, and nothing the
+		// board reads can change before one is (a reveal mined after the boundary
+		// is refused with InCommitmentPhase, and commits move no avatar) - so a
+		// fetch that lands after the clock ticks already holds the new round's
+		// data, and the request is the honest answer to "is the board caught up".
+		// Stamping the chain's epoch made the catch-up last until the next
+		// TRANSACTION, some twenty seconds on a quiet node, while the data sat
+		// there the whole time.
+		expect(state?.epoch).toEqual(7);
 	});
 
-	it('accepts a read from AHEAD of the clock, and says which epoch it got', async () => {
+	it('accepts a read from AHEAD of the clock, whatever epoch the chain reports', async () => {
 		// The other direction of the same disagreement, and the other half of why
 		// an exact match was wrong: a chain a block ahead of the client's clock is
 		// fresher data, not a failed read.
@@ -364,7 +371,7 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			toBlock: 10,
 			expectedEpoch: 7,
 		});
-		expect(state?.epoch).toEqual(8);
+		expect(state?.epoch).toEqual(7);
 	});
 
 	it('refuses to stitch pages whose epochs disagree', async () => {

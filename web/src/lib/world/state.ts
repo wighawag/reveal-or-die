@@ -337,13 +337,13 @@ export function createWorldReader(params: {
 		]);
 
 		const byID = new Map<bigint, Avatar>();
-		let readEpoch: number | undefined;
+		let chainEpoch: number | undefined;
 		for (const batch of batches) {
 			if (batch === undefined) return undefined;
 			// Every batch reads the same pinned block, so they agree; a
 			// disagreement is the same reorg case the pages guard against.
-			if (readEpoch === undefined) readEpoch = batch.epoch;
-			else if (batch.epoch !== readEpoch) return undefined;
+			if (chainEpoch === undefined) chainEpoch = batch.epoch;
+			else if (batch.epoch !== chainEpoch) return undefined;
 			for (const a of batch.avatars) {
 				byID.set(a.avatarID, {
 					avatarID: a.avatarID,
@@ -357,22 +357,33 @@ export function createWorldReader(params: {
 			}
 		}
 
-		// STAMPED WITH THE EPOCH THE CHAIN REPORTED, not the one the clock asked
-		// about. This is the fix for the false outage: the client's clock
+		// STAMPED WITH THE EPOCH THE FETCH WAS FOR, not the one the chain's
+		// latest block reports, and both halves of that are deliberate.
+		//
+		// THE READ IS ACCEPTED whatever the chain's epoch is: the client's clock
 		// interpolates from the wall clock between blocks and crosses the epoch
 		// boundary BEFORE the chain has mined a block past it, and refusing the
 		// read for that turned a two-clock disagreement of seconds into a FAILED
-		// one - the poller's catchup budget expiring into exponential backoff,
-		// an UNHEALTHY line in the trace, and the RPC banner over a board that
-		// was never anything but a moment behind. bomber-world's fetcher never
-		// had this because it only refuses when the chain is OLDER than expected,
-		// and even that as an error rather than a retry.
+		// one - the poller's catchup budget expiring into backoff, an UNHEALTHY
+		// line, the RPC banner over a board that was never anything but a moment
+		// behind. bomber-world's fetcher only refuses one direction and even
+		// that as an error; `expectedEpoch` keeps the job it is fit for (the
+		// SCOPE the framework refetches on) without being allowed to fail a
+		// read over it.
 		//
-		// Accepting the read leaves the display to say what is true: the board
-		// holds a real state from a real block, `boardBehindClock` calls it
-		// `catching-up`, and the settle keeps fetching until the chain crosses.
-		// `expectedEpoch` stays what it is for - the SCOPE the framework
-		// refetches on - without being allowed to fail a read over it.
-		return {avatars: byID, epoch: readEpoch ?? expectedEpoch};
+		// THE STAMP IS THE REQUEST because that is what "caught up" means for
+		// the board. Stamping the CHAIN's epoch instead made the catch-up last
+		// until a block past the boundary was mined - on a node that mines only
+		// on transactions, that is the next commit, some twenty seconds in - and
+		// it was a wait for a COUNTER while the DATA had already arrived: a
+		// reveal mined after the boundary is refused with `InCommitmentPhase`
+		// (the epoch it lands in is the new one, and it is a commit phase), and
+		// commits move no avatar, so nothing the board reads can change between
+		// the clock crossing and the chain crossing. Anything that does change
+		// on-chain state is a transaction, which mines the block itself. So a
+		// fetch that lands after the clock ticks already holds the new round's
+		// data in full, and the epoch it was FOR is the honest answer to "is the
+		// board caught up".
+		return {avatars: byID, epoch: expectedEpoch};
 	};
 }

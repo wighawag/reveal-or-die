@@ -665,10 +665,20 @@ export function createGameContext(core: CoreServices): GameContext {
 	/**
 	 * Whether the board is behind the clock, which is the fourth phase.
 	 *
-	 * THE BOARD'S OWN EPOCH IS THE SIGNAL, not the settle's timer: a settle can
-	 * still be running once a poll has caught the board up, and the board can
-	 * be briefly behind without any settle having been triggered. What the
-	 * player experiences is the gap, so the gap is what this reads.
+	 * THE STATE'S EPOCH IS THE FETCH'S REQUEST, so this reads "no fetch has
+	 * landed since the round changed" - which ends within one fetch, because
+	 * nothing the board reads can change between the clock crossing the
+	 * boundary and the chain mining past it (a reveal mined after the boundary
+	 * is refused with `InCommitmentPhase`, and commits move no avatar). The
+	 * first version of this compared against the CHAIN's epoch instead, which
+	 * made the catch-up last until the next block was mined - on a node that
+	 * mines only on transactions, the next commit, some twenty seconds in - all
+	 * of it a wait for a counter while the data had already arrived.
+	 *
+	 * NOT THE SETTLE'S TIMER, for the same reason as before: a settle can still
+	 * be running once a fetch has landed, and the board can be unfetched without
+	 * any settle having been triggered. What the player experiences is the gap,
+	 * so the gap is what this reads.
 	 *
 	 * NOT LOADED IS NOT BEHIND. An unloaded board is the setup gate's business
 	 * (no wallet, no fetch), not a catch-up.
