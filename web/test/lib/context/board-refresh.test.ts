@@ -1,7 +1,9 @@
 import {describe, expect, it, vi, afterEach} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {
+	canTakeTurnNow,
 	refreshDuringReveal,
+	roundPhaseOf,
 	settleBoardWhenRoundStarts,
 } from '$lib/context/game';
 
@@ -97,7 +99,6 @@ describe('settleBoardWhenRoundStarts', () => {
 		phase.set({phase: 'wait'});
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(refresh).not.toHaveBeenCalled();
-		expect(get(settle.settling)).toBe(false);
 	});
 
 	it('fetches until the board has caught up with the clock, then stops', async () => {
@@ -121,22 +122,18 @@ describe('settleBoardWhenRoundStarts', () => {
 		});
 		settle.watch();
 		clock.set(8);
-		const seen: boolean[] = [];
-		const unsub = settle.settling.subscribe((v) => seen.push(v));
 
 		phase.set({phase: 'wait'});
 		phase.set({phase: 'play'});
-		expect(get(settle.settling)).toBe(true);
 
 		await vi.advanceTimersByTimeAsync(400);
 		await vi.advanceTimersByTimeAsync(400);
 		await vi.advanceTimersByTimeAsync(400);
 		expect(refresh).toHaveBeenCalledTimes(3);
-		expect(get(settle.settling)).toBe(false);
-		// Settling was announced for exactly the duration of the catch-up.
-		expect(seen).toContain(true);
-		expect(seen.at(-1)).toBe(false);
-		unsub();
+		// And it stops once the board has caught up, rather than fetching for
+		// the rest of the window: one more tick and nothing happened.
+		await vi.advanceTimersByTimeAsync(400 * 2);
+		expect(refresh).toHaveBeenCalledTimes(3);
 	});
 
 	it('does not restart on every clock tick of the same round', async () => {
@@ -184,7 +181,6 @@ describe('settleBoardWhenRoundStarts', () => {
 		phase.set({phase: 'play'});
 
 		await vi.advanceTimersByTimeAsync(2000);
-		expect(get(settle.settling)).toBe(false);
 		// It kept trying for the budget and not beyond it.
 		expect(refresh).toHaveBeenCalledTimes(3);
 	});
@@ -208,7 +204,6 @@ describe('settleBoardWhenRoundStarts', () => {
 		phase.set({phase: 'play'});
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(refresh).toHaveBeenCalledTimes(1);
-		expect(get(settle.settling)).toBe(false);
 	});
 
 	it('lets go of its subscription when torn down', async () => {
@@ -226,5 +221,52 @@ describe('settleBoardWhenRoundStarts', () => {
 		phase.set({phase: 'play'});
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(refresh).not.toHaveBeenCalled();
+	});
+});
+
+describe('roundPhaseOf', () => {
+	/**
+	 * The four-part model the clock and the move gate read. The one decision in
+	 * it worth pinning is the PRIORITY: the old two-phase model had no word for
+	 * the catch-up at all, and the new one puts it above whatever the clock says
+	 * the phase is, because a board that is behind is the more actionable truth.
+	 */
+	const three = (phase: 'play' | 'commit' | 'reveal') => ({phase});
+
+	it('splits the old "wait" into the commit lock and the reveal', () => {
+		expect(roundPhaseOf(three('play'), false)).toBe('play');
+		expect(roundPhaseOf(three('commit'), false)).toBe('commit');
+		expect(roundPhaseOf(three('reveal'), false)).toBe('reveal');
+	});
+
+	it('puts the catch-up above whatever the clock says', () => {
+		for (const phase of ['play', 'commit', 'reveal'] as const) {
+			expect(roundPhaseOf(three(phase), true)).toBe('catching-up');
+		}
+	});
+});
+
+describe('canTakeTurnNow', () => {
+	/**
+	 * The move gate. Setup alone used to decide it; the play window was added
+	 * because everything a plan is built from is stale outside it - during the
+	 * reveal the avatar's next position is exactly what is being decided, and
+	 * during the catch-up the board has not caught up with the round that just
+	 * resolved.
+	 */
+	const set = {step: 'deposit'} as const;
+
+	it('lets a set-up player move, in the window', () => {
+		expect(canTakeTurnNow(undefined, 'play')).toBe(true);
+	});
+
+	it('blocks the other three parts of the round, however ready the player is', () => {
+		for (const phase of ['commit', 'reveal', 'catching-up'] as const) {
+			expect(canTakeTurnNow(undefined, phase)).toBe(false);
+		}
+	});
+
+	it('still blocks an unready player inside the window', () => {
+		expect(canTakeTurnNow(set, 'play')).toBe(false);
 	});
 });

@@ -11,7 +11,7 @@
  * Constructed synchronously and off-browser, like the core half: nothing here
  * starts IO, which belongs to `start()`. See ADR-0002.
  */
-import {derived, get, writable, type Readable} from 'svelte/store';
+import {derived, get, type Readable} from 'svelte/store';
 import type {CoreServices} from './core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
@@ -138,16 +138,6 @@ export type Game = {
 	 */
 	revealOutcome: Readable<RevealOutcome | undefined>;
 	/**
-	 * True while the board is catching up with the round that just started.
-	 *
-	 * A round boundary is the one moment the board is ALLOWED to be briefly
-	 * behind: the client's clock crosses over ahead of the chain, and the settle
-	 * that follows is a fetch retried until it lands. Showing that it is
-	 * happening is the difference between "the board knows something I do not"
-	 * and a move that failed to register.
-	 */
-	settling: Readable<boolean>;
-	/**
 	 * Keys, a gamepad and the on-screen d-pad, translated into game actions.
 	 *
 	 * Here rather than in `Render` because input is not a rendering concern and
@@ -190,8 +180,17 @@ export type Game = {
 	 */
 	currentPosition: Readable<Position | undefined>;
 	/**
-	 * Whether the player can actually take a turn: they have an identity to play
-	 * as, permission for this browser to act as it, and an avatar to move.
+	 * Which part of the round this is: play, the commit lock, the reveal, or the
+	 * catch-up while the board fetches what the new round assumes.
+	 *
+	 * The clock and the move gate both read this, and the HUD words itself from
+	 * it. See {@link RoundPhase} for why the old two-phase model was not enough.
+	 */
+	phase: Readable<RoundPhase>;
+	/**
+	 * Whether the player can actually take a turn right now: an identity to play
+	 * as, permission for this browser to act as it, an avatar to move, and the
+	 * round being in the window where moves mean anything.
 	 *
 	 * Clicks do nothing while this is false. Letting someone plan a whole turn
 	 * they cannot commit is worse than not letting them start: the moves look
@@ -219,6 +218,60 @@ export type SetupNeeded =
 
 /** What a setup step can be acted on with, where anything can be. */
 export type SetupAction = 'authorise' | 'buy';
+
+/**
+ * The four parts of a round, as the player experiences them.
+ *
+ * An epoch is: a window to plan and commit in, a lock while those commits land,
+ * the reveal in which every planned move resolves, and - at the boundary - a
+ * moment while the board fetches the state the new round assumes. The old
+ * two-phase model folded the middle two into one "wait", which is fine to
+ * play on and useless to debug against, and had no slot at all for the fourth.
+ *
+ * `catching-up` is not a duration anyone can predict: it lasts until the
+ * board's own epoch catches up with the clock's, which is however long the
+ * chain takes to mine past the boundary (see `settleBoardWhenRoundStarts` for
+ * why the clock is ahead of the chain there). It can also appear briefly at
+ * any moment a poll is behind, which is the truth and not a glitch.
+ */
+export type RoundPhase = 'play' | 'commit' | 'reveal' | 'catching-up';
+
+/**
+ * Whether a turn can be taken right now.
+ *
+ * Its own function, like `setupNeeded` beside it, because it is a GATE and the
+ * two ways to get a gate wrong are opposites: too strict and a ready player
+ * watches the board refuse them for a fifth of every round; too loose and a
+ * plan gets built from a position that is about to be invalidated. Neither is
+ * visible by reading the wiring.
+ */
+export function canTakeTurnNow(
+	setup: SetupNeeded | undefined,
+	phase: RoundPhase,
+): boolean {
+	return setup === undefined && phase === 'play';
+}
+
+/**
+ * Which part of the round this is, from the three-phase tracker and whether
+ * the board is behind the clock.
+ *
+ * CATCHING-UP WINS over the phase the clock says, deliberately: if the board
+ * is behind, that is the more actionable truth, whether the clock thinks it is
+ * the lock, the reveal or the new window.
+ *
+ * Pure, and exported for the tests, because the HUD and the move gate both
+ * read it and neither should re-derive it.
+ */
+export function roundPhaseOf(
+	three: {phase: 'play' | 'commit' | 'reveal'},
+	boardBehindClock: boolean,
+): RoundPhase {
+	if (boardBehindClock) return 'catching-up';
+	if (three.phase === 'reveal') return 'reveal';
+	if (three.phase === 'commit') return 'commit';
+	return 'play';
+}
 
 export type Render = {
 	camera: CameraWatcher;
@@ -429,12 +482,14 @@ export function refreshDuringReveal(params: {
  * own epoch catches up with the clock's, then stops.
  *
  * ONE ATTEMPT PER EPOCH. If the chain is so far behind that the budget expires,
- * the settle gives up and the background poller keeps trying - the indicator
- * goes away rather than promising a catch-up that is not happening.
+ * the settle gives up and the background poller keeps trying. Nothing promises
+ * a catch-up that is not happening: the four-phase model reads the GAP ITSELF
+ * (`boardBehindClock` below) rather than this loop's activity, so the phase
+ * stays honest whether the settle is running, finished or gave up.
  *
  * `watch()` rather than a subscription at construction, because subscribing to
  * the phase here would start the chain clock at construction time and ADR-0002
- * forbids IO before `start()`. The `settling` store is inert until then.
+ * forbids IO before `start()`.
  */
 export function settleBoardWhenRoundStarts(params: {
 	phase: Readable<{phase: 'play' | 'wait'}>;
@@ -448,8 +503,6 @@ export function settleBoardWhenRoundStarts(params: {
 	/** How long to keep trying before leaving it to the poller. Default 10s. */
 	budgetMs?: number;
 }): {
-	/** True while the board is catching up with the round that just started. */
-	settling: Readable<boolean>;
 	/** Open the phase subscription. Call from `start()`; returns the teardown. */
 	watch(): () => void;
 } {
@@ -457,12 +510,10 @@ export function settleBoardWhenRoundStarts(params: {
 	const retryMs = params.retryMs ?? 400;
 	const budgetMs = params.budgetMs ?? 10_000;
 
-	const settling = writable(false);
 	let running = false;
 
 	async function settle() {
 		running = true;
-		settling.set(true);
 		try {
 			const deadline = Date.now() + budgetMs;
 			for (;;) {
@@ -481,7 +532,6 @@ export function settleBoardWhenRoundStarts(params: {
 			}
 		} finally {
 			running = false;
-			settling.set(false);
 		}
 	}
 
@@ -505,7 +555,7 @@ export function settleBoardWhenRoundStarts(params: {
 		};
 	}
 
-	return {settling, watch};
+	return {watch};
 }
 
 /**
@@ -588,14 +638,14 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	/**
-	 * The settle that runs when a round begins, and the store saying whether it
-	 * is running. Constructed here - which is inert, since `watch()` is what
-	 * opens the subscription, and opening it here would start the chain clock
-	 * at construction time against ADR-0002 - and `start()` is what watches.
+	 * The settle that runs when a round begins. Constructed here - which is
+	 * inert, since `watch()` is what opens the subscription, and opening it
+	 * here would start the chain clock at construction time against ADR-0002 -
+	 * and `start()` is what watches.
 	 *
-	 * On the Game rather than in `Render` because the HUD reads it: a board
-	 * catching up with the round that just started is something the player
-	 * should be TOLD, not left to infer from a move that has not appeared yet.
+	 * What the player SEES is not this loop but the four-phase model: the
+	 * catch-up is a phase on the clock, read off the gap itself, so it stays
+	 * honest whether this settle is running, finished or gave up.
 	 */
 	const settle = settleBoardWhenRoundStarts({
 		phase: twoPhase,
@@ -610,6 +660,30 @@ export function createGameContext(core: CoreServices): GameContext {
 		>,
 		refresh: () => onchainState.update(),
 	});
+
+	/**
+	 * Whether the board is behind the clock, which is the fourth phase.
+	 *
+	 * THE BOARD'S OWN EPOCH IS THE SIGNAL, not the settle's timer: a settle can
+	 * still be running once a poll has caught the board up, and the board can
+	 * be briefly behind without any settle having been triggered. What the
+	 * player experiences is the gap, so the gap is what this reads.
+	 *
+	 * NOT LOADED IS NOT BEHIND. An unloaded board is the setup gate's business
+	 * (no wallet, no fetch), not a catch-up.
+	 */
+	const boardBehindClock = derived(
+		[currentEpoch, onchainState],
+		([$epoch, $state]) =>
+			($state as {step?: string; epoch?: number}).step === 'Loaded' &&
+			($state as {epoch?: number}).epoch !== undefined &&
+			($state as {epoch?: number}).epoch! < $epoch,
+	);
+
+	/** The four-phase model the HUD and the move gate read. See {@link RoundPhase}. */
+	const phase = derived([threePhase, boardBehindClock], ([$three, $behind]) =>
+		roundPhaseOf($three, $behind),
+	);
 
 	const deposited = createDeposited({deps: core, owner: gameIdentity});
 
@@ -809,7 +883,27 @@ export function createGameContext(core: CoreServices): GameContext {
 			}),
 	);
 
-	const readyToPlay = derived(setup, ($setup) => $setup === undefined);
+	/**
+	 * Whether the player can actually take a turn right now.
+	 *
+	 * Three things used to stand between a player and their first move - an
+	 * identity, permission for this browser, an avatar the contract is holding -
+	 * and a fourth is added here: THE PLAY WINDOW. Nothing can be planned
+	 * outside it, because everything the plan would be built from is stale
+	 * there. During the reveal the avatar's next position is exactly the thing
+	 * being decided; during the catch-up the board has not caught up with the
+	 * round that just resolved. Planning from either is planning from a guess,
+	 * and a plan the contract then refuses costs the turn to `stopProcessing`
+	 * silently.
+	 *
+	 * Letting someone plan a turn they cannot commit is worse than not letting
+	 * them start, and this is the same principle one epoch in: the moves look
+	 * accepted, and the failure only arrives when it is too late to matter.
+	 */
+	const readyToPlay = derived(
+		[setup, phase],
+		([$setup, $phase]) => canTakeTurnNow($setup, $phase),
+	);
 
 	/**
 	 * Built here, but NOT listening here.
@@ -952,12 +1046,12 @@ export function createGameContext(core: CoreServices): GameContext {
 			round,
 			planning,
 			revealOutcome,
-			settling: settle.settling,
 			controls,
 			deposited,
 			purchase,
 			missedReveal,
 			currentPosition,
+			phase,
 			readyToPlay,
 			setup,
 		},

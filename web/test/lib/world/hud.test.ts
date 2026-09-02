@@ -13,6 +13,7 @@ import type {RoundState} from '$lib/game/core/round';
 import type {Action} from '$lib/world/commit-reveal';
 import type {DepositedAvatar} from '$lib/world/deposited';
 import type {RevealOutcome} from '$lib/world/reveal-outcome';
+import type {RoundPhase} from '$lib/context/game';
 
 /**
  * What the player is TOLD, which is the only part of a failure they can act on.
@@ -214,13 +215,14 @@ function fakeContext(
 		purchase?: {step: string; message?: string; authorisation?: string};
 		canExit?: boolean;
 		revealOutcome?: RevealOutcome;
-		settling?: boolean;
+		phase?: RoundPhase;
 	} = {},
 ) {
 	return {
 		hasLocalSigner: overrides.hasLocalSigner ?? true,
 		game: {
-			twoPhase: writable({phase: 'play', timeLeft: 10, duration: 20}),
+			threePhase: writable({phase: 'play', timeLeft: 10, duration: 20}),
+			phase: writable(overrides.phase ?? 'play'),
 			round: writable(round),
 			planning: {
 				movesLeft: writable(10),
@@ -228,7 +230,6 @@ function fakeContext(
 				canExit: writable(overrides.canExit ?? false),
 			},
 			revealOutcome: writable(overrides.revealOutcome),
-			settling: writable(overrides.settling ?? false),
 			deposited: writable({
 				step: 'Loaded',
 				avatars: overrides.avatars ?? [avatar()],
@@ -371,21 +372,79 @@ describe('an avatar that is not in the world', () => {
 	});
 });
 
-describe('the board catching up with a new round', () => {
-	it('is reported, rather than left as a move that did not register', () => {
-		// The clock crosses into the new round ahead of the chain, so for a moment
-		// the board legitimately shows last round's positions. That moment is the
-		// one thing worth naming, or the honest reading of "nothing happened" is
-		// that something was lost.
-		const model = get(
+describe('the four parts of a round, on the clock', () => {
+	/**
+	 * The old model folded the commit lock and the reveal into one "wait" and
+	 * had no word at all for the catch-up. Each part now has its own label,
+	 * its own instruction, and its own idea of whether a countdown exists.
+	 */
+	it('names each part, so a debugging player can tell which one they are in', () => {
+		const label = (phase: RoundPhase) =>
+			get(
+				createHud(
+					fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}, phase}),
+				),
+			).phaseLabel;
+
+		expect(label('play')).toBe('Make your move');
+		expect(label('commit')).toBe('Committing this round');
+		expect(label('reveal')).toBe('Revealing moves');
+		expect(label('catching-up')).toBe('Catching up on last round');
+	});
+
+	it('says moves are closed outside the play window, rather than letting clicks look broken', () => {
+		const instruction = (phase: RoundPhase) =>
+			get(
+				createHud(
+					fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}, phase}),
+				),
+			).instruction;
+
+		expect(instruction('play')).toMatch(/step onto it/);
+		for (const phase of ['commit', 'reveal', 'catching-up'] as const) {
+			expect(instruction(phase)).toMatch(/nothing can be planned/i);
+		}
+	});
+
+	it('offers no countdown for the one part nobody can predict', () => {
+		// The catch-up lasts until the board's own epoch catches up with the
+		// clock's, which is however long the chain takes. A dial that said
+		// otherwise would be a lie with a number on it.
+		const catchingUp = get(
 			createHud(
 				fakeContext(
 					{step: 'Idle'},
-					{currentPosition: {x: 1, y: 1}, settling: true},
+					{currentPosition: {x: 1, y: 1}, phase: 'catching-up'},
 				),
 			),
 		);
-		expect(model.settling).toBe(true);
+		expect(catchingUp.secondsLeft).toBeUndefined();
+
+		const playing = get(
+			createHud(fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}})),
+		);
+		expect(playing.secondsLeft).toBe(10);
+	});
+
+	it('does not invite a move the player cannot make, during setup in the play window', () => {
+		// The setup override applies to the window that matters: while they are
+		// still being set up, the play window is "a clock is running" rather than
+		// an invitation. The other three parts are named as themselves either way.
+		const model = get(
+			createHud(
+				fakeContext({step: 'Idle'}, {setup: {step: 'deposit'}, phase: 'play'}),
+			),
+		);
+		expect(model.phaseLabel).toBe('Round in progress');
+		const resolving = get(
+			createHud(
+				fakeContext(
+					{step: 'Idle'},
+					{setup: {step: 'deposit'}, phase: 'reveal'},
+				),
+			),
+		);
+		expect(resolving.phaseLabel).toBe('Revealing moves');
 	});
 });
 

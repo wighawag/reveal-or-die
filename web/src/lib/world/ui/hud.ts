@@ -21,7 +21,7 @@ import type {Action} from '../commit-reveal';
 import type {DepositedState} from '../deposited';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import {SignerOutOfFundsError} from '../errors';
-import type {SetupAction, SetupNeeded} from '$lib/context/game';
+import type {RoundPhase, SetupAction, SetupNeeded} from '$lib/context/game';
 import type {RevealOutcome} from '../reveal-outcome';
 import {opensAWallet, type PurchaseState} from '../purchase';
 import {purchaseValue} from 'reveal-or-die-contracts';
@@ -40,36 +40,24 @@ export type AvatarChoice = {
 export type HudModel = {
 	phaseLabel: string;
 	/**
-	 * Two phases, not three.
+	 * The four parts of a round, not two.
 	 *
-	 * The contract has a commit phase and a reveal phase, and the client adds a
-	 * third slice at the end of the commit phase where moves are locked so the
-	 * commitment has time to land. Three states is one more than the player has
-	 * a decision about: what they need to know is whether this round is still
-	 * theirs to change.
+	 * The old model folded the commit lock and the reveal into one "wait",
+	 * which was fine to play on and useless to debug against, and had no word
+	 * at all for the catch-up at the boundary. See `RoundPhase` in
+	 * `$lib/context/game` for the reasoning.
 	 */
-	phase: 'play' | 'wait';
-	/** Seconds left in the phase, already rounded for display. */
-	secondsLeft: number;
-	/** How far through the phase, 0..1, for a progress dial. */
+	phase: RoundPhase;
+	/**
+	 * Seconds left in this part of the round, or undefined when nobody can know.
+	 *
+	 * Only the catch-up has no countdown: it lasts until the board's own epoch
+	 * catches up with the clock's, which is however long the chain takes.
+	 */
+	secondsLeft?: number;
+	/** How far through this part, 0..1, for a progress dial. */
 	progress: number;
 	epoch: number;
-	/**
-	 * Clicking now plans for the NEXT round, because this one has closed. Worth
-	 * saying: the moves still appear on the board, and without this the player
-	 * would reasonably think they were part of the round being resolved.
-	 */
-	planningForNextRound: boolean;
-	/**
-	 * The board is fetching the state the round that just started assumes.
-	 *
-	 * A round boundary is the one moment the board is allowed to be briefly
-	 * behind - the client's clock crosses over ahead of the chain - and the
-	 * settle is a fetch retried until it lands. Saying so is the difference
-	 * between "the board knows something I do not" and a move that failed to
-	 * register.
-	 */
-	settling: boolean;
 	/**
 	 * Set when this build has NO LOCAL SIGNER, so every move has to be signed in
 	 * the wallet. Said once, up front, rather than discovered one prompt at a
@@ -421,12 +409,41 @@ export function describeSetup(
 	}
 }
 
+/** What to tell the player while the play window is closed. */
+export function instructionOutsidePlay(phase: RoundPhase): string {
+	switch (phase) {
+		case 'commit':
+			return 'This round is closed and its moves are being committed. Nothing can be planned until the next window opens.';
+		case 'reveal':
+			return 'Moves are being revealed. Nothing can be planned until the next window opens - where your avatar ends up is exactly what is being decided right now.';
+		case 'catching-up':
+			return 'Bringing the board up to date after the reveal. Nothing can be planned until it is.';
+		case 'play':
+			return '';
+	}
+}
+
+/** The clock's one line for each part of the round. */
+export function phaseLabelOf(phase: RoundPhase): string {
+	switch (phase) {
+		case 'play':
+			return 'Your move window';
+		case 'commit':
+			return 'Committing this round';
+		case 'reveal':
+			return 'Revealing moves';
+		case 'catching-up':
+			return 'Catching up on last round';
+	}
+}
+
 export function createHud(context: Context): Readable<HudModel> {
 	const {game} = context;
 
 	return derived(
 		[
-			game.twoPhase,
+			game.phase,
+			game.threePhase,
 			game.round,
 			game.planning.movesLeft,
 			game.planning.plan,
@@ -439,10 +456,10 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.setup,
 			game.purchase,
 			game.revealOutcome,
-			game.settling,
 		],
 		([
 			$phase,
+			$three,
 			$round,
 			$movesLeft,
 			$plan,
@@ -455,15 +472,24 @@ export function createHud(context: Context): Readable<HudModel> {
 			$setup,
 			$purchase,
 			$revealOutcome,
-			$settling,
 		]): HudModel => {
 			const deposited = $deposited as DepositedState;
 			const blocked = blocksCommitting($missedReveal as MissedRevealState);
 
-			// `twoPhase` on a manually advanced chain has no clock, only a phase.
-			const timeLeft = 'timeLeft' in $phase ? $phase.timeLeft : 0;
-			const duration = 'duration' in $phase ? $phase.duration : 0;
-			const playable = $phase.phase === 'play';
+			const phase = $phase as RoundPhase;
+			const playable = phase === 'play';
+
+			// `threePhase` on a manually advanced chain has no clock, only a phase.
+			const timed = $three as {
+				phase: string;
+				timeLeft?: number;
+				duration?: number;
+			};
+			const timeLeft =
+				phase === 'catching-up' || !('timeLeft' in timed)
+					? undefined
+					: timed.timeLeft;
+			const duration = 'duration' in timed ? timed.duration : 0;
 
 			const purchase = $purchase as PurchaseState;
 			const needsSetup = describeSetup($setup as SetupNeeded | undefined, {
@@ -505,32 +531,38 @@ export function createHud(context: Context): Readable<HudModel> {
 				outcome: $revealOutcome as RevealOutcome | undefined,
 			});
 
-			return {
-				// Never invite a move the player cannot make: while they are still
-				// being set up the clock is just a clock.
-				//
-				// "Make your move" is wrong for an avatar that is not in the world: it
-				// has no move to make, and the only thing it can do this round is
-				// choose where to appear. The clock is the biggest thing on screen and
-				// this is the line under it, so it is where the player is most likely
-				// to be told what turn it is they are taking.
-				phaseLabel: needsSetup
+			// ONE LABEL PER PART OF THE ROUND, which is the point of the four-phase
+			// model: the old single "Resolving the round" covered a lock, a reveal
+			// and a catch-up, and told a debugging player nothing about which.
+			//
+			// Never invite a move the player cannot make: while they are still
+			// being set up the clock is just a clock, and during the catch-up the
+			// board is not the board yet. "Make your move" is also wrong for an
+			// avatar that is not in the world: it has no move to make, and the only
+			// thing it can do this round is choose where to appear.
+			const phaseLabel = needsSetup
+				? phase === 'play'
 					? 'Round in progress'
-					: playable
-						? inWorld
-							? 'Make your move'
-							: 'Choose where to appear'
-						: 'Resolving the round',
-				phase: $phase.phase,
-				secondsLeft: Math.max(0, Math.ceil(timeLeft)),
+					: phaseLabelOf(phase)
+				: playable
+					? inWorld
+						? 'Make your move'
+						: 'Choose where to appear'
+					: phaseLabelOf(phase);
+
+			return {
+				phaseLabel,
+				phase,
+				// The catch-up has no countdown - it lasts until the board's own
+				// epoch catches up with the clock's - so the dial shows nothing it
+				// cannot honestly say.
+				secondsLeft:
+					timeLeft === undefined ? undefined : Math.max(0, Math.ceil(timeLeft)),
 				progress:
-					duration > 0 ? Math.min(1, Math.max(0, 1 - timeLeft / duration)) : 0,
+					timeLeft !== undefined && (duration ?? 0) > 0
+						? Math.min(1, Math.max(0, 1 - timeLeft / (duration ?? 1)))
+						: 1,
 				epoch: $epoch.currentEpoch,
-				// Outside the play window the current round is closed, so a click now
-				// is a plan for the next one. The round stamps it that way. Not worth
-				// saying to someone who cannot play at all yet.
-				planningForNextRound: !playable && !needsSetup,
-				settling: $settling as boolean,
 				setup: needsSetup,
 				// `hasLocalSigner` is `TARGET_STEP === 'SignedIn'`, and NOTHING ELSE.
 				// It is not about hosted sign-in: a wallet-only sign-in has no host
@@ -567,22 +599,30 @@ export function createHud(context: Context): Readable<HudModel> {
 				plannedCount,
 				movesLeft: $movesLeft,
 				canLeave,
+				// Nothing can be planned outside the play window any more, and the
+				// instruction says why rather than letting the clicks look broken.
+				// During the reveal the avatar's next position is exactly the thing
+				// being decided, and during the catch-up the board has not caught
+				// up with the round that just resolved: a plan built from either is
+				// built from a guess.
 				instruction: needsSetup
 					? ''
-					: !inWorld
-						? 'Click anywhere to choose where to appear. Entering is the whole turn, so nothing can follow it.'
-						: canLeave
-							? // Standing on the way out. Said here because the button that
-								// does it is enabled for the first time at this exact moment,
-								// and nothing else on screen marks the difference.
-								'Your turn ends on the exit tile, so you can leave the world from here. Or keep stepping: a click, the arrow keys, or the pad.'
-							: // Says the arrow keys exist, because nothing else on screen
-								// does: the d-pad shows what can be pressed but not what can be
-								// typed, and a player who never discovers the keyboard plays a
-								// slower game than the one that was built. And says where the
-								// way out is, because leaving is the one action with no cell to
-								// click on and the exit tile is otherwise just scenery.
-								'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn. To leave the world, walk onto the exit tile.',
+					: phase !== 'play'
+						? instructionOutsidePlay(phase)
+						: !inWorld
+							? 'Click anywhere to choose where to appear. Entering is the whole turn, so nothing can follow it.'
+							: canLeave
+								? // Standing on the way out. Said here because the button that
+									// does it is enabled for the first time at this exact moment,
+									// and nothing else on screen marks the difference.
+									'Your turn ends on the exit tile, so you can leave the world from here. Or keep stepping: a click, the arrow keys, or the pad.'
+								: // Says the arrow keys exist, because nothing else on screen
+									// does: the d-pad shows what can be pressed but not what can be
+									// typed, and a player who never discovers the keyboard plays a
+									// slower game than the one that was built. And says where the
+									// way out is, because leaving is the one action with no cell to
+									// click on and the exit tile is otherwise just scenery.
+									'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn. To leave the world, walk onto the exit tile.',
 
 				roundLabel: round.label,
 				roundTone: round.tone,

@@ -7,6 +7,11 @@
 	`twoPhase`, `localState` and `deployments` itself, and now it takes a finished
 	model as props. Everything it used to decide lives in `./hud.ts`.
 
+	FOUR PARTS OF THE ROUND, one colour each, rather than the old two: the move
+	window, the commit lock, the reveal, and the catch-up at the boundary. The
+	middle two were folded into one "wait" before, which was fine to play on and
+	useless to debug against.
+
 	Purely presentational, so it can sit anywhere: the HUD renders it, and the
 	tutorial points at `#game-clock`.
 -->
@@ -17,27 +22,47 @@
 		secondsLeft,
 		size = 100,
 	}: {
-		phase: 'play' | 'wait';
-		/** How far through the phase, 0..1. */
+		phase: 'play' | 'commit' | 'reveal' | 'catching-up';
+		/** How far through this part of the round, 0..1. */
 		progress: number;
-		secondsLeft: number;
+		/**
+		 * Seconds left in this part, or undefined when nobody can know. Only the
+		 * catch-up has no countdown: it lasts until the board's own epoch catches
+		 * up with the clock's, and a dial pretending otherwise would be a lie.
+		 */
+		secondsLeft?: number;
 		size?: number;
 	} = $props();
+
+	const phaseLabel = $derived(
+		phase === 'play'
+			? 'Move window'
+			: phase === 'commit'
+				? 'Committing'
+				: phase === 'reveal'
+					? 'Revealing'
+					: 'Catching up',
+	);
 
 	const center = $derived(size / 2);
 	const radius = $derived(size * 0.4);
 
-	// The dial fills as the phase is spent, starting at twelve o'clock.
-	const colour = $derived(
-		phase === 'play'
-			? 'oklch(57.7% 0.245 27.325)'
-			: 'oklch(85.2% 0.199 91.936)',
-	);
-	const background = $derived(
-		phase === 'play'
-			? 'oklch(79.2% 0.209 151.711)'
-			: 'oklch(57.7% 0.245 27.325)',
-	);
+	// One colour per part of the round: green to move, amber while the
+	// commitments land, red for the reveal, blue for the catch-up.
+	const COLOURS = {
+		play: 'oklch(57.7% 0.245 27.325)',
+		commit: 'oklch(75% 0.15 80)',
+		reveal: 'oklch(58% 0.21 27)',
+		'catching-up': 'oklch(62% 0.15 250)',
+	} as const;
+	const FILL = {
+		play: 'oklch(79.2% 0.209 151.711)',
+		commit: 'oklch(85.2% 0.199 91.936)',
+		reveal: 'oklch(57.7% 0.245 27.325)',
+		'catching-up': 'oklch(40% 0.12 250)',
+	} as const;
+	const colour = $derived(COLOURS[phase]);
+	const background = $derived(FILL[phase]);
 
 	function piePath(fraction: number): string {
 		const angle = Math.min(1, Math.max(0, fraction)) * 360;
@@ -60,7 +85,9 @@
 	class="relative inline-block"
 	style="width: {size}px; height: {size}px"
 	role="timer"
-	aria-label="{phase === 'play' ? 'Move' : 'Wait'}, {secondsLeft} seconds left"
+	aria-label="{phaseLabel}, {secondsLeft === undefined
+		? 'unknown time left'
+		: `${secondsLeft} seconds left`}"
 >
 	<svg width={size} height={size} viewBox="0 0 {size} {size}">
 		<circle cx={center} cy={center} r={radius} fill={background} />
@@ -75,7 +102,7 @@
 			class="fill-white font-mono text-[1.5rem] font-bold"
 			style="paint-order: stroke; stroke: rgba(0,0,0,0.6); stroke-width: 4px"
 		>
-			{secondsLeft}
+			{secondsLeft ?? '?'}
 		</text>
 	</svg>
 </div>
