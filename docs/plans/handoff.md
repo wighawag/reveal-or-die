@@ -151,3 +151,15 @@ Local setup: port 8545 belongs to something else, so start a node elsewhere and
 point `contracts/.env.local` at it. `web/src/lib/deployments.ts` is generated and
 gitignored; `pnpm install` regenerates it from the committed deployment records,
 so a fresh clone typechecks before it has deployed anything.
+
+**The dev node must mine on a SHORT interval, and `hardhat.config.ts` sets one
+second for `local`.** This is not a preference. Epochs are defined against
+`block.timestamp`, while the client's clock interpolates from the wall clock
+between blocks, so the client crosses a round boundary the moment real time
+says so and the chain only crosses when a block carries a later timestamp.
+Every second of block interval is a second of that gap, and it shows up in play
+as the board sitting in `catching-up` at every boundary and as another player's
+move appearing seconds into the next window. It was three seconds; both symptoms
+were reported from play before the cause was found. A node that mines only on
+transactions is far worse: the gap then lasts until somebody's next
+transaction, which is how a catch-up took fifteen seconds.

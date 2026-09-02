@@ -86,8 +86,24 @@ const config: HardhatUserConfig = {
 							},
 							// this prevent EDR from not mining tx that fails
 							throwOnTransactionFailures: false,
+							// ONE SECOND, and it is the app's clock that needs it.
+							//
+							// Epochs are defined against `block.timestamp`, and the web
+							// client's clock interpolates from the wall clock between
+							// blocks (`game/core/chain-time.ts`), so the client crosses a
+							// round boundary as soon as real time says so while the chain
+							// only crosses when a block carries a later timestamp. At a
+							// 3s interval that gap was up to three seconds several times
+							// a round: the board sat in `catching-up` at every boundary,
+							// and a reveal landing in the gap showed up seconds into the
+							// next window - both reported from play, and neither fixable
+							// on the client, which cannot make blocks.
+							//
+							// A deployed chain has its own block time and this is not a
+							// substitute for handling that; it is the dev node being
+							// made to behave like one.
 							mining: {
-								interval: 3000,
+								interval: 1000,
 							},
 						},
 						// instant-mining network used by `pnpm test`
