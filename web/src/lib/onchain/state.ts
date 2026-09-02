@@ -21,6 +21,12 @@ import type {CameraWatcher} from '$lib/game/render/camera';
 import type {ChainTimeStore} from '$lib/game/core/chain-time';
 import type {EpochInfoStore} from '$lib/game/core/epoch';
 import type {OnchainStateStore} from '$lib/game/core/seams';
+import {
+	refreshDuringReveal,
+	settleBoardWhenRoundStarts,
+	type BoardEpochState,
+	type RoundPhase,
+} from '$lib/game/core/refresh';
 import {derived, type Readable} from 'svelte/store';
 
 export type {
@@ -87,6 +93,18 @@ function nodeCatchupBudgetMs(averageBlockTime: number): number {
 
 const NODE_CATCHUP_RETRY_MS = 200;
 
+/** Knobs for the round-edge refresh policy. Defaults live in `game/core/refresh`. */
+export type RefreshPolicyConfig = {
+	/** Cadence while a round is resolving. */
+	revealIntervalMs?: number;
+	/** How long that cadence outlives the window. */
+	revealGraceMs?: number;
+	/** Cadence of the catch-up when a round starts. */
+	settleRetryMs?: number;
+	/** How long the catch-up keeps trying before leaving it to the interval. */
+	settleBudgetMs?: number;
+};
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const readableTrue: Readable<boolean> = {
@@ -118,7 +136,15 @@ export function createPollingOnchainState<TState>(params: {
 	zonesForCamera: ZonesForCamera;
 	read: ZonesReader<TState>;
 	emptyState: () => TState;
-	config?: {fetchInterval?: number};
+	config?: {
+		fetchInterval?: number;
+		/**
+		 * The refresh policy at the two edges of a round. See
+		 * `game/core/refresh.ts` for what each one is for and why the defaults
+		 * are what they are. Pass `false` to run on the plain interval alone.
+		 */
+		refreshPolicy?: false | RefreshPolicyConfig;
+	};
 	/** Chain reads only run while this is truthy (no RPC yet, wallet not connected). */
 	fetchGate?: Readable<boolean>;
 }): OnchainStateStore<TState> {
@@ -205,13 +231,105 @@ export function createPollingOnchainState<TState>(params: {
 		},
 	);
 
+	const update = async () => {
+		await store.update();
+	};
+
+	// ---- the refresh policy at the two edges of a round ---------------------
+	//
+	// INSIDE THE POLLER, not left to each app to wire. The epoch model is the
+	// framework's, so both of these consequences of it are too: every game on
+	// this template would otherwise discover the same two faults for itself,
+	// from play, which is how they were found the first time.
+
+	const policy = params.config?.refreshPolicy;
+
+	// The reveal window, as these policies see it. `isCommitPhase` is the honest
+	// reading for both kinds of epoch: a timed chain and a manually advanced one
+	// both answer it, where only a timed one has a countdown.
+	const phase = derived(epochInfo, ($epochInfo): RoundPhase => ({
+		phase: $epochInfo.isCommitPhase ? 'play' : 'wait',
+	}));
+	const epoch = derived(epochInfo, ($epochInfo) => $epochInfo.currentEpoch);
+	// The store's own value, read as "is it loaded, and for which round". The
+	// reader stamps every loaded value with the epoch the fetch was FOR, which is
+	// what makes "has the board caught up" answerable at all.
+	const boardEpoch = derived(
+		{subscribe: store.subscribe},
+		($value): BoardEpochState =>
+			$value.step === 'Loaded'
+				? {step: 'Loaded', epoch: ($value as unknown as {epoch: number}).epoch}
+				: {step: 'Unloaded'},
+	);
+
+	const settle = settleBoardWhenRoundStarts({
+		phase,
+		epoch,
+		state: boardEpoch,
+		refresh: update,
+		...(policy && policy.settleRetryMs !== undefined
+			? {retryMs: policy.settleRetryMs}
+			: {}),
+		...(policy && policy.settleBudgetMs !== undefined
+			? {budgetMs: policy.settleBudgetMs}
+			: {}),
+	});
+
+	/**
+	 * Ref-counted, and tied to the same lifetime the polling store uses.
+	 *
+	 * The policies exist to issue extra fetches, so starting them at
+	 * construction would be IO before the app has started (ADR-0002) and would
+	 * keep fetching for a board nobody is looking at. The polling store already
+	 * starts on its first subscriber and stops on its last; these follow it, so
+	 * there is one lifetime rather than two that can disagree.
+	 */
+	let subscribers = 0;
+	let stopPolicy: (() => void) | undefined;
+
+	function startPolicy() {
+		// Off-browser there is nothing to refresh and a timer left behind would
+		// outlive the render, exactly as the polling store's own guard says.
+		if (typeof window === 'undefined') return;
+		if (policy === false) return;
+		const stopReveal = refreshDuringReveal({
+			phase,
+			refresh: update,
+			...(policy && policy.revealIntervalMs !== undefined
+				? {intervalMs: policy.revealIntervalMs}
+				: {}),
+			...(policy && policy.revealGraceMs !== undefined
+				? {graceMs: policy.revealGraceMs}
+				: {}),
+		});
+		const stopSettle = settle.watch();
+		stopPolicy = () => {
+			stopReveal();
+			stopSettle();
+		};
+	}
+
 	// Narrow the polling store to the seam: callers get the contract, not the
 	// implementation, so swapping in an indexer stays a local change.
 	return {
-		subscribe: store.subscribe,
-		status: store.status,
-		update: async () => {
-			await store.update();
+		subscribe(run, invalidate) {
+			const unsubscribe = store.subscribe(run, invalidate);
+			if (++subscribers === 1) startPolicy();
+			let released = false;
+			return () => {
+				// Svelte calls an unsubscriber more than once in some teardown
+				// orders, and a second call must not take the count below zero and
+				// leave the policy running for the next subscriber to double up on.
+				if (released) return;
+				released = true;
+				unsubscribe();
+				if (--subscribers === 0) {
+					stopPolicy?.();
+					stopPolicy = undefined;
+				}
+			};
 		},
+		status: store.status,
+		update,
 	};
 }
