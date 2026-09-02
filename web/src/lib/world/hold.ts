@@ -69,6 +69,28 @@ export function holdResolvingRound<TState extends WorldState>(params: {
 }
 
 /**
+ * The board to draw, and whether it is currently holding a round back.
+ *
+ * TWO VIEWS OF ONE COMPUTATION, which is the point of returning them together.
+ * The overlay of local intent has to stay on screen until the exact moment the
+ * board lets the round's outcome out (`world/display-plan.ts`), and "roughly
+ * then" - a second reading of the round, of the epoch, or of the phase - is
+ * how the two end up disagreeing by a frame or a poll, which is the class of
+ * bug this whole file exists to avoid. So the moment is published rather than
+ * re-derived.
+ */
+export type HeldBoard = {
+	board: OnchainStateStore<WorldState & {epoch: number}>;
+	/**
+	 * The round whose outcome is being held back right now, or undefined when
+	 * the board is showing everything it has.
+	 *
+	 * It goes undefined at the RELEASE, which is what the overlay waits for.
+	 */
+	holding: Readable<number | undefined>;
+};
+
+/**
  * The board store the renderer reads: the poller's, with the resolving round
  * held back until the round is over.
  *
@@ -79,6 +101,16 @@ export function holdResolvingRound<TState extends WorldState>(params: {
  *
  * The memory is the last board it handed out, so successive fetches during the
  * window hold against what is on screen rather than drifting.
+ *
+ * ONE DERIVE, TWO VIEWS OF IT, which is what makes the handover safe. The
+ * board's outcome and the overlay's clearing then happen in the SAME
+ * propagation, so whichever of the two is subscribed first, the merge is
+ * handed a consistent pair and there is never a frame with neither on screen.
+ * That is the whole requirement, and it is what a second computation of
+ * "roughly now" - the round's step, the epoch, the phase read again - cannot
+ * promise. `test/lib/world/display-plan.test.ts` pins it by asserting on every
+ * value the composed view emits across the release, not on the one it settles
+ * on.
  */
 export function holdBoardUntilRoundEnds(params: {
 	state: OnchainStateStore<WorldState & {epoch: number}>;
@@ -86,21 +118,22 @@ export function holdBoardUntilRoundEnds(params: {
 	phase: Readable<{phase: 'play' | 'wait'}>;
 	/** The clock's epoch, which during the wait is the round being resolved. */
 	epoch: Readable<number>;
-}): OnchainStateStore<WorldState & {epoch: number}> {
+}): HeldBoard {
 	const {state, phase, epoch} = params;
 	let shown: (WorldState & {epoch: number}) | undefined;
 
-	const value = derived(
+	const held = derived(
 		[{subscribe: state.subscribe}, phase, epoch],
-		([$state, $phase, $epoch]): OnchainStateValue<
-			WorldState & {epoch: number}
-		> => {
+		([$state, $phase, $epoch]): {
+			value: OnchainStateValue<WorldState & {epoch: number}>;
+			holding: number | undefined;
+		} => {
 			const board = $state as OnchainStateValue<WorldState & {epoch: number}>;
 			if (board.step === 'Unloaded') {
 				// The board is no longer known to be true (an account switch, a chain
 				// reset). There is nothing to hold and nothing to synchronise.
 				shown = undefined;
-				return board;
+				return {value: board, holding: undefined};
 			}
 
 			const latest: WorldState & {epoch: number} = {
@@ -112,21 +145,34 @@ export function holdBoardUntilRoundEnds(params: {
 			// the newest answer IS the board.
 			if (($phase as {phase: string}).phase !== 'wait' || !shown) {
 				shown = latest;
-				return {step: 'Loaded', avatars: latest.avatars, epoch: latest.epoch};
+				return {
+					value: {
+						step: 'Loaded',
+						avatars: latest.avatars,
+						epoch: latest.epoch,
+					},
+					holding: undefined,
+				};
 			}
 
-			shown = holdResolvingRound({
-				shown,
-				latest,
-				resolvingEpoch: $epoch as number,
-			});
-			return {step: 'Loaded', avatars: shown.avatars, epoch: shown.epoch};
+			const resolvingEpoch = $epoch as number;
+			shown = holdResolvingRound({shown, latest, resolvingEpoch});
+			return {
+				value: {step: 'Loaded', avatars: shown.avatars, epoch: shown.epoch},
+				holding: resolvingEpoch,
+			};
 		},
 	);
 
+	const value = derived(held, ($held) => $held.value);
+	const holding = derived(held, ($held) => $held.holding);
+
 	return {
-		subscribe: value.subscribe,
-		status: state.status,
-		update: state.update,
+		board: {
+			subscribe: value.subscribe,
+			status: state.status,
+			update: state.update,
+		},
+		holding,
 	};
 }

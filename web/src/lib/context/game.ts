@@ -876,24 +876,25 @@ export function createGameContext(core: CoreServices): GameContext {
 		player: gameIdentity,
 	});
 
+	/**
+	 * THE HELD BOARD, not the poller's raw answer.
+	 *
+	 * Reveals arrive one transaction at a time and in whatever order the mempool
+	 * delivers them, so a board that draws each as it lands shows a simultaneous
+	 * round playing out in payment order. What is held back is only what the
+	 * RESOLVING round changed, and only until it is over; see `$lib/world/hold`.
+	 * Everything about FETCHING - the settle, the catching-up phase, the RPC
+	 * health - keeps reading the raw store, because those are about what the
+	 * chain says and this is about what the player is shown.
+	 */
+	const heldBoard = holdBoardUntilRoundEnds({
+		state: onchainState,
+		phase: twoPhase,
+		epoch: currentEpoch,
+	});
+
 	const viewState = createViewState({
-		/**
-		 * THE HELD BOARD, not the poller's raw answer.
-		 *
-		 * Reveals arrive one transaction at a time and in whatever order the
-		 * mempool delivers them, so a board that draws each as it lands shows a
-		 * simultaneous round playing out in payment order. What is held back is
-		 * only what the RESOLVING round changed, and only until it is over; see
-		 * `$lib/world/hold`. Everything about FETCHING - the settle, the
-		 * catching-up phase, the RPC health - keeps reading the raw store,
-		 * because those are about what the chain says and this is about what
-		 * the player is shown.
-		 */
-		onchainState: holdBoardUntilRoundEnds({
-			state: onchainState,
-			phase: twoPhase,
-			epoch: currentEpoch,
-		}),
+		onchainState: heldBoard.board,
 		localState: planning.plan,
 		merge: mergeWorldView,
 	});

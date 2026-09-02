@@ -131,7 +131,7 @@ describe('the board store the renderer reads', () => {
 		>({step: 'Unloaded'});
 		const phase = writable<{phase: 'play' | 'wait'}>({phase: initialPhase});
 		const epoch = writable(7);
-		const board = holdBoardUntilRoundEnds({
+		const {board, holding} = holdBoardUntilRoundEnds({
 			state: {
 				subscribe: state.subscribe,
 				status: writable({loading: false}),
@@ -142,7 +142,7 @@ describe('the board store the renderer reads', () => {
 		});
 		const load = (world: WorldState & {epoch: number}) =>
 			state.set({step: 'Loaded', ...world});
-		return {board, phase, epoch, load, state};
+		return {board, holding, phase, epoch, load, state};
 	}
 
 	const positionOf = (
@@ -189,6 +189,53 @@ describe('the board store the renderer reads', () => {
 		load(world(movedThisRound(1n, {x: 3, y: 0})));
 		load(world(movedThisRound(1n, {x: 3, y: 0})));
 		expect(positionOf(get(board) as never, 1n)).toEqual({x: 0, y: 0});
+		stop();
+	});
+
+	it('says which round it is holding, so the overlay can wait for the same moment', () => {
+		// THE RELEASE IS PUBLISHED rather than left to be guessed at. The local
+		// overlay of a turn - the planned dots, the entering preview - has to stay
+		// on screen until the board lets the outcome out; a second reading of
+		// "roughly now" disagrees by a frame or a poll, and the gap between the two
+		// is a player watching their own avatar vanish.
+		const {board, holding, phase, load} = setup('play');
+		const stop = board.subscribe(() => {});
+		const stopHolding = holding.subscribe(() => {});
+
+		load(world(avatar({avatarID: 1n, position: {x: 0, y: 0}})));
+		expect(get(holding)).toBeUndefined();
+
+		phase.set({phase: 'wait'});
+		load(world(movedThisRound(1n, {x: 3, y: 0})));
+		expect(get(holding)).toBe(7);
+
+		phase.set({phase: 'play'});
+		expect(get(holding)).toBeUndefined();
+		stopHolding();
+		stop();
+	});
+
+	it('is not holding anything when there was nothing on screen to hold', () => {
+		// A page opened mid-round shows the newest board, so there is no outcome
+		// being withheld and nothing for an overlay to wait for.
+		const {board, holding, load} = setup('wait');
+		const stop = board.subscribe(() => {});
+		const stopHolding = holding.subscribe(() => {});
+		load(world(movedThisRound(1n, {x: 3, y: 0})));
+		expect(get(holding)).toBeUndefined();
+		stopHolding();
+		stop();
+	});
+
+	it('is not holding anything while the board is Unloaded', () => {
+		const {board, holding, phase, load, state} = setup('play');
+		const stop = board.subscribe(() => {});
+		const stopHolding = holding.subscribe(() => {});
+		load(world(avatar({avatarID: 1n})));
+		phase.set({phase: 'wait'});
+		state.set({step: 'Unloaded'});
+		expect(get(holding)).toBeUndefined();
+		stopHolding();
 		stop();
 	});
 
