@@ -87,9 +87,9 @@ export function createBoardReader(params: {
 
 	// `fromBlock`/`toBlock` are part of the seam because a game that builds its
 	// state from LOGS needs them (conquest does). This game reads the board
-	// straight out of contract storage, so the answer is whatever the node's
-	// latest block says and the range is not used.
-	return async ({zones, expectedEpoch}) => {
+	// straight out of contract storage, so the range is not used for content -
+	// but `toBlock` still pins WHICH block every call reads, see below.
+	return async ({zones, expectedEpoch, toBlock}) => {
 		if (zones.length === 0) return {cells: new Map(), epoch: expectedEpoch};
 
 		const batches = await Promise.all(
@@ -100,18 +100,41 @@ export function createBoardReader(params: {
 						abi: deployments.contracts.Game.abi,
 						functionName: 'getCellsInZones',
 						args: [batch],
+						// PINNED TO ONE BLOCK. The batches are separate RPC calls
+						// against a moving chain, so without this a reveal landing
+						// between two of them stitches half a board from before it to
+						// half from after: a board that never existed at any moment.
+						// It also makes the agreement check below meaningful, since
+						// pinned calls can only disagree if the block itself was
+						// replaced. A game that reads logs beside this needs the same
+						// pin for a further reason: the two reads must not straddle a
+						// reveal, or the new state arrives one poll ahead of the event
+						// that explains it.
+						blockNumber: BigInt(toBlock),
 					}) as Promise<[readonly CellAt[], bigint]>,
 			),
 		);
 
 		const byID = new Map<bigint, Cell>();
+		let chainEpoch: number | undefined;
 		for (const [cells, epoch] of batches) {
-			// Every batch has to be from the same epoch as the one asked for. A
-			// batch that is not means the chain moved under the read, and stitching
-			// the halves together would produce a board that never existed.
-			// Returning undefined tells the framework the node has not caught up;
-			// it retries rather than treating it as a failed read.
-			if (Number(epoch) !== expectedEpoch) return undefined;
+			// THE ONLY REASON A READ IS REFUSED: the batches disagreeing with EACH
+			// OTHER. They all read one pinned block, so they normally cannot; one
+			// that does means a reorg replaced that block mid-read, and stitching
+			// the halves would produce a board that never existed.
+			//
+			// WHAT IS NO LONGER REFUSED is a chain epoch that differs from the one
+			// asked for. This used to require an exact match, which turned a
+			// two-clock disagreement of SECONDS into a failed read: the client's
+			// clock interpolates from the wall clock between blocks, so it crosses
+			// a round boundary before the chain has mined a block past it, and the
+			// contract answers from its latest block with the previous round.
+			// Refusing that ran the framework's catch-up budget out and turned it
+			// into exponential backoff behind an RPC-health banner, over a board
+			// that was a moment behind and nothing worse.
+			const at = Number(epoch);
+			if (chainEpoch === undefined) chainEpoch = at;
+			else if (at !== chainEpoch) return undefined;
 
 			for (const cell of cells) {
 				byID.set(cell.cellID, {
@@ -122,6 +145,16 @@ export function createBoardReader(params: {
 			}
 		}
 
+		// STAMPED WITH THE EPOCH THE FETCH WAS FOR, not the one the chain's latest
+		// block reports, because that is what "has the board caught up" means for
+		// everything downstream. Stamping the CHAIN's epoch instead makes the
+		// catch-up last until a block past the boundary is mined - on a node that
+		// mines only on transactions, that is the next commit, some twenty seconds
+		// in - and all of it is a wait for a COUNTER when the data has already
+		// arrived. Nothing the board reads can change in that gap: a reveal mined
+		// after the boundary is refused (`InCommitmentPhase`) and a commit places
+		// nothing, so a fetch landing after the clock ticks already holds the new
+		// round in full.
 		return {cells: byID, epoch: expectedEpoch};
 	};
 }
