@@ -424,6 +424,14 @@ export function setupNeeded(params: {
  * `onSettled` uses after a local reveal; a timer is just that request repeated,
  * because another player's reveal is invisible from here by design.
  *
+ * THE FAST CADENCE OUTLIVES THE WINDOW BY A GRACE PERIOD, because late
+ * landings cluster at the boundary: a reveal whose transaction was still in
+ * flight when the clock crossed, a node whose block timestamps trail the wall
+ * clock the client interpolates from. Observed once as the other player's
+ * avatar standing still for a few seconds INTO the play phase, which is the
+ * 5s poll's worst case showing through. Anything later than the grace is
+ * genuinely rare on a quiet board, and the poller owns it.
+ *
  * Its own function, taking only the two stores it reads, for the same reason
  * `resumeWhenGasArrives` is: it is wiring that acts unprompted, it deserves
  * tests, and a test should not need an app context for it.
@@ -433,9 +441,15 @@ export function refreshDuringReveal(params: {
 	refresh: () => Promise<unknown> | unknown;
 	/** How often to refresh while reveals are landing. Defaults to 1.5s. */
 	intervalMs?: number;
+	/**
+	 * How long to keep the fast cadence after the window closes. Defaults to
+	 * 4s. Set it to 0 for the strict "only while waiting" behaviour.
+	 */
+	graceMs?: number;
 }): () => void {
 	const {phase, refresh} = params;
 	const intervalMs = params.intervalMs ?? 1500;
+	const graceMs = params.graceMs ?? 4000;
 
 	let timer: ReturnType<typeof setInterval> | undefined;
 	function stop() {
@@ -445,13 +459,43 @@ export function refreshDuringReveal(params: {
 		}
 	}
 
+	/**
+	 * When the wait last ended, so the grace can be measured from it. Starts at
+	 * minus infinity, so a page OPENED mid-play - which owes no catch-up - is
+	 * already past any grace.
+	 */
+	let waitEnded: number | undefined = -Infinity;
+
+	/**
+	 * The interval checks the grace ITSELF rather than waiting for the phase to
+	 * re-emit: `twoPhase` ticks every second, but correctness that depends on a
+	 * store keeping emitting is correctness borrowed, not owned.
+	 */
+	function tick() {
+		// `undefined` is "the window is still open", which is not a grace to
+		// spend: the subtraction below would be NaN, so it is asked first.
+		if (waitEnded !== undefined && Date.now() - waitEnded >= graceMs) {
+			stop();
+			return;
+		}
+		void refresh();
+	}
+
 	const unsubscribe = phase.subscribe(($phase) => {
-		// OFF during the commit phase: nothing on the board can change then, so
-		// the poller's own interval is doing all the work there is to do, and a
-		// second cadence would just be a second bill from the RPC.
-		stop();
-		if ($phase.phase !== 'wait') return;
-		timer = setInterval(() => void refresh(), intervalMs);
+		if ($phase.phase === 'wait') {
+			waitEnded = undefined;
+			stop();
+			timer = setInterval(tick, intervalMs);
+			return;
+		}
+		// OFF once the window has been closed for longer than the grace: nothing
+		// on the board can change in the commit phase, so the poller's own
+		// interval is doing all the work there is to do, and a second cadence
+		// would just be a second bill from the RPC.
+		if (waitEnded === undefined) waitEnded = Date.now();
+		if (timer === undefined && Date.now() - waitEnded < graceMs) {
+			timer = setInterval(tick, intervalMs);
+		}
 	});
 
 	return () => {

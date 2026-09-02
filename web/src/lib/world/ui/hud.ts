@@ -123,7 +123,15 @@ export type HudModel = {
 	 * Read from the account's own avatars rather than off the board, which is
 	 * camera-scoped: a player who panned away would not be told.
 	 */
-	died?: {label: string};
+	/**
+	 * Carries the ID and the death epoch, not just the label, because the
+	 * acknowledgement of a death is recorded per DEATH: `lastEpoch` only
+	 * advances on reveals, so the avatar being re-bought and dying again is a
+	 * strictly later epoch, which is what lets one stored acknowledgement settle
+	 * an old death while still letting a new one through. See
+	 * `ui/death-ack.ts`.
+	 */
+	died?: {label: string; avatarID: bigint; deathEpoch: number};
 
 	/** How many actions are planned, and how many moves the turn has left. */
 	plannedCount: number;
@@ -589,7 +597,16 @@ export function createHud(context: Context): Readable<HudModel> {
 					active: a.avatarID === $avatarID,
 				})),
 				inWorld,
-				died: casualty && {label: avatarLabel(casualty.avatarID)},
+				died:
+					casualty &&
+					(() => {
+						const {avatarID, lastEpoch} = casualty;
+						return {
+							label: avatarLabel(avatarID),
+							avatarID,
+							deathEpoch: Number(lastEpoch),
+						};
+					})(),
 
 				plannedCount,
 				movesLeft: $movesLeft,

@@ -21,23 +21,32 @@ import {
  * and a callback, testable with fake timers and no app context.
  */
 
-const phase = writable<{phase: 'play' | 'wait'}>({phase: 'play'});
-const clock = writable(7);
-const board = writable<{step: 'Unloaded'} | {step: 'Loaded'; epoch: number}>({
-	step: 'Unloaded',
-});
+/**
+ * FRESH STORES PER TEST, and the leak that made it necessary is worth naming:
+ * with one set shared across the file, a watcher a test forgot to stop stayed
+ * subscribed, and the next test's `phase.set` woke it - scheduling timers the
+ * next test then counted as its own. Shared mutable fixtures in a file about
+ * timers are a way to debug the fixture instead of the code.
+ */
+function stores(initial: 'play' | 'wait' = 'play') {
+	return {
+		phase: writable<{phase: 'play' | 'wait'}>({phase: initial}),
+		clock: writable(7),
+		board: writable<{step: 'Unloaded'} | {step: 'Loaded'; epoch: number}>({
+			step: 'Unloaded',
+		}),
+	};
+}
 
 afterEach(() => {
 	vi.clearAllTimers();
 	vi.useRealTimers();
-	phase.set({phase: 'play'});
-	clock.set(7);
-	board.set({step: 'Unloaded'});
 });
 
 describe('refreshDuringReveal', () => {
 	it('refreshes on a short cadence while the reveal window is open', async () => {
 		vi.useFakeTimers();
+		const {phase} = stores();
 		const refresh = vi.fn();
 		const stop = refreshDuringReveal({phase, refresh, intervalMs: 1500});
 
@@ -50,20 +59,67 @@ describe('refreshDuringReveal', () => {
 	it('does nothing during the commit phase, when the board cannot change', async () => {
 		// Nothing on the board can change while commitments are open - every
 		// action resolves at reveal - so a second cadence here is only a second
-		// bill from the RPC.
+		// bill from the RPC. `graceMs: 0` because this test is about the commit
+		// phase PROPER: the grace after a wait is its own test below.
 		vi.useFakeTimers();
+		const {phase} = stores();
 		const refresh = vi.fn();
-		const stop = refreshDuringReveal({phase, refresh, intervalMs: 1500});
+		const stop = refreshDuringReveal({
+			phase,
+			refresh,
+			intervalMs: 1500,
+			graceMs: 0,
+		});
 
 		await vi.advanceTimersByTimeAsync(1500 * 3);
 		expect(refresh).not.toHaveBeenCalled();
 		stop();
 	});
 
-	it('stops refreshing when the window closes, and lets go of everything when torn down', async () => {
+	it('keeps the fast cadence for a grace period after the window closes', async () => {
+		// Late landings cluster at the boundary - a reveal still in flight when
+		// the clock crossed, a node whose timestamps trail the wall clock - and
+		// without the grace they wait for the poller's full 5s. Observed once as
+		// the other player's avatar standing still a few seconds into the play
+		// phase.
 		vi.useFakeTimers();
+		const {phase} = stores();
 		const refresh = vi.fn();
-		const stop = refreshDuringReveal({phase, refresh, intervalMs: 1500});
+		const stop = refreshDuringReveal({
+			phase,
+			refresh,
+			intervalMs: 1500,
+			graceMs: 4000,
+		});
+
+		phase.set({phase: 'wait'});
+		phase.set({phase: 'play'});
+		refresh.mockClear();
+		await vi.advanceTimersByTimeAsync(1500);
+		expect(refresh).toHaveBeenCalled();
+
+		// Beyond the grace, the poller owns it again - and the interval stops
+		// ITSELF rather than waiting for the phase store to say so. Two ticks
+		// fall inside a 4s grace at a 1.5s cadence; the one at 4.5s is the tick
+		// that turns it off.
+		await vi.advanceTimersByTimeAsync(1500 * 4);
+		expect(refresh).toHaveBeenCalledTimes(2);
+		refresh.mockClear();
+		await vi.advanceTimersByTimeAsync(1500 * 3);
+		expect(refresh).not.toHaveBeenCalled();
+		stop();
+	});
+
+	it('stops refreshing once the grace is spent, and lets go of everything when torn down', async () => {
+		vi.useFakeTimers();
+		const {phase} = stores();
+		const refresh = vi.fn();
+		const stop = refreshDuringReveal({
+			phase,
+			refresh,
+			intervalMs: 1500,
+			graceMs: 0,
+		});
 
 		phase.set({phase: 'wait'});
 		await vi.advanceTimersByTimeAsync(1500);
@@ -88,8 +144,9 @@ describe('settleBoardWhenRoundStarts', () => {
 		// `watch()` is the switch because the subscription opens the chain clock,
 		// and construction must not start IO (ADR-0002).
 		vi.useFakeTimers();
+		const {phase, clock, board} = stores();
 		const refresh = vi.fn();
-		const settle = settleBoardWhenRoundStarts({
+		settleBoardWhenRoundStarts({
 			phase,
 			epoch: clock,
 			state: board,
@@ -103,6 +160,7 @@ describe('settleBoardWhenRoundStarts', () => {
 
 	it('fetches until the board has caught up with the clock, then stops', async () => {
 		vi.useFakeTimers();
+		const {phase, clock, board} = stores();
 		let calls = 0;
 		const refresh = vi.fn(async () => {
 			calls++;
@@ -140,6 +198,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		// `twoPhase` re-emits on every tick, so the settle has to trigger on the
 		// TRANSITION into the commit phase, not on the phase value.
 		vi.useFakeTimers();
+		const {phase, clock, board} = stores();
 		const refresh = vi.fn(async () => {
 			board.set({step: 'Loaded', epoch: get(clock)});
 		});
@@ -164,6 +223,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		// A chain so far behind that the settle cannot land: the indicator has to
 		// go away, and the background poller owns the recovery from there.
 		vi.useFakeTimers();
+		const {phase, clock, board} = stores();
 		const refresh = vi.fn(async () => {
 			board.set({step: 'Loaded', epoch: 7});
 		});
@@ -189,6 +249,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		// The fetch gate is closed, or the read failed: retrying cannot bring the
 		// chain closer, and spinning for the whole budget would be noise.
 		vi.useFakeTimers();
+		const {phase, clock, board} = stores();
 		const refresh = vi.fn(async () => {
 			board.set({step: 'Unloaded'});
 		});
@@ -208,6 +269,7 @@ describe('settleBoardWhenRoundStarts', () => {
 
 	it('lets go of its subscription when torn down', async () => {
 		vi.useFakeTimers();
+		const {phase, clock, board} = stores();
 		const refresh = vi.fn();
 		const settle = settleBoardWhenRoundStarts({
 			phase,
