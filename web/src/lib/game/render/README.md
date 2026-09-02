@@ -90,7 +90,7 @@ Four things it does that a hand-written loop usually does not, all of which are 
 
 ```ts
 tick: ({frame, objects}) => {
-	for (const object of objects) object.advance(frame.delta);
+	for (const object of objects) object.advance(frame.deltaMs);
 },
 ```
 
@@ -104,7 +104,7 @@ Three layers, none of which know about any rendering library:
 - `gestures.ts` recognises drag-to-pan, pinch, wheel and tap, and emits INTENTS. The recogniser takes plain numbers so it can be tested in node; `attachGestures` is the thin DOM half.
 - `camera.ts` applies intents to the transform and publishes the `Camera` store the state layer reads to decide what to load.
 - `grid.ts` is where the grid lines are, in game units, shared by both hosts so they cannot drift apart.
-- `frame-loop.ts` is the elapsed/delta bookkeeping and `Frame` assembly, shared for the same reason.
+- `frame-loop.ts` is the elapsed/delta bookkeeping (in milliseconds, and the `Frame` field names say so) and `Frame` assembly, shared for the same reason.
 
 **A click leaves this layer as a world POINT, not a cell.** Snapping is a game rule: rounding to the nearest integer would make every game on the template a square grid with cells centred on integers. The template's game does that rounding in its own click handler in `context/game.ts`; a hex board or a continuous world does something else.
 

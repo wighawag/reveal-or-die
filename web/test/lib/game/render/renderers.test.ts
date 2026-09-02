@@ -17,8 +17,8 @@ function makeViewState() {
 }
 
 const frame: Frame = {
-	time: 0,
-	delta: 16,
+	timeMs: 0,
+	deltaMs: 16,
 	transform: {centerX: 0, centerY: 0, scale: 10},
 	screen: {width: 100, height: 100},
 	devicePixelRatio: 1,

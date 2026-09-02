@@ -211,9 +211,21 @@ export type ScreenSize = {width: number; height: number};
  */
 export type Frame = {
 	/** Milliseconds since the surface started. */
-	time: number;
-	/** Milliseconds since the previous tick. Zero on the first. */
-	delta: number;
+	timeMs: number;
+	/**
+	 * MILLISECONDS since the previous tick. Zero on the first.
+	 *
+	 * The unit is in the NAME because leaving it in the doc comment cost a
+	 * real bug: a renderer passed this straight into an animation that thought
+	 * in seconds, so every replay finished in a single frame and read as a
+	 * jump rather than a movement. No unit test could catch it - each side was
+	 * correct and tested in its own units, and the mismatch existed only where
+	 * they met. A name is the only place a unit survives being passed through
+	 * a function argument.
+	 *
+	 * Multiply by 0.001 for a seconds-based animation; do not assume 1/60.
+	 */
+	deltaMs: number;
 	/** What the surface is drawing with this frame. Game units, CSS pixels. */
 	transform: ViewTransform;
 	/** The surface size in CSS pixels. */
