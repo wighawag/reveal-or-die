@@ -155,7 +155,6 @@ None of these blocks playing. In rough order of what a player would miss first.
 
 ## Still open, not part of this
 
-- **The epoch check in `readBatch` is an EXACT match between two clocks.** The client's crosses the epoch boundary before the chain has mined a block past it, so a boundary fetch can throw into backoff after the catchup budget. `settleBoardWhenRoundStarts` carries the player past it either way, so this is hygiene rather than a live bug: one-sided validation (accept a node AHEAD of the clock, as bomber-world's fetcher does) would stop the poller ever reporting a false outage, and `lib/onchain/state.ts`'s catchup budget would then only be spent on the direction it was written for.
 - `Avatars.mint` has no access control, so the stake costs nothing. Recorded in `Avatars.sol` and in `identity-without-consent.md`. Closing it is a decision about who may mint.
 - `_enter` accepts an obstacle as an entry position, so an avatar can stand inside a wall. The `basic test` walks out of one.
 - A rejected move sets `stopProcessing` and silently drops the remaining actions in the same reveal, and nothing REVERTS to say so. A refused Exit now joins it, deliberately: the alternative is reverting the reveal, which costs the player the whole turn and blocks the next epoch. The HUD now reports the accepted prefix (see `reveal-outcome.ts`), so a turn nothing of which was accepted reads as "stayed where it was" rather than "moved" - but the client refuses to plan a move it can see is illegal anyway, so reaching this still means another client or a bug.

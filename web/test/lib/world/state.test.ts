@@ -326,6 +326,79 @@ describe('reading what the chain resolved, not just where things stand', () => {
 		}
 	});
 
+	it('accepts a read from BEHIND the clock, and says which epoch it got', async () => {
+		// THE FALSE OUTAGE, FIXED. The client's clock crosses the epoch boundary
+		// ahead of the chain, and refusing the read for that turned a two-clock
+		// disagreement of seconds into a failed one: catchup budget expiring into
+		// backoff, an UNHEALTHY line, the RPC banner over a board that was merely
+		// a moment behind. The read is accepted and STAMPED with the chain's own
+		// epoch, which is what lets `boardBehindClock` call it "catching-up"
+		// instead of the banner calling it an outage.
+		const {client} = fakeClient({avatars: [someAvatar], epoch: 6n});
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		const state = await read({
+			zones: [0n],
+			fromBlock: 0,
+			toBlock: 10,
+			expectedEpoch: 7,
+		});
+		expect(state?.avatars.get(5n)).toBeTruthy();
+		expect(state?.epoch).toEqual(6);
+	});
+
+	it('accepts a read from AHEAD of the clock, and says which epoch it got', async () => {
+		// The other direction of the same disagreement, and the other half of why
+		// an exact match was wrong: a chain a block ahead of the client's clock is
+		// fresher data, not a failed read.
+		const {client} = fakeClient({avatars: [someAvatar], epoch: 8n});
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		const state = await read({
+			zones: [0n],
+			fromBlock: 0,
+			toBlock: 10,
+			expectedEpoch: 7,
+		});
+		expect(state?.epoch).toEqual(8);
+	});
+
+	it('refuses to stitch pages whose epochs disagree', async () => {
+		// The ONE refusal that is left, and the reason it exists: pages are
+		// pinned to one block, so disagreeing epochs mean a reorg replaced it
+		// mid-read, and the halves describe different worlds. (The old check
+		// conflated this with comparing against the clock.)
+		let page = 0;
+		const client = {
+			readContract: async () => {
+				page++;
+				// `more` true on the first page so the read keeps paging and sees
+				// the disagreement.
+				return [
+					page === 1 ? [someAvatar] : [],
+					page === 1,
+					page === 1 ? 6n : 7n,
+				];
+			},
+			getContractEvents: async () => [],
+		};
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		const state = await read({
+			zones: [0n],
+			fromBlock: 0,
+			toBlock: 10,
+			expectedEpoch: 7,
+		});
+		expect(state).toBeUndefined();
+	});
+
 	it('asks for nothing at all when the camera has no zones', async () => {
 		const {client, calls} = fakeClient({});
 		const read = createWorldReader({

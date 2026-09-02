@@ -273,8 +273,17 @@ export function createWorldReader(params: {
 		async function readBatch(
 			batch: bigint[],
 			toBlock: number,
-		): Promise<PublicAvatar[] | undefined> {
+		): Promise<{avatars: PublicAvatar[]; epoch: number} | undefined> {
 			const collected: PublicAvatar[] = [];
+			/**
+			 * The epoch of the first page, which every later page must agree with.
+			 *
+			 * THE ONLY REASON A READ IS REFUSED. All the pages are pinned to one
+			 * block, so they normally cannot disagree; one that does means a reorg
+			 * replaced the block mid-read, and stitching the halves would produce a
+			 * world that never existed.
+			 */
+			let readEpoch: number | undefined;
 			// `fromIndex` is a FLAT index across the whole batch of zones, not a
 			// per-zone one, so paging walks the concatenation of their avatar
 			// arrays.
@@ -299,11 +308,9 @@ export function createWorldReader(params: {
 					blockNumber: BigInt(toBlock),
 				})) as [readonly PublicAvatar[], boolean, bigint];
 
-				// Every page must be from the epoch we asked about. One that is not
-				// means the chain moved under the read, and stitching the halves
-				// together would produce a world that never existed. Undefined tells
-				// the framework to retry rather than treating it as a failed read.
-				if (Number(epoch) !== expectedEpoch) return undefined;
+				const at = Number(epoch);
+				if (readEpoch === undefined) readEpoch = at;
+				else if (at !== readEpoch) return undefined;
 
 				collected.push(...avatars);
 
@@ -311,10 +318,12 @@ export function createWorldReader(params: {
 				// contract tests `fromIndex + limit > total`, so an exact fit takes
 				// the `else`). That costs one extra call returning nothing, which is
 				// why the empty page rather than `more` is what ends the loop.
-				if (!more || avatars.length === 0) return collected;
+				if (!more || avatars.length === 0) {
+					return {avatars: collected, epoch: readEpoch};
+				}
 				fromIndex += BigInt(avatars.length);
 			}
-			return collected;
+			return {avatars: collected, epoch: readEpoch!};
 		}
 
 		// TOGETHER, because they describe the same moment and the reveal window is
@@ -328,9 +337,14 @@ export function createWorldReader(params: {
 		]);
 
 		const byID = new Map<bigint, Avatar>();
+		let readEpoch: number | undefined;
 		for (const batch of batches) {
 			if (batch === undefined) return undefined;
-			for (const a of batch) {
+			// Every batch reads the same pinned block, so they agree; a
+			// disagreement is the same reorg case the pages guard against.
+			if (readEpoch === undefined) readEpoch = batch.epoch;
+			else if (batch.epoch !== readEpoch) return undefined;
+			for (const a of batch.avatars) {
 				byID.set(a.avatarID, {
 					avatarID: a.avatarID,
 					owner: a.owner,
@@ -343,6 +357,22 @@ export function createWorldReader(params: {
 			}
 		}
 
-		return {avatars: byID, epoch: expectedEpoch};
+		// STAMPED WITH THE EPOCH THE CHAIN REPORTED, not the one the clock asked
+		// about. This is the fix for the false outage: the client's clock
+		// interpolates from the wall clock between blocks and crosses the epoch
+		// boundary BEFORE the chain has mined a block past it, and refusing the
+		// read for that turned a two-clock disagreement of seconds into a FAILED
+		// one - the poller's catchup budget expiring into exponential backoff,
+		// an UNHEALTHY line in the trace, and the RPC banner over a board that
+		// was never anything but a moment behind. bomber-world's fetcher never
+		// had this because it only refuses when the chain is OLDER than expected,
+		// and even that as an error rather than a retry.
+		//
+		// Accepting the read leaves the display to say what is true: the board
+		// holds a real state from a real block, `boardBehindClock` calls it
+		// `catching-up`, and the settle keeps fetching until the chain crosses.
+		// `expectedEpoch` stays what it is for - the SCOPE the framework
+		// refetches on - without being allowed to fail a read over it.
+		return {avatars: byID, epoch: readEpoch ?? expectedEpoch};
 	};
 }

@@ -262,7 +262,7 @@
 	looking at their avatar, not at the HUD in the corner, so the one thing that
 	has to be unmissable is "this round is no longer yours to change".
 -->
-{#if ($hud.phase === 'commit' || $hud.phase === 'reveal') && !$hud.setup}
+{#if $hud.phase !== 'play' && !$hud.setup}
 	<div
 		class="pointer-events-none fixed inset-0 z-50 border-[10px] border-red-600"
 	></div>

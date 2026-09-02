@@ -7,10 +7,12 @@
 	`twoPhase`, `localState` and `deployments` itself, and now it takes a finished
 	model as props. Everything it used to decide lives in `./hud.ts`.
 
-	FOUR PARTS OF THE ROUND, one colour each, rather than the old two: the move
-	window, the commit lock, the reveal, and the catch-up at the boundary. The
-	middle two were folded into one "wait" before, which was fine to play on and
-	useless to debug against.
+	TWO OVERALL STATES, as it always was: green while the round is yours to
+	change, red once it is resolving - where "resolving" is the commit lock, the
+	reveal and the catch-up at the boundary, all of them "not yours right now"
+	to exactly the same degree. WHICH one it is shows in the label beside the
+	dial and in its countdown, not in a third colour: a player acts on "can I
+	move?", and only a debugger wants the finer split.
 
 	Purely presentational, so it can sit anywhere: the HUD renders it, and the
 	tutorial points at `#game-clock`.
@@ -47,22 +49,18 @@
 	const center = $derived(size / 2);
 	const radius = $derived(size * 0.4);
 
-	// One colour per part of the round: green to move, amber while the
-	// commitments land, red for the reveal, blue for the catch-up.
-	const COLOURS = {
-		play: 'oklch(57.7% 0.245 27.325)',
-		commit: 'oklch(75% 0.15 80)',
-		reveal: 'oklch(58% 0.21 27)',
-		'catching-up': 'oklch(62% 0.15 250)',
-	} as const;
-	const FILL = {
-		play: 'oklch(79.2% 0.209 151.711)',
-		commit: 'oklch(85.2% 0.199 91.936)',
-		reveal: 'oklch(57.7% 0.245 27.325)',
-		'catching-up': 'oklch(40% 0.12 250)',
-	} as const;
-	const colour = $derived(COLOURS[phase]);
-	const background = $derived(FILL[phase]);
+	// Green while the window is open, red for everything after it - the lock,
+	// the reveal and the catch-up alike.
+	const colour = $derived(
+		phase === 'play'
+			? 'oklch(57.7% 0.245 27.325)'
+			: 'oklch(85.2% 0.199 91.936)',
+	);
+	const background = $derived(
+		phase === 'play'
+			? 'oklch(79.2% 0.209 151.711)'
+			: 'oklch(57.7% 0.245 27.325)',
+	);
 
 	function piePath(fraction: number): string {
 		const angle = Math.min(1, Math.max(0, fraction)) * 360;

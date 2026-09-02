@@ -50,15 +50,17 @@ const NAMESPACES = {
 /**
  * Log a store's value whenever the part we care about changes.
  *
- * `describe` returns a string, or undefined to say "not worth a line". Repeats
- * are dropped: these stores re-emit constantly (the onchain poll alone fires
- * every five seconds), and a trace that repeats itself is one nobody reads to
- * the end.
+ * `describe` returns a line, undefined to say "not worth a line", or a line with
+ * a DETAIL: something to hand to the console beside the text, so an error
+ * arrives as the expandable object it is rather than as `[object Object]`.
+ * Repeats are dropped: these stores re-emit constantly (the onchain poll alone
+ * fires every five seconds), and a trace that repeats itself is one nobody
+ * reads to the end.
  */
 function watch<T>(
 	namespace: string,
 	store: Readable<T>,
-	describe: (value: T) => string | undefined,
+	describe: (value: T) => string | undefined | {line: string; detail?: unknown},
 ): () => void {
 	const logger = logs(namespace);
 	let previous: string | undefined;
@@ -66,23 +68,46 @@ function watch<T>(
 	let first = true;
 
 	return store.subscribe((value) => {
-		const line = describe(value);
-		if (line === undefined || line === previous) return;
+		const described = describe(value);
+		if (described === undefined) return;
+		const line = typeof described === 'string' ? described : described.line;
+		if (line === previous) return;
 		const now = Date.now();
 		// The first line is a baseline, not an interval.
 		const gap = first ? '' : ` (+${now - last}ms)`;
 		first = false;
 		last = now;
 		previous = line;
-		logger.debug(`${line}${gap}`);
+		if (typeof described === 'string') {
+			logger.debug(`${line}${gap}`);
+		} else {
+			logger.debug(`${line}${gap}`, described.detail);
+		}
 	});
 }
 
 const shortAddress = (a: string | undefined) =>
 	a ? `${a.slice(0, 6)}..${a.slice(-4)}` : 'none';
 
-const message = (error: unknown) =>
-	error instanceof Error ? error.message : String(error);
+/**
+ * The one-line version of an error, for scanning a trace.
+ *
+ * NOT a substitute for the error itself: plenty of failures arrive as plain
+ * objects (viem's request errors, the poller's `{message, cause}`), and
+ * `String()` on those prints `[object Object]` - a trace that cannot be read is
+ * one nobody reads to the end. So this reaches for a `message` field when there
+ * is one, and the full object is passed to the console BESIDE the line (see
+ * `watch`) so it can be expanded.
+ */
+export const errorSummary = (error: unknown): string => {
+	if (error instanceof Error) return error.message;
+	if (typeof error === 'object' && error !== null) {
+		const message = (error as {message?: unknown}).message;
+		if (typeof message === 'string' && message !== '') return message;
+		return Object.prototype.toString.call(error);
+	}
+	return String(error);
+};
 
 /**
  * Start watching. Returns the teardown.
@@ -171,7 +196,15 @@ export function startDiagnostics(context: Context): () => void {
 		watch(NAMESPACES.rpc, context.rpcHealth, ($health) =>
 			$health.healthy
 				? 'healthy'
-				: `UNHEALTHY: ${$health.error ? message($health.error) : 'no error given'}`,
+				: {
+						line: `UNHEALTHY: ${
+							$health.error ? errorSummary($health.error) : 'no error given'
+						}`,
+						// The whole error, as an object the console can expand: the
+						// summary above is for scanning, and `String()` on a plain
+						// object is how this line used to read `[object Object]`.
+						detail: $health.error,
+					},
 		),
 	);
 
@@ -191,7 +224,10 @@ export function startDiagnostics(context: Context): () => void {
 		stops.push(
 			watch(NAMESPACES.rpc, status, ($status) =>
 				$status.error
-					? `${name}: ERROR ${message($status.error)}`
+					? {
+							line: `${name}: ERROR ${errorSummary($status.error)}`,
+							detail: $status.error,
+						}
 					: $status.loading
 						? undefined // loading is noise; only settled outcomes decide health
 						: `${name}: ok`,
