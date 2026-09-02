@@ -169,6 +169,49 @@ describe('createReconciler', () => {
 		expect(log).toEqual(['add a']);
 	});
 
+	it('enumerates the live objects, for a renderer that animates them', () => {
+		// The case the stateful renderer is RECOMMENDED for: `tick` is handed a
+		// frame and nothing else, so without this a renderer advancing one
+		// animation per object has to keep a parallel collection filled in `add`
+		// and emptied in `remove` - a second source of truth that is silent when
+		// it is wrong. A game on this template had already written one.
+		const log: Log = [];
+		const reconciler = makeReconciler(log);
+		reconciler.apply(
+			new Map([
+				['a', {stake: 1}],
+				['b', {stake: 2}],
+			]),
+		);
+
+		expect([...reconciler.values()].map((o) => o.id)).toEqual(['a', 'b']);
+		expect([...reconciler.entries()].map(([key, o]) => [key, o.id])).toEqual([
+			['a', 'a'],
+			['b', 'b'],
+		]);
+	});
+
+	it('stops enumerating an object the snapshot dropped', () => {
+		// The half a hand-kept parallel collection gets wrong: `remove` ran, so
+		// the object is off the surface, and anything still iterating it is
+		// animating something nobody can see.
+		const log: Log = [];
+		const reconciler = makeReconciler(log);
+		reconciler.apply(
+			new Map([
+				['a', {stake: 1}],
+				['b', {stake: 2}],
+			]),
+		);
+		reconciler.apply(new Map([['b', {stake: 2}]]));
+
+		expect([...reconciler.values()].map((o) => o.id)).toEqual(['b']);
+
+		// And `clear`/`forget` leave nothing to iterate at all.
+		reconciler.clear();
+		expect([...reconciler.values()]).toEqual([]);
+	});
+
 	it('accepts any iterable of entries, not only a Map', () => {
 		const log: Log = [];
 		const reconciler = makeReconciler(log);

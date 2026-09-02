@@ -108,6 +108,26 @@ export type Reconciler<TKey, TEntity, TObject> = {
 	forget(): void;
 	/** The object for a key, for a renderer that needs to reach one directly. */
 	get(key: TKey): TObject | undefined;
+	/**
+	 * Every live object, for a renderer that has to touch all of them.
+	 *
+	 * The reason this exists is per-frame animation, which is the case the
+	 * stateful renderer is RECOMMENDED for: `tick` is handed a frame and
+	 * nothing else, so without a way to enumerate what is on screen a renderer
+	 * that wants to advance one animation per object has to keep its own
+	 * parallel `Set` and remember to add to it in `add` and delete from it in
+	 * `remove`. That duplicate is a second source of truth which is wrong
+	 * exactly when a handler throws or a key is re-added, and it is silent when
+	 * it is wrong. A game on this template had already written one.
+	 *
+	 * Live views over the reconciler's own map, so iterating during `tick`
+	 * costs no allocation. Do not add or remove objects behind the
+	 * reconciler's back while iterating; change the SNAPSHOT and let `apply`
+	 * do it.
+	 */
+	values(): IterableIterator<TObject>;
+	/** The same, with keys, for a renderer whose animation is keyed. */
+	entries(): IterableIterator<[TKey, TObject]>;
 	readonly size: number;
 };
 
@@ -162,6 +182,12 @@ export function createReconciler<TKey, TEntity, TObject>(
 		},
 		get(key: TKey) {
 			return objects.get(key);
+		},
+		values() {
+			return objects.values();
+		},
+		entries() {
+			return objects.entries();
 		},
 		get size() {
 			return objects.size;

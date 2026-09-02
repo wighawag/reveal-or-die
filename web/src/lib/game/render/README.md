@@ -86,6 +86,13 @@ Four things it does that a hand-written loop usually does not, all of which are 
 - **An `Unloaded` view empties the scene.** State can go backwards (an account switch, a chain reset), and a loop that returns early on `Unloaded` leaves a board that belongs to nobody on screen forever.
 - **Epoch changes are announced**, before that epoch's entities are applied. A commit-reveal game draws local intent that is scoped to exactly one epoch; without a signal, a renderer can only infer the boundary from entities changing, which is the inference that fails when nothing changed.
 - **Teardown drops objects without running `remove`.** The surface has already taken them. Use `onStopped` for anything the surface does not own.
+- **`tick` can enumerate the live objects.** It is handed `objects` (and `entries`, keyed) alongside the frame, which is what makes the per-object animation this style is recommended for actually writable. Without it a renderer has to keep its own parallel collection, filled in `add` and emptied in `remove`: a second source of truth that is wrong exactly when a handler throws or a key is re-added, and silent when it is wrong.
+
+```ts
+tick: ({frame, objects}) => {
+	for (const object of objects) object.advance(frame.delta);
+},
+```
 
 ## The camera is the framework's, and it is authoritative
 
