@@ -181,13 +181,15 @@ function fakeClient(options: {
 	eventsFail?: boolean;
 	epoch?: bigint;
 }) {
-	const calls: {logRanges: {from: bigint; to: bigint}[]} = {logRanges: []};
+	const calls: {
+		logRanges: {from: bigint; to: bigint}[];
+		readBlocks: (bigint | undefined)[];
+	} = {logRanges: [], readBlocks: []};
 	const client = {
-		readContract: async () => [
-			options.avatars ?? [],
-			false,
-			options.epoch ?? 7n,
-		],
+		readContract: async (request: {blockNumber?: bigint}) => {
+			calls.readBlocks.push(request.blockNumber);
+			return [options.avatars ?? [], false, options.epoch ?? 7n];
+		},
 		getContractEvents: async (args: {fromBlock: bigint; toBlock: bigint}) => {
 			calls.logRanges.push({from: args.fromBlock, to: args.toBlock});
 			if (options.eventsFail) throw new Error('this RPC does not do logs');
@@ -302,6 +304,26 @@ describe('reading what the chain resolved, not just where things stand', () => {
 		// and together they cover it exactly, with no gap to lose a reveal in
 		expect(calls.logRanges[0].from).toEqual(0n);
 		expect(calls.logRanges.at(-1)?.to).toEqual(2500n);
+	});
+
+	it('reads the entities from the SAME block the logs stop at', async () => {
+		// THE PAIR MUST NOT SPLIT. The entity read and the log read are separate
+		// RPC calls against a moving chain, and a reveal mined between them
+		// leaves storage saying the avatar has moved while its turn is still
+		// outside the log range. The position then lands one poll ahead of the
+		// turn: the avatar jumps, and the turn that follows replays BACKWARDS
+		// from where it already stands. Pinning both to `toBlock` makes the pair
+		// move together - both see the reveal, or neither does.
+		const {client, calls} = fakeClient({avatars: [someAvatar]});
+		const read = createWorldReader({
+			publicClient: client as never,
+			deployments,
+		});
+		await read({zones: [0n], fromBlock: 0, toBlock: 42, expectedEpoch: 7});
+		expect(calls.readBlocks.length).toBeGreaterThan(0);
+		for (const block of calls.readBlocks) {
+			expect(block).toEqual(42n);
+		}
 	});
 
 	it('asks for nothing at all when the camera has no zones', async () => {

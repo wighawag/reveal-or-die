@@ -157,13 +157,27 @@ export class AvatarObject extends Container {
 			.map((action) => action.to);
 		if (path.length === 0) return;
 
-		// From where it is DRAWN, not from where the turn started: on a slow frame
-		// or a re-render mid-walk that is the honest starting point, and it is
-		// already the previous cell in the ordinary case.
-		const from: Position = {
+		// ALREADY THERE, SO TOO LATE. The turn and the position it produced are
+		// supposed to arrive together; when they do not - the reads split across
+		// the reveal's block, or a log read that failed once and succeeded the
+		// next poll - the position lands first and this turn lands a poll later,
+		// when the avatar is already drawn where the walk would end. Replaying
+		// from there would run BACKWARDS through the path and forward again,
+		// which is worse than not replaying at all. `walkedEpoch` was already
+		// set above, so the turn is not retried either: the moment for it has
+		// passed.
+		const drawnAt: Position = {
 			x: this.position.x / this.cellSize,
 			y: this.position.y / this.cellSize,
 		};
+		if (drawnAt.x === entity.position.x && drawnAt.y === entity.position.y) {
+			return;
+		}
+
+		// From where it is DRAWN, not from where the turn started: on a slow frame
+		// or a re-render mid-walk that is the honest starting point, and it is
+		// already the previous cell in the ordinary case.
+		const from: Position = drawnAt;
 		this.walk = createWalk({
 			from,
 			path,

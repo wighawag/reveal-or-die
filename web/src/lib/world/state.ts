@@ -272,6 +272,7 @@ export function createWorldReader(params: {
 
 		async function readBatch(
 			batch: bigint[],
+			toBlock: number,
 		): Promise<PublicAvatar[] | undefined> {
 			const collected: PublicAvatar[] = [];
 			// `fromIndex` is a FLAT index across the whole batch of zones, not a
@@ -284,6 +285,18 @@ export function createWorldReader(params: {
 					abi: Game.abi,
 					functionName: 'getAvatarsInMultipleZones',
 					args: [batch, fromIndex, PAGE_SIZE],
+					// PINNED TO THE SAME BLOCK THE LOGS STOP AT, and this is not an
+					// optimisation. The two reads are separate RPC calls against a chain
+					// that is moving, and a reveal landing between them splits the pair:
+					// storage already says the avatar has moved while
+					// `CommitmentRevealed` is still outside the log range. The position
+					// then arrives one poll ahead of the turn, which draws as a jump
+					// followed by a walk that runs BACKWARDS from the destination and
+					// then forward again - observed on a second browser, which has
+					// nothing but the poller to tell it a reveal happened. The same
+					// block for both means the pair moves together: either both see
+					// the reveal, or neither does, and the next poll carries both.
+					blockNumber: BigInt(toBlock),
 				})) as [readonly PublicAvatar[], boolean, bigint];
 
 				// Every page must be from the epoch we asked about. One that is not
@@ -308,7 +321,9 @@ export function createWorldReader(params: {
 		// short: reading them one after the other would leave the turn history a
 		// round trip behind the board it belongs to.
 		const [batches, turns] = await Promise.all([
-			Promise.all(chunk(zones, ZONES_PER_CALL).map(readBatch)),
+			Promise.all(
+				chunk(zones, ZONES_PER_CALL).map((batch) => readBatch(batch, toBlock)),
+			),
 			readResolvedTurns({zones, epoch: expectedEpoch, fromBlock, toBlock}),
 		]);
 
