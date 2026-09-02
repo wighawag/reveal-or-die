@@ -58,6 +58,7 @@ import {
 import {createPlanning, type PlanningStore} from '$lib/world/planning';
 import {createControls, type Controls} from '$lib/world/controls';
 import {holdBoardUntilRoundEnds} from '$lib/world/hold';
+import {holdPlanUntilBoardReleases} from '$lib/world/display-plan';
 import {
 	createRevealOutcome,
 	type RevealOutcome,
@@ -895,7 +896,25 @@ export function createGameContext(core: CoreServices): GameContext {
 
 	const viewState = createViewState({
 		onchainState: heldBoard.board,
-		localState: planning.plan,
+		/**
+		 * THE DISPLAY COPY of the plan, not the round's live one.
+		 *
+		 * The two halves of a turn - the local overlay before it resolves, the
+		 * board's account of it after - have to hand over with nothing in
+		 * between, and the round drops its actions the moment it reaches
+		 * `Revealed`, seconds before the board releases what they did. See
+		 * `$lib/world/display-plan`. It is released by the board's OWN signal, so
+		 * the two cannot disagree about when the round ended.
+		 *
+		 * ONLY WHAT IS DRAWN. `planning.plan` itself is untouched, and everything
+		 * that acts on a turn keeps reading it and the round: a held display copy
+		 * must not make the HUD offer an Undo for a turn that is already on chain.
+		 */
+		localState: holdPlanUntilBoardReleases({
+			round,
+			plan: planning.plan,
+			holding: heldBoard.holding,
+		}),
 		merge: mergeWorldView,
 	});
 
