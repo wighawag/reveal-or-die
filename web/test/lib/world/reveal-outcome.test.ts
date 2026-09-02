@@ -67,6 +67,23 @@ describe('remembering the turn the round forgot', () => {
 	const revealed = {step: 'Revealed', epoch: 3} as RoundState<Action>;
 
 	describe('what the chain says it accepted, in the same words', () => {
+		it('ignores a board copy from a DIFFERENT round', () => {
+			// The board holds the resolving round back until it is over
+			// (`world/hold.ts`), so during the reveal window its `lastTurn` is
+			// still the PREVIOUS round's. Taking it because it is merely present
+			// would describe the wrong turn, and confidently: the round says
+			// epoch 3, the board still says 2.
+			const {state, mineState, outcome} = round(revealing([move]));
+			const seen: (string | undefined)[] = [];
+			const stop = outcome.subscribe((v) => seen.push(v));
+			mineState.set({
+				lastTurn: {epoch: 2, actions: [{type: 'exit', to: {x: 9, y: 9}}]},
+			});
+			state.set(revealed);
+			expect(seen.at(-1)).toBe('moved');
+			stop();
+		});
+
 		it('reads the board\u2019s copy when there is one', () => {
 			// `lastTurn` is the accepted prefix out of `CommitmentRevealed`: a step
 			// into a wall is absent from it. The round's own memory knows only what

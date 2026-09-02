@@ -109,7 +109,15 @@ export function createRevealOutcome(
 			// `Revealed` that follows does not.
 			if ('actions' in $round) latest = $round.actions;
 			if ($round.step !== 'Revealed') return undefined;
-			if ($mine?.lastTurn) return outcomeOfResolved($mine.lastTurn.actions);
+			// THE BOARD'S ACCOUNT OF THE ROUND THAT WAS JUST REVEALED, matched by
+			// epoch rather than merely taken when present. The board holds the
+			// resolving round back until it is over (`world/hold.ts`), so during
+			// the reveal window `lastTurn` is still the PREVIOUS round's, and
+			// using it would describe the wrong turn confidently. Once the round
+			// ends the epochs line up and the accepted prefix takes over.
+			if ($mine?.lastTurn?.epoch === $round.epoch) {
+				return outcomeOfResolved($mine.lastTurn.actions);
+			}
 			return latest ? outcomeOf(latest) : undefined;
 		},
 	);
