@@ -39,9 +39,25 @@ describe('remembering the turn the round forgot', () => {
 	 * been watching. That is the whole reason this store exists rather than a
 	 * pure function over the round state.
 	 */
-	function round(initial: RoundState<Action>) {
+	function round(
+		initial: RoundState<Action>,
+		mine: {
+			lastTurn?: {
+				epoch: number;
+				actions: {
+					type: 'move' | 'enter' | 'exit';
+					to: {x: number; y: number};
+				}[];
+			};
+		} = {},
+	) {
 		const state = writable(initial);
-		return {state, outcome: createRevealOutcome(state)};
+		const mineState = writable(mine);
+		return {
+			state,
+			mineState,
+			outcome: createRevealOutcome(state, mineState),
+		};
 	}
 
 	const planning = (actions: Action[]): RoundState<Action> =>
@@ -49,6 +65,40 @@ describe('remembering the turn the round forgot', () => {
 	const revealing = (actions: Action[]): RoundState<Action> =>
 		({step: 'Revealing', epoch: 3, actions}) as RoundState<Action>;
 	const revealed = {step: 'Revealed', epoch: 3} as RoundState<Action>;
+
+	describe('what the chain says it accepted, in the same words', () => {
+		it('reads the board\u2019s copy when there is one', () => {
+			// `lastTurn` is the accepted prefix out of `CommitmentRevealed`: a step
+			// into a wall is absent from it. The round's own memory knows only what
+			// was revealed, so this is the input that makes the sentence true.
+			const {state, mineState, outcome} = round(revealed);
+			const seen: (string | undefined)[] = [];
+			const stop = outcome.subscribe((v) => seen.push(v));
+
+			mineState.set({
+				lastTurn: {epoch: 3, actions: [{type: 'move', to: {x: 1, y: 0}}]},
+			});
+			expect(seen.at(-1)).toBe('moved');
+
+			mineState.set({lastTurn: {epoch: 3, actions: []}});
+			// SOMETHING was revealed and none of it was accepted. "Stayed" is now
+			// the truth about it rather than a restatement of an empty plan.
+			expect(seen.at(-1)).toBe('stayed');
+			stop();
+		});
+
+		it('falls back to what was revealed when the board has no copy', () => {
+			// The player's own avatar is not always in the fetched zones: out of the
+			// world, or panned away from. The remembered actions still describe their
+			// turn, less precisely.
+			const {state, outcome} = round(revealing([move]));
+			const seen: (string | undefined)[] = [];
+			const stop = outcome.subscribe((v) => seen.push(v));
+			state.set(revealed);
+			expect(seen.at(-1)).toBe('moved');
+			stop();
+		});
+	});
 
 	it('reports the actions that were in the round when it was revealed', () => {
 		const {state, outcome} = round(planning([move]));

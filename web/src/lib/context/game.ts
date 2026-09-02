@@ -556,13 +556,31 @@ export function createGameContext(core: CoreServices): GameContext {
 		player: gameIdentity,
 	});
 
-	const revealOutcome = createRevealOutcome(round);
-
 	const viewState = createViewState({
 		onchainState,
 		localState: planning.plan,
 		merge: mergeWorldView,
 	});
+
+	/**
+	 * The player's own avatar as the BOARD holds it, camera-scoped.
+	 *
+	 * Used for what the chain ACCEPTED of the last turn: `lastTurn` on it is the
+	 * resolved prefix out of `CommitmentRevealed`, which is the truth about what
+	 * the turn did where the round's own memory only knows what was revealed.
+	 * Undefined whenever the avatar is not in the fetched zones - out of the
+	 * world, or panned away from - which is why it is a fallback and not the
+	 * only input.
+	 */
+	const myAvatarOnBoard = derived(
+		[viewState, activeAvatarID],
+		([$view, $avatarID]) =>
+			$view.step === 'Loaded' && $avatarID !== undefined
+				? $view.avatars.get($avatarID)
+				: undefined,
+	);
+
+	const revealOutcome = createRevealOutcome(round, myAvatarOnBoard);
 
 	const gameRenderer = createGameRenderer({
 		viewState,
