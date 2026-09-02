@@ -103,8 +103,30 @@ Three layers, none of which know about any rendering library:
 - `view-transform.ts` is the arithmetic: world/screen conversion, zoom limits, fitting, zoom-about-a-point, culling. Pure functions. (`ViewTransform` and `ScreenSize` themselves are declared in `game/core/seams`, because `Frame` carries them and that keeps the dependency running render → core.)
 - `gestures.ts` recognises drag-to-pan, pinch, wheel and tap, and emits INTENTS. The recogniser takes plain numbers so it can be tested in node; `attachGestures` is the thin DOM half.
 - `camera.ts` applies intents to the transform and publishes the `Camera` store the state layer reads to decide what to load.
+- `keys.ts` and `gamepad.ts` are the same split for the keyboard and the gamepad. See below.
 - `grid.ts` is where the grid lines are, in game units, shared by both hosts so they cannot drift apart.
 - `frame-loop.ts` is the elapsed/delta bookkeeping (in milliseconds, and the `Frame` field names say so) and `Frame` assembly, shared for the same reason.
+
+## Keyboard and gamepad, as intent recognisers
+
+Same shape as `gestures.ts`, twice more: a pure recogniser that turns raw input into a `ControlIntent`, and a small DOM half that feeds it. Nothing here knows what a piece, a round or an epoch is.
+
+| file         | pure half                                                     | DOM half                       |
+| ------------ | ------------------------------------------------------------- | ------------------------------ |
+| `intents.ts` | the vocabulary: `direction`, `confirm`, `secondary`, `cancel` | none                           |
+| `keys.ts`    | `recognizeKey(sample)`                                        | `attachKeys(target, onIntent)` |
+| `gamepad.ts` | `createGamepadRecognizer().poll(pads)`                        | `attachGamepad(onIntent)`      |
+
+**The mapping from an intent to a game action stays in the game.** Directional / confirm / cancel input is generic to any board game on this template; "step north" and "commit the round" are not. That is the whole line, and it is what lets one mapping serve a keyboard, a gamepad and an on-screen d-pad without three copies of the game's rules.
+
+The recognisers are pure for the reason `gestures.ts` gives: the interesting cases are the ones a human cannot reliably perform. A held key repeating thirty times a second, a modifier chord, a controller that reports six buttons instead of seventeen, a stick rolled from left to up without passing the centre. Each is one function call in the node test project and a fight in a browser.
+
+Two guards in `attachKeys` are worth not losing, because both were paid for:
+
+- **`preventDefault` is called only for keys that produced an intent.** Arrows and space scroll the page, and a board that jumps a screen down on every step is unplayable; but swallowing Tab would trap keyboard navigation and swallowing F5 would break reloading.
+- **Where a keystroke is aimed is asked in two kinds, not one.** A text field consumes every key including the arrows, so the game hears none of them. A focused button consumes only Enter and Space, so it loses only those. Collapsing the two is a bug in whichever direction you collapse it, and the second bites immediately: pressing an on-screen d-pad with a mouse leaves that button focused, so a blanket rule stops the keyboard working with nothing on screen to explain why.
+
+`attachGamepad` polls only while a pad is connected and starts on `gamepadconnected`, so a player with no gamepad pays nothing. Neither one decides a lifetime: bind them where input should be live, which is usually the route rather than the canvas, so input survives a canvas unmount without outliving the board.
 
 **A click leaves this layer as a world POINT, not a cell.** Snapping is a game rule: rounding to the nearest integer would make every game on the template a square grid with cells centred on integers. The template's game does that rounding in its own click handler in `context/game.ts`; a hex board or a continuous world does something else.
 
