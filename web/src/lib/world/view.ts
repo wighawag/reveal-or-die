@@ -159,10 +159,25 @@ export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 		return {avatars, activeAvatarID: activeID, epoch};
 	}
 
-	// Planned to ENTER: there is nothing on chain behind this avatar yet, so the
-	// entity is invented here. Drawing it is the point. A player who picks a
-	// spawn and sees nothing appear until the reveal lands an epoch later has no
-	// way to tell the click registered.
+	// NOTHING ON CHAIN BEHIND THIS AVATAR, so the entity is invented here.
+	// Drawing it is the point, and there are two ways to arrive at it.
+	//
+	// Planned to ENTER, which is the ordinary one: a player who picks a spawn and
+	// sees nothing appear until the reveal lands an epoch later has no way to
+	// tell the click registered.
+	//
+	// Or planned to LEAVE and already gone from the read: `_exit` removes the
+	// avatar from its zone, so the board loses it the moment the reveal lands,
+	// while the round it belongs to has seconds left to run. The board's hold
+	// cannot keep it - an avatar missing from the read is indistinguishable from
+	// one the player panned away from, which is why `world/hold.ts` says it
+	// cannot do exits - but the plan naming an Exit says so for this ONE avatar,
+	// the player's, and inventing it keeps it on the board until the round ends
+	// with everybody else's outcome.
+	//
+	// `entering` is therefore asked of the plan rather than assumed: it drives the
+	// spawn animation and hides the blockie, and a leaving avatar must not be
+	// drawn appearing.
 	avatars.set(activeID, {
 		avatarID: activeID,
 		owner: local.player ?? '0x0000000000000000000000000000000000000000',
@@ -173,7 +188,7 @@ export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 		isPlayer: true,
 		planned: local.planned,
 		plannedPosition: last.to,
-		entering: true,
+		entering: local.planned.some((action) => action.type === 'enter'),
 	});
 
 	return {avatars, activeAvatarID: activeID, epoch};

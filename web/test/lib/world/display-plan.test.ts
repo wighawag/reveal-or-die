@@ -32,6 +32,8 @@ const ME = 7n;
 const PLAYER = '0x1111111111111111111111111111111111111111' as const;
 /** The corridor from `planning.test.ts`: (0,1), (0,2), (0,3) are walkable. */
 const START: Position = {x: 0, y: 1};
+/** The area's one exit tile, and the only cell it can be reached from. */
+const EXIT: Position = {x: 3, y: 5};
 
 const moveTo = (to: Position): Action => ({
 	actionType: ActionType.Move,
@@ -39,6 +41,10 @@ const moveTo = (to: Position): Action => ({
 });
 const enterAt = (at: Position): Action => ({
 	actionType: ActionType.Enter,
+	data: xyToBigIntID(at.x, at.y),
+});
+const exitAt = (at: Position): Action => ({
+	actionType: ActionType.Exit,
 	data: xyToBigIntID(at.x, at.y),
 });
 
@@ -354,6 +360,34 @@ describe('the handover, from the local overlay to the board', () => {
 		const last = seen[seen.length - 1]!;
 		expect(last.position).toEqual({x: 0, y: 3});
 		expect(last.planned).toHaveLength(0);
+		stop();
+	});
+
+	it('keeps a planned EXIT on screen until the round is over, then lets it go', () => {
+		// The mirror image, and the one the board's hold cannot do by itself:
+		// `_exit` removes the avatar from its zone, so it is simply MISSING from
+		// the read, and missing is indistinguishable from panned away without the
+		// camera. The plan naming an Exit says so for the player's own avatar.
+		const {round, state} = fakeRound();
+		const {seen, load, phase, stop} = compose(round, EXIT);
+		load(world(avatar({avatarID: ME, position: EXIT})));
+		state.set({step: 'Planning', epoch: 7, actions: [exitAt(EXIT)]});
+		seen.length = 0;
+
+		phase.set({phase: 'wait'});
+		// The reveal lands and the avatar is gone from the world.
+		load(world());
+		state.set({step: 'Revealed', epoch: 7});
+
+		for (const drawn of seen) {
+			expect(drawn).toBeDefined();
+			// It is LEAVING, not arriving: `entering` drives the spawn animation
+			// and hides the blockie.
+			expect(drawn!.entering).toBe(false);
+		}
+
+		phase.set({phase: 'play'});
+		expect(seen[seen.length - 1]).toBeUndefined();
 		stop();
 	});
 });
