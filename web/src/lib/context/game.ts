@@ -228,11 +228,12 @@ export type SetupAction = 'authorise' | 'buy';
  * two-phase model folded the middle two into one "wait", which is fine to
  * play on and useless to debug against, and had no slot at all for the fourth.
  *
- * `catching-up` is not a duration anyone can predict: it lasts until the
- * board's own epoch catches up with the clock's, which is however long the
- * chain takes to mine past the boundary (see `settleBoardWhenRoundStarts` for
- * why the clock is ahead of the chain there). It can also appear briefly at
- * any moment a poll is behind, which is the truth and not a glitch.
+ * `catching-up` lasts until the board's own epoch catches up with the clock's,
+ * which is however long the chain takes to mine past the boundary (see
+ * `settleBoardWhenRoundStarts` for why the clock is ahead of the chain there),
+ * and it disappears the moment a fetch lands the new round's data. The
+ * COUNTDOWN during it is the play window it is holding up, so "when can I
+ * move" keeps ticking while it lasts.
  */
 export type RoundPhase = 'play' | 'commit' | 'reveal' | 'catching-up';
 
@@ -900,9 +901,8 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * them start, and this is the same principle one epoch in: the moves look
 	 * accepted, and the failure only arrives when it is too late to matter.
 	 */
-	const readyToPlay = derived(
-		[setup, phase],
-		([$setup, $phase]) => canTakeTurnNow($setup, $phase),
+	const readyToPlay = derived([setup, phase], ([$setup, $phase]) =>
+		canTakeTurnNow($setup, $phase),
 	);
 
 	/**

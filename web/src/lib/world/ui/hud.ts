@@ -49,13 +49,17 @@ export type HudModel = {
 	 */
 	phase: RoundPhase;
 	/**
-	 * Seconds left in this part of the round, or undefined when nobody can know.
+	 * ONE countdown, and it answers the only question a player has about the
+	 * parts they cannot act in: how long until they can play again.
 	 *
-	 * Only the catch-up has no countdown: it lasts until the board's own epoch
-	 * catches up with the clock's, which is however long the chain takes.
+	 * During the wait it spans the commit lock AND the reveal as a single
+	 * countdown to the window opening, rather than restarting at each step - a
+	 * player does not care which half of the wait they are in. During the
+	 * catch-up it shows the play window it is holding up, so "when can I move"
+	 * keeps ticking and only the label changes when the data lands.
 	 */
-	secondsLeft?: number;
-	/** How far through this part, 0..1, for a progress dial. */
+	secondsLeft: number;
+	/** How far through the countdown, 0..1, for a progress dial. */
 	progress: number;
 	epoch: number;
 	/**
@@ -443,7 +447,7 @@ export function createHud(context: Context): Readable<HudModel> {
 	return derived(
 		[
 			game.phase,
-			game.threePhase,
+			game.twoPhase,
 			game.round,
 			game.planning.movesLeft,
 			game.planning.plan,
@@ -459,7 +463,7 @@ export function createHud(context: Context): Readable<HudModel> {
 		],
 		([
 			$phase,
-			$three,
+			$two,
 			$round,
 			$movesLeft,
 			$plan,
@@ -479,17 +483,14 @@ export function createHud(context: Context): Readable<HudModel> {
 			const phase = $phase as RoundPhase;
 			const playable = phase === 'play';
 
-			// `threePhase` on a manually advanced chain has no clock, only a phase.
-			const timed = $three as {
-				phase: string;
+			// `twoPhase` on a manually advanced chain has no clock, only a phase.
+			const timed = $two as {
+				phase?: string;
 				timeLeft?: number;
 				duration?: number;
 			};
-			const timeLeft =
-				phase === 'catching-up' || !('timeLeft' in timed)
-					? undefined
-					: timed.timeLeft;
-			const duration = 'duration' in timed ? timed.duration : 0;
+			const timeLeft = 'timeLeft' in timed ? timed.timeLeft! : 0;
+			const duration = 'duration' in timed ? timed.duration! : 0;
 
 			const purchase = $purchase as PurchaseState;
 			const needsSetup = describeSetup($setup as SetupNeeded | undefined, {
@@ -553,15 +554,9 @@ export function createHud(context: Context): Readable<HudModel> {
 			return {
 				phaseLabel,
 				phase,
-				// The catch-up has no countdown - it lasts until the board's own
-				// epoch catches up with the clock's - so the dial shows nothing it
-				// cannot honestly say.
-				secondsLeft:
-					timeLeft === undefined ? undefined : Math.max(0, Math.ceil(timeLeft)),
+				secondsLeft: Math.max(0, Math.ceil(timeLeft)),
 				progress:
-					timeLeft !== undefined && (duration ?? 0) > 0
-						? Math.min(1, Math.max(0, 1 - timeLeft / (duration ?? 1)))
-						: 1,
+					duration > 0 ? Math.min(1, Math.max(0, 1 - timeLeft / duration)) : 0,
 				epoch: $epoch.currentEpoch,
 				setup: needsSetup,
 				// `hasLocalSigner` is `TARGET_STEP === 'SignedIn'`, and NOTHING ELSE.

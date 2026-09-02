@@ -28,11 +28,10 @@
 		/** How far through this part of the round, 0..1. */
 		progress: number;
 		/**
-		 * Seconds left in this part, or undefined when nobody can know. Only the
-		 * catch-up has no countdown: it lasts until the board's own epoch catches
-		 * up with the clock's, and a dial pretending otherwise would be a lie.
+		 * Seconds left, counting the whole wait as one span that ends when the
+		 * window opens - the answer to the only question the wait raises.
 		 */
-		secondsLeft?: number;
+		secondsLeft: number;
 		size?: number;
 	} = $props();
 
@@ -100,7 +99,7 @@
 			class="fill-white font-mono text-[1.5rem] font-bold"
 			style="paint-order: stroke; stroke: rgba(0,0,0,0.6); stroke-width: 4px"
 		>
-			{secondsLeft ?? '?'}
+			{secondsLeft}
 		</text>
 	</svg>
 </div>

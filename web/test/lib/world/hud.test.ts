@@ -216,12 +216,15 @@ function fakeContext(
 		canExit?: boolean;
 		revealOutcome?: RevealOutcome;
 		phase?: RoundPhase;
+		twoPhase?: {phase: 'play' | 'wait'; timeLeft: number; duration: number};
 	} = {},
 ) {
 	return {
 		hasLocalSigner: overrides.hasLocalSigner ?? true,
 		game: {
-			threePhase: writable({phase: 'play', timeLeft: 10, duration: 20}),
+			twoPhase: writable(
+				overrides.twoPhase ?? {phase: 'play', timeLeft: 10, duration: 20},
+			),
 			phase: writable(overrides.phase ?? 'play'),
 			round: writable(round),
 			planning: {
@@ -406,10 +409,31 @@ describe('the four parts of a round, on the clock', () => {
 		}
 	});
 
-	it('offers no countdown for the one part nobody can predict', () => {
-		// The catch-up lasts until the board's own epoch catches up with the
-		// clock's, which is however long the chain takes. A dial that said
-		// otherwise would be a lie with a number on it.
+	it('counts the whole wait as one, from the lock through the reveal', () => {
+		// A player does not care which step of the wait they are in, only when
+		// they can play again, so the countdown spans both: it does not restart
+		// when the lock hands over to the reveal.
+		const waiting = get(
+			createHud(
+				fakeContext(
+					{step: 'Idle'},
+					{
+						currentPosition: {x: 1, y: 1},
+						phase: 'reveal',
+						twoPhase: {phase: 'wait', timeLeft: 12, duration: 20.2},
+					},
+				),
+			),
+		);
+		expect(waiting.secondsLeft).toBe(12);
+		expect(waiting.progress).toBeCloseTo(1 - 12 / 20.2);
+	});
+
+	it('shows the play-window countdown while catching up, and drops the label the moment data lands', () => {
+		// Catch-up happens INSIDE the play window - it is why the window is not
+		// yet usable - so the countdown it shows is the window's own: "when can
+		// I move" keeps ticking the whole time, and only the label changes when
+		// the fetch lands.
 		const catchingUp = get(
 			createHud(
 				fakeContext(
@@ -418,12 +442,14 @@ describe('the four parts of a round, on the clock', () => {
 				),
 			),
 		);
-		expect(catchingUp.secondsLeft).toBeUndefined();
+		expect(catchingUp.secondsLeft).toBe(10);
+		expect(catchingUp.phaseLabel).toBe('Catching up on last round');
 
 		const playing = get(
 			createHud(fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}})),
 		);
 		expect(playing.secondsLeft).toBe(10);
+		expect(playing.phaseLabel).toBe('Make your move');
 	});
 
 	it('does not invite a move the player cannot make, during setup in the play window', () => {
