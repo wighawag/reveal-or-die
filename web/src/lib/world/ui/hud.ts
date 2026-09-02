@@ -61,6 +61,16 @@ export type HudModel = {
 	 */
 	planningForNextRound: boolean;
 	/**
+	 * The board is fetching the state the round that just started assumes.
+	 *
+	 * A round boundary is the one moment the board is allowed to be briefly
+	 * behind - the client's clock crosses over ahead of the chain - and the
+	 * settle is a fetch retried until it lands. Saying so is the difference
+	 * between "the board knows something I do not" and a move that failed to
+	 * register.
+	 */
+	settling: boolean;
+	/**
 	 * Set when this build has NO LOCAL SIGNER, so every move has to be signed in
 	 * the wallet. Said once, up front, rather than discovered one prompt at a
 	 * time.
@@ -429,6 +439,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.setup,
 			game.purchase,
 			game.revealOutcome,
+			game.settling,
 		],
 		([
 			$phase,
@@ -444,6 +455,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			$setup,
 			$purchase,
 			$revealOutcome,
+			$settling,
 		]): HudModel => {
 			const deposited = $deposited as DepositedState;
 			const blocked = blocksCommitting($missedReveal as MissedRevealState);
@@ -518,6 +530,7 @@ export function createHud(context: Context): Readable<HudModel> {
 				// is a plan for the next one. The round stamps it that way. Not worth
 				// saying to someone who cannot play at all yet.
 				planningForNextRound: !playable && !needsSetup,
+				settling: $settling as boolean,
 				setup: needsSetup,
 				// `hasLocalSigner` is `TARGET_STEP === 'SignedIn'`, and NOTHING ELSE.
 				// It is not about hosted sign-in: a wallet-only sign-in has no host

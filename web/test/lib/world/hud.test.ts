@@ -214,6 +214,7 @@ function fakeContext(
 		purchase?: {step: string; message?: string; authorisation?: string};
 		canExit?: boolean;
 		revealOutcome?: RevealOutcome;
+		settling?: boolean;
 	} = {},
 ) {
 	return {
@@ -227,6 +228,7 @@ function fakeContext(
 				canExit: writable(overrides.canExit ?? false),
 			},
 			revealOutcome: writable(overrides.revealOutcome),
+			settling: writable(overrides.settling ?? false),
 			deposited: writable({
 				step: 'Loaded',
 				avatars: overrides.avatars ?? [avatar()],
@@ -366,6 +368,24 @@ describe('an avatar that is not in the world', () => {
 		expect(describeRound(planning, inTheWorld).label).toBe(
 			'Planned, not yet committed',
 		);
+	});
+});
+
+describe('the board catching up with a new round', () => {
+	it('is reported, rather than left as a move that did not register', () => {
+		// The clock crosses into the new round ahead of the chain, so for a moment
+		// the board legitimately shows last round's positions. That moment is the
+		// one thing worth naming, or the honest reading of "nothing happened" is
+		// that something was lost.
+		const model = get(
+			createHud(
+				fakeContext(
+					{step: 'Idle'},
+					{currentPosition: {x: 1, y: 1}, settling: true},
+				),
+			),
+		);
+		expect(model.settling).toBe(true);
 	});
 });
 

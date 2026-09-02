@@ -71,6 +71,15 @@
 					{$hud.walletSigningNotice}
 				</p>
 			{/if}
+			{#if $hud.settling}
+				<!-- The one moment the board is allowed to be briefly behind: the
+				     clock crosses into the new round ahead of the chain, and the settle
+				     fetch retries until it lands. Named, because the alternative reading
+				     of "my move did not appear" is that it was lost. -->
+				<p class="mt-1 max-w-xs animate-pulse text-xs text-muted-foreground">
+					Catching up on last round's moves...
+				</p>
+			{/if}
 			{#if $hud.planningForNextRound}
 				<p class="mt-1 max-w-xs text-xs text-amber-400">
 					This round is closed. New moves count for the next one.
