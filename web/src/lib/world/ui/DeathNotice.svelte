@@ -60,8 +60,18 @@
 <Modal.Root layer="modal" openWhen={open} onCancel={() => acknowledge()}>
 	<Modal.Title>Your avatar died</Modal.Title>
 	<p class="text-sm text-muted-foreground">
-		Avatar {$hud.died?.label} was killed and is still lying where it fell. Play on
-		with another one, or withdraw it from the game contract.
+		Avatar {$hud.died?.label} was killed and is still lying where it fell.
+	</p>
+	<!--
+		WHY, which is the whole point of telling them at all. Assembled in
+		`world/death.ts` because nothing on chain records a cause: the sentence is
+		the client's own reading of a rule, so it belongs somewhere it can be read
+		and tested rather than inline in a modal.
+	-->
+	<p class="mt-2 text-sm text-muted-foreground">{$hud.died?.explanation}</p>
+	<p class="mt-2 text-sm text-muted-foreground">
+		Play on with another one, or withdraw this one from the game contract to get
+		the avatar back.
 	</p>
 	<Button size="sm" class="mt-4" onclick={() => acknowledge()}>
 		Acknowledge

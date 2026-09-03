@@ -20,6 +20,23 @@ export type WorldConfig = {
 	 * quietly truncated.
 	 */
 	numMoves: number;
+	/**
+	 * How many rounds an avatar may go without revealing before the contract
+	 * kills it. It dies in the round after that.
+	 *
+	 * Read rather than assumed, because it is the whole of the only way to die
+	 * in this game and the client is the ONLY thing that can ever explain a
+	 * death: nothing on chain announces one - there is no event, and `life` is
+	 * computed from how far `lastEpoch` has fallen behind - so the sentence the
+	 * player is shown has to come from here.
+	 *
+	 * UNDEFINED FOR A DEPLOYMENT THAT PREDATES THE PARAMETER, in which case the
+	 * explanation says what happened without a number rather than quoting one
+	 * this build happens to believe. A wrong number in that sentence is worse
+	 * than no number: it is the client telling the player the rules of a game
+	 * that is not the one they are playing.
+	 */
+	numMissesAllowed?: number;
 	/** The avatar NFT, which is what a player has at stake. */
 	avatarsAddress: `0x${string}`;
 	/**
@@ -80,6 +97,8 @@ type GameLinkedData = {
 	commitPhaseDuration: unknown;
 	revealPhaseDuration: unknown;
 	numMoves: unknown;
+	/** Absent from any deployment made before the parameter existed. */
+	numMissesAllowed?: unknown;
 	avatars: unknown;
 };
 
@@ -118,6 +137,10 @@ export function resolveWorldConfig(deployments: TypedDeployments): WorldConfig {
 	return {
 		epoch: resolveEpochConfig(linkedData),
 		numMoves: Number(linkedData.numMoves as string | number | bigint),
+		numMissesAllowed:
+			linkedData.numMissesAllowed === undefined
+				? undefined
+				: Number(linkedData.numMissesAllowed as string | number | bigint),
 		avatarsAddress: linkedData.avatars as `0x${string}`,
 		sale: {
 			address: AvatarsSale.address,

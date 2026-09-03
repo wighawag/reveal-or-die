@@ -217,6 +217,7 @@ function fakeContext(
 		revealOutcome?: RevealOutcome;
 		phase?: RoundPhase;
 		twoPhase?: {phase: 'play' | 'wait'; timeLeft: number; duration: number};
+		numMissesAllowed?: number;
 	} = {},
 ) {
 	return {
@@ -243,7 +244,10 @@ function fakeContext(
 			missedReveal: writable({step: 'Clear'}),
 			setup: writable(overrides.setup),
 			purchase: writable(overrides.purchase ?? {step: 'Idle'}),
-			config: {sale: {price: 10000000000n}},
+			config: {
+				sale: {price: 10000000000n},
+				numMissesAllowed: overrides.numMissesAllowed,
+			},
 		},
 		deployments: {get: () => ({chain: {nativeCurrency: {symbol: 'ETH'}}})},
 	} as unknown as Context;
@@ -530,6 +534,27 @@ describe('a killed avatar', () => {
 			),
 		);
 		expect(model.died).toBeDefined();
+	});
+
+	it('explains WHY, from the rule the deployment configures', () => {
+		// A notice that only says "your avatar died" leaves the player to guess
+		// between being killed, being cheated, and a bug. The answer here is none
+		// of those - they stopped playing - and nothing on chain will ever say so,
+		// because `life` is computed and no event is emitted.
+		const model = get(
+			createHud(
+				fakeContext(
+					{step: 'Idle'},
+					{
+						avatars: [avatar({life: 0, inGame: true, lastEpoch: 2n})],
+						currentEpoch: 3,
+						numMissesAllowed: 3,
+					},
+				),
+			),
+		);
+		expect(model.died?.cause).toEqual({kind: 'silence', rounds: 4});
+		expect(model.died?.explanation).toMatch(/4 rounds in a row/);
 	});
 
 	it('is not reported until the epoch it died in has passed', () => {

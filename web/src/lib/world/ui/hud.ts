@@ -23,6 +23,7 @@ import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import {SignerOutOfFundsError} from '../errors';
 import type {RoundPhase, SetupAction, SetupNeeded} from '$lib/context/game';
 import type {RevealOutcome} from '../reveal-outcome';
+import {causeOfDeath, explainDeath, type DeathCause} from '../death';
 import {opensAWallet, type PurchaseState} from '../purchase';
 import {purchaseValue} from 'reveal-or-die-contracts';
 import {formatBalance} from '$lib/core/utils/format/balance';
@@ -131,7 +132,24 @@ export type HudModel = {
 	 * an old death while still letting a new one through. See
 	 * `ui/death-ack.ts`.
 	 */
-	died?: {label: string; avatarID: bigint; deathEpoch: number};
+	died?: {
+		label: string;
+		avatarID: bigint;
+		deathEpoch: number;
+		/**
+		 * WHY it died, and the sentence for it.
+		 *
+		 * A notice that only says "your avatar died" leaves the player to guess
+		 * whether they were killed, cheated, or hit a bug - and the answer here is
+		 * none of those: they stopped playing, which this game treats as forfeiting
+		 * the thing at stake. Nothing on chain records a cause (`life` is computed,
+		 * and there is no event), so the client assembles it; see `world/death.ts`,
+		 * including what a second cause of death would need before it could be told
+		 * from this one.
+		 */
+		cause: DeathCause;
+		explanation: string;
+	};
 
 	/** How many actions are planned, and how many moves the turn has left. */
 	plannedCount: number;
@@ -601,10 +619,13 @@ export function createHud(context: Context): Readable<HudModel> {
 					casualty &&
 					(() => {
 						const {avatarID, lastEpoch} = casualty;
+						const cause = causeOfDeath(game.config);
 						return {
 							label: avatarLabel(avatarID),
 							avatarID,
 							deathEpoch: Number(lastEpoch),
+							cause,
+							explanation: explainDeath(cause),
 						};
 					})(),
 
