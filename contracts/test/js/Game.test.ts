@@ -632,6 +632,107 @@ describe('Game', function () {
 		});
 		expect(inZone.some((a) => a.avatarID === onTheExit)).toEqual(false);
 	});
+
+	it('lets a dead avatar be collected, which was a dead end', async function () {
+		/**
+		 * The avatar IS the stake, so losing it to a few missed reveals is the
+		 * loss the game intends. Losing the TOKEN as well was not: `_withdraw`
+		 * refused while `inGame` was true, `inGame` was cleared only by an Exit,
+		 * an Exit needs a commitment, and `_makeCommitment` refuses one for a
+		 * dead avatar. The NFT was locked in this contract permanently, and the
+		 * client cheerfully told the player to go and withdraw it.
+		 *
+		 * Death is computed rather than recorded - `_getResolvedAvatar` reads how
+		 * far `lastEpoch` has fallen behind the epoch being asked about, and no
+		 * transaction marks the moment - which is why the body is taken off the
+		 * board HERE and not when it died.
+		 */
+		const {
+			env,
+			Game,
+			Avatars,
+			AvatarsSale,
+			unnamedAccounts,
+			advanceToEpoch,
+			advanceToRevealPhase,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
+
+		const player = unnamedAccounts[0];
+		const secret =
+			'0x00000000000000000000000000000000000000000000000000000000000000ef' as const;
+
+		await env.execute(AvatarsSale, {
+			account: player,
+			functionName: 'purchase',
+			args: purchaseArgs({gameAddress: Game.address, owner: player, subID: 0n}),
+			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+		});
+		const avatarID = avatarIDFor(player, 0n);
+		const {epoch: start} = getEpoch(await getTimestamp());
+
+		const enter: Action[] = [{actionType: 0, data: pos(0n, 1n)}];
+		await advanceToEpoch(start + 2);
+		await env.execute(Game, {
+			account: player,
+			functionName: 'commit',
+			args: [avatarID, commitmentHash(secret, enter), zeroAddress],
+		});
+		await advanceToRevealPhase(start + 2);
+		await env.execute(Game, {
+			account: player,
+			functionName: 'reveal',
+			args: [avatarID, enter, secret, zeroAddress],
+		});
+
+		// ALIVE: still refused, and that half matters as much. A check that only
+		// ever allows is as broken as one that only ever refuses.
+		await expect(
+			env.execute(Game, {
+				account: player,
+				functionName: 'withdraw',
+				args: [avatarID, player],
+			}),
+		).toBeRejected();
+
+		// Now go quiet. It dies one round after the misses it is allowed, which
+		// is the number the deployment configures and the client explains.
+		const numMissesAllowed = Number(Game.linkedData!.numMissesAllowed);
+		// MINED, not merely scheduled: `advanceToEpoch` sets the next block's
+		// timestamp, so a READ that follows it without a transaction in between
+		// still evaluates against the old block. Every other test here happens to
+		// send something next; this one asks a question.
+		await advanceToEpoch(start + 2 + numMissesAllowed + 2, true);
+		const dead = await env.read(Game, {
+			functionName: 'getAvatar',
+			args: [avatarID],
+		});
+		expect(dead.life).toEqual(0);
+		expect(dead.inGame).toEqual(true);
+
+		await env.execute(Game, {
+			account: player,
+			functionName: 'withdraw',
+			args: [avatarID, player],
+		});
+
+		// The token is the player's again. Compared case-insensitively: `ownerOf`
+		// answers with a checksummed address and the account is held lowercase.
+		const owner = await env.read(Avatars, {
+			functionName: 'ownerOf',
+			args: [avatarID],
+		});
+		expect(owner.toLowerCase()).toEqual(player.toLowerCase());
+
+		// ...and the body is off the board rather than left standing in the zone
+		// for everyone else to keep seeing.
+		const [inZone] = await env.read(Game, {
+			functionName: 'getAvatarsInZone',
+			args: [zoneID(0, 1), 0n, 100n],
+		});
+		expect(inZone.some((a) => a.avatarID === avatarID)).toEqual(false);
+	});
 });
 
 describe('buying an avatar', () => {

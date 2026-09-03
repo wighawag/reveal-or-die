@@ -58,7 +58,29 @@ abstract contract UsingGameInternal is
         }
 
         if (_avatars[avatarID].inGame) {
-            revert UsingGameErrors.AvatarStillInGame(avatarID);
+            // A DEAD AVATAR CAN BE COLLECTED, and until this existed it could
+            // not be: the body stays where it fell, so `inGame` stays true;
+            // `inGame` is otherwise cleared only by an Exit; an Exit needs a
+            // commitment; and `_makeCommitment` refuses one for a dead avatar.
+            // The NFT was therefore locked in this contract permanently, which
+            // is a far larger penalty than the game intends - the avatar is the
+            // stake, and losing it is the loss, not losing it AND the token.
+            (uint64 epoch, ) = _epoch();
+            if (_getResolvedAvatar(avatarID, epoch).life > 0) {
+                revert UsingGameErrors.AvatarStillInGame(avatarID);
+            }
+
+            // Off the board, so nobody keeps seeing a corpse that has been
+            // taken home. Same bookkeeping an Exit does, and it must happen
+            // HERE rather than when the avatar died: death is computed from the
+            // clock (`_getResolvedAvatar`) with no transaction to hang it on,
+            // so there is no moment at which the contract could have done it.
+            (int32 x, int32 y) = PositionUtils.toXY(_avatars[avatarID].position);
+            uint64 zone = PositionUtils.getZone(x, y);
+            _removeFromZone(zone, avatarID);
+            _avatars[avatarID].inGame = false;
+            emit LeftTheGame(avatarID, epoch, zone, _avatars[avatarID].position);
+            _avatars[avatarID].position = 0;
         }
 
         // --------------------------------------------------------------------
@@ -485,7 +507,7 @@ abstract contract UsingGameInternal is
             (int32 x, int32 y) = PositionUtils.toXY(avatar.position);
 
             // we force character to continuously commit+reveal
-            uint64 numMissesAllowed = 3;
+            uint64 numMissesAllowed = uint64(NUM_MISSES_ALLOWED);
             if (epoch > lastEpoch + 1 + numMissesAllowed) {
                 life = 0;
                 lastEpoch = lastEpoch + 1 + numMissesAllowed; // we fake lastEpoch so we can know when the character died

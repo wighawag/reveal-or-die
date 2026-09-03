@@ -139,6 +139,7 @@ export const config = {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
 				numMoves: 10n,
+				numMissesAllowed: 3n,
 			},
 			/**
 			 * WHAT IS LIVE ON RISE TESTNET IS NOT THIS. The deployed routes carry
@@ -158,11 +159,13 @@ export const config = {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
 				numMoves: 10n,
+				numMissesAllowed: 3n,
 			},
 			default: {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
 				numMoves: 10n,
+				numMissesAllowed: 3n,
 			},
 		},
 	},

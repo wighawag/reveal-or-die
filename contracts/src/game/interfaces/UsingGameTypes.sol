@@ -47,6 +47,16 @@ interface UsingGameTypes {
         ITime time;
         IERC721 avatars;
         uint256 numMoves;
+        /// @notice How many rounds an avatar may go without revealing before it
+        ///  is killed. It dies in the round after that.
+        /// @dev A parameter rather than the literal it used to be, because the
+        ///  number is the whole of the only way to die in this game and the
+        ///  client has to be able to SAY it. Nothing on chain announces a death
+        ///  - there is no event, `life` is computed from how far `lastEpoch`
+        ///  has fallen behind - so a player is owed an explanation that only
+        ///  the client can assemble, and one assembled from a copy of this
+        ///  number would drift the moment a game tuned it.
+        uint256 numMissesAllowed;
     }
 
     struct ManualEpoch {

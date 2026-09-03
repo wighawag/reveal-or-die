@@ -16,6 +16,7 @@ export default deployScript(
 			time: zeroAddress,
 			avatars: Avatars.address,
 			numMoves: data.Game.numMoves,
+			numMissesAllowed: data.Game.numMissesAllowed,
 		};
 
 		const routes = [

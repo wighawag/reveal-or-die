@@ -18,6 +18,8 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     uint256 internal immutable MAX_MOVES;
     /// @notice whether to skip commit phase and let player make their move in the reveal phase (trusted setup)
     bool internal immutable SKIP_COMMIT;
+    /// @notice how many rounds an avatar may go without revealing before it dies
+    uint256 internal immutable NUM_MISSES_ALLOWED;
 
     /// @notice the number of moves a hash represent, after that players make use of furtherMoves
     uint8 internal constant MAX_NUM_MOVES_PER_HASH = 32;
@@ -42,6 +44,7 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
         COMMIT_PHASE_DURATION = config.commitPhaseDuration;
         REVEAL_PHASE_DURATION = config.revealPhaseDuration;
         AVATARS = config.avatars;
+        NUM_MISSES_ALLOWED = config.numMissesAllowed;
         // TODO allow to specify it separately
         SKIP_COMMIT = COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0;
     }

@@ -56,7 +56,8 @@ contract GameGetters is IGameGetters, UsingGameInternal {
                 revealPhaseDuration: REVEAL_PHASE_DURATION,
                 avatars: AVATARS,
                 time: TIME,
-                numMoves: MAX_MOVES
+                numMoves: MAX_MOVES,
+                numMissesAllowed: NUM_MISSES_ALLOWED
             });
     }
 }
