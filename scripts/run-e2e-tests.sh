@@ -306,6 +306,15 @@ else
     done
 fi
 
+# Generate the areas Solidity, which `src/` imports and `.gitignore` excludes.
+# It is produced by contracts' `prepare` script (so `pnpm install` makes it in
+# the main checkout) and is therefore absent from a fresh worktree, where the
+# compile below would fail on the missing import. Generated HERE rather than
+# copied, so it comes from the worktree's own `data/` - the code under test.
+echo -e "\n${GREEN}📋 Generating area data...${NC}"
+cd "$CONTRACTS_DIR"
+pnpm generate_areas
+
 # Compile contracts
 echo -e "\n${GREEN}📋 Compiling contracts...${NC}"
 cd "$CONTRACTS_DIR"
