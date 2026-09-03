@@ -123,3 +123,28 @@ export const hasAvatarInGame = (state: DepositedState): boolean =>
 export const derivedHasAvatar = (
 	deposited: Readable<DepositedState>,
 ): Readable<boolean> => derived(deposited, hasAvatarInGame);
+
+/**
+ * Whether this avatar has anything to LOSE by going quiet.
+ *
+ * The question `commitWhenIdle` is really asking, and it has two halves. IN
+ * THE WORLD, because an avatar on the bench has no clock running against it
+ * (`_getResolvedAvatar` forces `life = 1` while `inGame` is false), so
+ * committing empty turns for one would burn gas to prevent nothing. AND ALIVE,
+ * because a dead avatar has already lost everything the loop was protecting -
+ * and `_makeCommitment` reverts with `AvatarIsDead`, so the client would be
+ * paying for a transaction the contract refuses, once per round, forever.
+ *
+ * Its own predicate rather than "is it standing somewhere", which is what this
+ * used to be read as. The two differ only for a corpse, which is exactly the
+ * case that matters: the body stays where it fell, holding a position, looking
+ * from the outside like an avatar with something at stake.
+ */
+export function isAtRisk(
+	state: DepositedState,
+	avatarID: bigint | undefined,
+): boolean {
+	if (state.step !== 'Loaded' || avatarID === undefined) return false;
+	const avatar = state.avatars.find((a) => a.avatarID === avatarID);
+	return !!avatar && avatar.inGame && avatar.life > 0;
+}

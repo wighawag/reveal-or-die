@@ -2,6 +2,7 @@ import {describe, expect, it, vi, afterEach} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {
 	canTakeTurnNow,
+	onEachNewRound,
 	refreshDuringReveal,
 	roundPhaseOf,
 	settleBoardWhenRoundStarts,
@@ -330,5 +331,60 @@ describe('canTakeTurnNow', () => {
 
 	it('still blocks an unready player inside the window', () => {
 		expect(canTakeTurnNow(set, 'play')).toBe(false);
+	});
+});
+
+/**
+ * WHAT THE CHAIN DECIDES ON ITS OWN, and how the client hears about it.
+ *
+ * `_getResolvedAvatar` computes `life` from how far `lastEpoch` has fallen
+ * behind the epoch being asked about, so an avatar is killed by the passage of
+ * rounds with nobody sending anything. The account read used to be refreshed
+ * only when something this client did SUCCEEDED, which is exactly the wrong
+ * condition for hearing about a death: a death is what happens when this
+ * client stops succeeding, and nothing succeeds afterwards either, because
+ * `_makeCommitment` then reverts with `AvatarIsDead`.
+ */
+describe('onEachNewRound', () => {
+	it('runs on the turnover, once per round', () => {
+		const epochInfo = writable({currentEpoch: 7});
+		const run = vi.fn();
+		const stop = onEachNewRound({epochInfo, run});
+
+		epochInfo.set({currentEpoch: 8});
+		expect(run).toHaveBeenCalledTimes(1);
+		epochInfo.set({currentEpoch: 9});
+		expect(run).toHaveBeenCalledTimes(2);
+		stop();
+	});
+
+	it('does not run on the first emission, which is not a turnover', () => {
+		// `start()` has just done the initial reads; treating "the epoch became
+		// known" as a round change would double every one of them on load.
+		const epochInfo = writable({currentEpoch: 7});
+		const run = vi.fn();
+		const stop = onEachNewRound({epochInfo, run});
+		expect(run).not.toHaveBeenCalled();
+		stop();
+	});
+
+	it('does not run on a re-emission of the same round', () => {
+		// The epoch store ticks with the clock: without this it would be a read
+		// per second rather than one per round.
+		const epochInfo = writable({currentEpoch: 7});
+		const run = vi.fn();
+		const stop = onEachNewRound({epochInfo, run});
+		epochInfo.set({currentEpoch: 7});
+		epochInfo.set({currentEpoch: 7});
+		expect(run).not.toHaveBeenCalled();
+		stop();
+	});
+
+	it('stops when it is unsubscribed', () => {
+		const epochInfo = writable({currentEpoch: 7});
+		const run = vi.fn();
+		onEachNewRound({epochInfo, run})();
+		epochInfo.set({currentEpoch: 8});
+		expect(run).not.toHaveBeenCalled();
 	});
 });

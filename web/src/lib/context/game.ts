@@ -68,6 +68,7 @@ import {isRegistered, type DelegationValue} from '$lib/onchain/delegation';
 import {
 	createDeposited,
 	hasAvatarInGame,
+	isAtRisk,
 	type DepositedState,
 	type DepositedStore,
 } from '$lib/world/deposited';
@@ -507,6 +508,31 @@ export function refreshDuringReveal(params: {
 }
 
 /**
+ * Run something once per round, on the turnover.
+ *
+ * `epochInfo` re-emits on every tick of the clock, so the trigger is the
+ * CHANGE and not the value; without that, anything hung off it runs once a
+ * second forever. The first emission is deliberately not a change either:
+ * `start()` has just done the initial reads, and treating "the epoch became
+ * known" as a turnover would double every one of them on load.
+ *
+ * Its own function, like the two below, because it is wiring that acts
+ * unprompted - it spends RPC calls with nobody asking - and a test of it
+ * should not need an app context.
+ */
+export function onEachNewRound(params: {
+	epochInfo: Readable<{currentEpoch: number}>;
+	run: () => void;
+}): () => void {
+	const {epochInfo, run} = params;
+	let lastEpoch: number | undefined;
+	return epochInfo.subscribe(($epoch) => {
+		if (lastEpoch !== undefined && $epoch.currentEpoch !== lastEpoch) run();
+		lastEpoch = $epoch.currentEpoch;
+	});
+}
+
+/**
  * Bring the board up to date when a new round begins, and say so while it does.
  *
  * THE MOMENT IS THE COMMIT PHASE STARTING. Every reveal that will ever land has
@@ -849,12 +875,16 @@ export function createGameContext(core: CoreServices): GameContext {
 		 * rounds without moving loses the avatar they paid for, having done nothing
 		 * wrong and been warned by nothing.
 		 *
-		 * Only while an avatar is actually IN THE WORLD. One waiting to enter has no
+		 * Only while the avatar has something to LOSE by going quiet, which is
+		 * `isAtRisk` and not "is it standing somewhere". One waiting to enter has no
 		 * clock running against it (`_getResolvedAvatar` forces `life = 1` for an
-		 * avatar that is not `inGame`), so committing empty rounds for it would burn
-		 * gas to prevent nothing.
+		 * avatar that is not `inGame`), and one that is already DEAD has nothing
+		 * left to protect: it keeps a position, so a check on that alone kept the
+		 * loop running for a corpse, and `_makeCommitment` reverts with
+		 * `AvatarIsDead` - a transaction the signer pays for and the contract
+		 * refuses, once a round, for as long as the tab is open.
 		 */
-		commitWhenIdle: () => get(currentPosition) !== undefined,
+		commitWhenIdle: () => isAtRisk(get(deposited), get(activeAvatarID)),
 		// The AVATAR, not the account: `commit` and `reveal` both take an avatar id
 		// and resolve the sender against its owner. `PlayerIdentity` is
 		// `bigint | 0x${string}` for exactly this, so nothing has to widen.
@@ -1093,20 +1123,37 @@ export function createGameContext(core: CoreServices): GameContext {
 			onSettled: () => void deposited.update(),
 		});
 
-		// Re-check when the epoch turns over.
+		// Ask the chain about this ACCOUNT again whenever the round turns over.
 		//
-		// Whether a commitment counts as MISSED is a question about the current
-		// epoch, not a fixed property of the commitment: the very same commitment
-		// is live in the epoch it was made and blocking in the next one. Checking
-		// only on load and on account change means a tab that was open across the
-		// boundary answers "nothing is wrong" once and never revisits it, leaving
-		// the player silently blocked with no idea why committing does nothing.
-		let lastEpoch: number | undefined;
-		const unsubscribeEpoch = epochInfo.subscribe(($epoch) => {
-			if (lastEpoch !== undefined && $epoch.currentEpoch !== lastEpoch) {
+		// Both of these are questions about the CURRENT EPOCH rather than fixed
+		// properties, which is what makes a per-round re-read the right cadence
+		// rather than a poll bolted on.
+		//
+		// Whether a commitment counts as MISSED changes by itself: the very same
+		// commitment is live in the epoch it was made and blocking in the next one.
+		// Checking only on load and on account change means a tab that was open
+		// across the boundary answers "nothing is wrong" once and never revisits
+		// it, leaving the player silently blocked with no idea why committing does
+		// nothing.
+		//
+		// And so does whether an avatar is still ALIVE. `_getResolvedAvatar`
+		// computes `life` from how far `lastEpoch` has fallen behind the epoch
+		// being asked about, so a kill happens on the chain's clock with nobody
+		// sending anything. `deposited` used to be re-read only when something this
+		// client did succeeded - a reveal, a purchase, an acknowledgement - which
+		// is precisely the wrong condition for learning about a death, because a
+		// death is what happens when this client STOPS succeeding. Nothing
+		// succeeded again afterwards either: `_makeCommitment` reverts with
+		// `AvatarIsDead`. So the client went on believing the avatar was alive
+		// until the page was reloaded, and everything downstream inherited that -
+		// no death notice, a corpse still selected as the active avatar, and the
+		// missed-reveal panel demanding an acknowledgement for it.
+		const unsubscribeEpoch = onEachNewRound({
+			epochInfo,
+			run: () => {
 				void missedReveal.check();
-			}
-			lastEpoch = $epoch.currentEpoch;
+				void deposited.update();
+			},
 		});
 
 		return () => {
