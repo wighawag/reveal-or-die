@@ -31,20 +31,36 @@ function world(...avatars: Avatar[]): WorldState & {epoch: number} {
 	return {...state, epoch: 7};
 }
 
+/**
+ * `lastEpoch` AND `lastTurn` TOGETHER, because the chain cannot produce one
+ * without the other: `_resolveActions` ends every resolved turn with
+ * `_avatars[avatarID].lastEpoch = epoch`, and the log it emits carries the same
+ * epoch. A fixture that advanced only the log described an avatar that cannot
+ * exist, which is why these two helpers now set both.
+ *
+ * The reverse IS producible, and has its own tests below: the entity read
+ * always carries `lastEpoch`, while the log read is allowed to come back empty.
+ */
 const movedThisRound = (id: bigint, to: {x: number; y: number}) =>
 	avatar({
 		avatarID: id,
 		position: to,
+		lastEpoch: 7,
 		lastTurn: {
 			epoch: 7,
 			actions: [{actionType: ActionType.Move, data: xyToBigIntID(to.x, to.y)}],
 		},
 	});
 
+/** The same turn as the chain reports it when the log read came back empty. */
+const movedThisRoundWithoutItsLog = (id: bigint, to: {x: number; y: number}) =>
+	avatar({avatarID: id, position: to, lastEpoch: 7});
+
 const enteredThisRound = (id: bigint, at: {x: number; y: number}) =>
 	avatar({
 		avatarID: id,
 		position: at,
+		lastEpoch: 7,
 		lastTurn: {
 			epoch: 7,
 			actions: [{actionType: ActionType.Enter, data: xyToBigIntID(at.x, at.y)}],
@@ -112,6 +128,59 @@ describe('holding the round being resolved', () => {
 			resolvingEpoch: 7,
 		});
 		expect(held.avatars.get(4n)?.position).toEqual({x: 2, y: 2});
+	});
+
+	it('holds a turn whose REVEAL LOG did not arrive', () => {
+		// The defect this rule was rewritten for. `readResolvedTurns` catches its
+		// own failures on purpose - losing the animation beats losing the board -
+		// so `lastTurn` is allowed to be absent, and taking the hold's decision
+		// from it meant one such fetch let the whole round through mid-window.
+		// `lastEpoch` comes from storage in the same pinned read and cannot be.
+		const shown = world(avatar({avatarID: 1n, position: {x: 0, y: 0}}));
+		const held = holdResolvingRound({
+			shown,
+			latest: world(movedThisRoundWithoutItsLog(1n, {x: 3, y: 0})),
+			resolvingEpoch: 7,
+		});
+		expect(held.avatars.get(1n)?.position).toEqual({x: 0, y: 0});
+	});
+
+	it('shows an avatar panned onto mid-round when no log can say what it did', () => {
+		// The deliberate default when the log is missing, and the reason it is not
+		// the cautious-looking one: every avatar reveals every epoch now (the
+		// client commits empty turns to keep them alive), so "revealed this round"
+		// describes almost the whole board, and hiding on a missing log would blank
+		// most of it the moment a player panned during a reveal window. The risk
+		// taken instead is one ENTRY appearing a few seconds early.
+		const held = holdResolvingRound({
+			shown: emptyWorld(),
+			latest: world(movedThisRoundWithoutItsLog(4n, {x: 2, y: 2})),
+			resolvingEpoch: 7,
+		});
+		expect(held.avatars.get(4n)?.position).toEqual({x: 2, y: 2});
+	});
+
+	it('does not hide an avatar whose ENTRY was an earlier round', () => {
+		// It entered last round and moved in this one, and this round's log is the
+		// one that went missing - so the newest log still on file says "Enter".
+		// Reading that as an entry would delete an avatar that has been standing in
+		// the world since before the round began.
+		const held = holdResolvingRound({
+			shown: emptyWorld(),
+			latest: world(
+				avatar({
+					avatarID: 5n,
+					position: {x: 2, y: 2},
+					lastEpoch: 7,
+					lastTurn: {
+						epoch: 6,
+						actions: [{actionType: ActionType.Enter, data: xyToBigIntID(2, 2)}],
+					},
+				}),
+			),
+			resolvingEpoch: 7,
+		});
+		expect(held.avatars.get(5n)?.position).toEqual({x: 2, y: 2});
 	});
 
 	it('carries the rest of the state through untouched', () => {
@@ -236,6 +305,33 @@ describe('the board store the renderer reads', () => {
 		state.set({step: 'Unloaded'});
 		expect(get(holding)).toBeUndefined();
 		stopHolding();
+		stop();
+	});
+
+	it('does not release the round early, and stay released, over one logless fetch', () => {
+		// The damage was STICKY: the board handed out becomes the memory, so a
+		// single fetch that let the round through left it through for the rest of
+		// the window - and the walk at the boundary was then skipped, because
+		// `AvatarObject.updateWalk` refuses a replay whose destination is already
+		// where the avatar is drawn. The player saw the board flash to its new
+		// positions mid-reveal and then stand still when it should have animated.
+		const {board, phase, load} = setup('play');
+		const stop = board.subscribe(() => {});
+
+		load(world(avatar({avatarID: 1n, position: {x: 0, y: 0}})));
+		phase.set({phase: 'wait'});
+
+		// The fetch whose logs did not arrive...
+		load(world(movedThisRoundWithoutItsLog(1n, {x: 3, y: 0})));
+		expect(positionOf(get(board) as never, 1n)).toEqual({x: 0, y: 0});
+
+		// ...and the next one, with them back. Still held, and still against where
+		// the avatar actually stood when the round began.
+		load(world(movedThisRound(1n, {x: 3, y: 0})));
+		expect(positionOf(get(board) as never, 1n)).toEqual({x: 0, y: 0});
+
+		phase.set({phase: 'play'});
+		expect(positionOf(get(board) as never, 1n)).toEqual({x: 3, y: 0});
 		stop();
 	});
 
