@@ -13,8 +13,8 @@ spawn, move, leave, and the round commits and reveals by itself.
 | --- | --- |
 | branch | `port/template-commit-reveal`. **Never work on `main`**, which is the pre-port app and 50+ commits behind |
 | `cd web && pnpm check` | 0 errors |
-| `cd web && pnpm test:unit` | 1439 + 53, all passing, about 40 seconds |
-| `cd contracts && pnpm test` | 7 passing |
+| `cd web && pnpm test:unit` | 1445 + 53, all passing, about 40 seconds |
+| `cd contracts && pnpm test` | 9 passing |
 | `cd web && pnpm build localhost` | clean |
 
 Run `pnpm test:unit`, NOT a bare `vitest`: it runs the two projects one after
@@ -117,6 +117,8 @@ the only way out (contract and client), and a purchase surviving a reload.
   balance while the app correctly reads the new one. Diagnosed as MetaMask's own
   UI cache rather than anything readable through its provider, so there is
   nothing to fix here; it is faucet-only and a real deployment would not hit it.
+- **A deployed game needs a REDEPLOY after the `numMissesAllowed` change.** The Game `Config` struct gained a field, so every route's constructor args changed. Until a deployment carries it, `linkedData.numMissesAllowed` is absent and the death notice explains the death without quoting a number, which is deliberate.
+
 - **`Avatars.mint` has no access control**, and `_enter` accepts an obstacle as
   an entry position. Both are recorded in the contracts and in
   `docs/plans/identity-without-consent.md`.
