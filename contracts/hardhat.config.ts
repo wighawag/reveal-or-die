@@ -92,16 +92,18 @@ const config: HardhatUserConfig = {
 							// client's clock interpolates from the wall clock between
 							// blocks (`game/core/chain-time.ts`), so the client crosses a
 							// round boundary as soon as real time says so while the chain
-							// only crosses when a block carries a later timestamp. At a
-							// 3s interval that gap was up to three seconds several times
-							// a round: the board sat in `catching-up` at every boundary,
-							// and a reveal landing in the gap showed up seconds into the
-							// next window - both reported from play, and neither fixable
-							// on the client, which cannot make blocks.
+							// only crosses when a block carries a later timestamp. Every
+							// second of the mining interval is a second of that gap. At a
+							// 3s interval that gap showed up several times a round, as the
+							// two faults the refresh policy in `onchain/state.ts` exists to
+							// absorb: the board sat in `catching-up` at every boundary, and
+							// a reveal landing in the gap showed up seconds into the next
+							// window - both reported from play.
 							//
 							// A deployed chain has its own block time and this is not a
-							// substitute for handling that; it is the dev node being
-							// made to behave like one.
+							// substitute for handling that - the client must cope either
+							// way, which is what the refresh policy is for. This is the
+							// dev node being made to behave like one.
 							mining: {
 								interval: 1000,
 							},

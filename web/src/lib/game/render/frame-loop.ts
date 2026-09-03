@@ -33,15 +33,15 @@ export function createFrameLoop(params: {
 }): FrameLoop {
 	const {cameraControl, devicePixelRatio} = params;
 
-	let elapsed = 0;
+	let elapsedMs = 0;
 	let previous: number | undefined;
 
-	function frameFor(delta: number): Frame {
+	function frameFor(deltaMs: number): Frame {
 		const {transform, screen} = cameraControl.current;
-		elapsed += delta;
+		elapsedMs += deltaMs;
 		return {
-			time: elapsed,
-			delta,
+			timeMs: elapsedMs,
+			deltaMs,
 			transform,
 			screen,
 			devicePixelRatio: devicePixelRatio(),
@@ -56,9 +56,9 @@ export function createFrameLoop(params: {
 			// Zero on the first frame rather than the time since the page loaded,
 			// which is what `now` is and which would hand a renderer a delta of
 			// several seconds to animate across.
-			const delta = previous === undefined ? 0 : now - previous;
+			const deltaMs = previous === undefined ? 0 : now - previous;
 			previous = now;
-			return frameFor(delta);
+			return frameFor(deltaMs);
 		},
 	};
 }

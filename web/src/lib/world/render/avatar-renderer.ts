@@ -123,7 +123,7 @@ export function createAvatarRenderer(params: {
 			// turn advances here rather than holding a timer of its own, so a
 			// backgrounded tab, a paused loop or an unmounted canvas stops the
 			// animation with everything else.
-			for (const object of live) object.tick(frame.delta);
+			for (const object of live) object.tick(frame.deltaMs);
 		},
 
 		add({entity, surface}) {

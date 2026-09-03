@@ -17,8 +17,8 @@ function makeViewState() {
 }
 
 const frame: Frame = {
-	time: 0,
-	delta: 16,
+	timeMs: 0,
+	deltaMs: 16,
 	transform: {centerX: 0, centerY: 0, scale: 10},
 	screen: {width: 100, height: 100},
 	devicePixelRatio: 1,
@@ -54,6 +54,58 @@ describe('createStatefulRenderer', () => {
 
 		return {store, log, surface, renderer};
 	}
+
+	it('hands tick the live objects, which is what per-object animation needs', () => {
+		// The README recommends this style for "anything with per-object
+		// animation", and `tick` used to receive only the frame and the surface.
+		// A renderer therefore had to keep its own parallel collection, filled in
+		// `add` and emptied in `remove`, to have anything to animate - a second
+		// source of truth that is wrong exactly when a handler throws or a key is
+		// re-added, and silent when it is wrong.
+		const {store, surface, renderer} = setup();
+		const seen: string[][] = [];
+		const withTick = createStatefulRenderer<
+			typeof surface,
+			View,
+			string,
+			Cell,
+			{key: string}
+		>({
+			viewState: {
+				subscribe: store.subscribe,
+				status: writable({loading: false}),
+			},
+			entities: (view) => view.cells,
+			add: ({key}) => ({key}),
+			update: () => {},
+			remove: () => {},
+			tick: ({objects}) => seen.push([...objects].map((o) => o.key)),
+		});
+		void renderer;
+
+		withTick.onAppStarted(surface);
+		store.set({
+			step: 'Loaded',
+			epoch: 1,
+			cells: new Map([
+				['a', {stake: 1}],
+				['b', {stake: 1}],
+			]),
+		});
+		withTick.tick(frame);
+		expect(seen).toEqual([['a', 'b']]);
+
+		// And it follows the scene rather than a snapshot taken once: an entity
+		// the state dropped stops being animated.
+		store.set({step: 'Loaded', epoch: 1, cells: new Map([['b', {stake: 1}]])});
+		withTick.tick(frame);
+		expect(seen[1]).toEqual(['b']);
+
+		// After teardown there is nothing live, so nothing to animate.
+		withTick.onAppStopped();
+		withTick.tick(frame);
+		expect(seen.length).toBe(2);
+	});
 
 	it('mirrors the view state into the scene', () => {
 		const {store, log, surface, renderer} = setup();

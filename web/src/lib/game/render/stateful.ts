@@ -78,8 +78,22 @@ export type StatefulRendererParams<TSurface, TView, TKey, TEntity, TObject> = {
 	 */
 	onStopped?(surface: TSurface): void;
 
-	/** Animation that does not come from state changes. */
-	tick?(params: {frame: Frame; surface: TSurface}): void;
+	/**
+	 * Animation that does not come from state changes.
+	 *
+	 * `objects` is every scene object currently live, which is what makes
+	 * per-object animation possible here at all: without it a renderer that
+	 * wants to advance one animation per entity has to keep its own parallel
+	 * collection, filled in `add` and emptied in `remove`. That is a second
+	 * source of truth, it is wrong exactly when a handler throws or a key is
+	 * re-added, and it is silent when it is wrong.
+	 */
+	tick?(params: {
+		frame: Frame;
+		surface: TSurface;
+		objects: IterableIterator<TObject>;
+		entries: IterableIterator<[TKey, TObject]>;
+	}): void;
 };
 
 export function createStatefulRenderer<TSurface, TView, TKey, TEntity, TObject>(
@@ -145,7 +159,12 @@ export function createStatefulRenderer<TSurface, TView, TKey, TEntity, TObject>(
 
 		tick(frame: Frame) {
 			if (surface === undefined) return;
-			params.tick?.({frame, surface});
+			params.tick?.({
+				frame,
+				surface,
+				objects: reconciler.values(),
+				entries: reconciler.entries(),
+			});
 		},
 
 		get lastDiff() {

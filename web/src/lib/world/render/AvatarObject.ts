@@ -190,10 +190,10 @@ export class AvatarObject extends Container {
 	 * Advance the replay by one frame. Called by the renderer, which owns the
 	 * frame loop; the object never reaches for a clock of its own.
 	 *
-	 * Takes MILLISECONDS, which is what `Frame.delta` is. The walk thinks in
+	 * Takes MILLISECONDS, which is what `Frame.deltaMs` is. The walk thinks in
 	 * seconds like the rest of the game's timings, and converting HERE is what
 	 * keeps the two from being confused again: the first version of this passed
-	 * `frame.delta` straight through as seconds, so one 60fps frame advanced a
+	 * `frame.deltaMs` straight through as seconds, so one 60fps frame advanced a
 	 * walk by sixteen of them and every turn "replayed" as a single jump.
 	 */
 	tick(deltaMs: number) {
