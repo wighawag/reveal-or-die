@@ -244,6 +244,30 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	}
 
 	/**
+	 * Whether the round owes NOTHING for the epoch now closing, which is the
+	 * question `commitWhenIdle` is asked about.
+	 *
+	 * Not the same as `step === 'Idle'`, and reading it that way stopped the
+	 * liveness loop after exactly one turn. A round that has been revealed sits
+	 * on `Revealed` - there is nothing to put it back to `Idle`, and nothing
+	 * should: the HUD reports the outcome from it - so a player who moved once
+	 * and then stood still committed nothing ever again, and lost the avatar a
+	 * few epochs later to the very silence this option exists to prevent.
+	 *
+	 * A FINISHED round from an EARLIER epoch is nothing pending. The epoch
+	 * comparison is what makes that safe: a round revealed in the epoch still
+	 * running has already had its commitment, and a second one for the same epoch
+	 * is not something to send.
+	 */
+	function nothingPendingFor(currentEpoch: number): boolean {
+		if ($state.step === 'Idle') return true;
+		if ($state.step === 'Revealed' || $state.step === 'Missed') {
+			return $state.epoch < currentEpoch;
+		}
+		return false;
+	}
+
+	/**
 	 * The epoch a plan made right now would be committed in.
 	 *
 	 * During the commit phase that is this epoch. During the REVEAL phase the
@@ -284,7 +308,8 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 		// (the commitment hashes it, the reveal discloses it, and the contract's
 		// action loop simply does nothing), so what is being decided here is only
 		// whether an empty turn is worth sending.
-		const idleButOwed = $state.step === 'Idle' && commitWhenIdle();
+		const idleButOwed =
+			nothingPendingFor(epochInfo.now().currentEpoch) && commitWhenIdle();
 		if ($state.step !== 'Planning' && $state.step !== 'Error' && !idleButOwed) {
 			return;
 		}
@@ -466,8 +491,10 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 				$info.isCommitPhase &&
 				($state.step === 'Planning' ||
 					// Nothing planned, but silence costs this game's player their
-					// avatar. See `commitWhenIdle`.
-					($state.step === 'Idle' && commitWhenIdle())) &&
+					// avatar. See `commitWhenIdle`, and `nothingPendingFor` for why
+					// this is not simply `Idle`: the round that just ended is still
+					// being reported, and it owes the next epoch a turn all the same.
+					(nothingPendingFor($info.currentEpoch) && commitWhenIdle())) &&
 				$info.timeLeftForCommitEnd <= $info.config.commitTimeAllowance
 			) {
 				void commit();

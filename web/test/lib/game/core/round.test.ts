@@ -569,6 +569,88 @@ describe('a game where silence costs the player their stake', () => {
 		stop();
 	});
 
+	it('KEEPS the loop turning, epoch after epoch, once a turn has been revealed', async () => {
+		// THE WHOLE POINT OF IT, and it stopped after exactly one round. A round
+		// that has been revealed stays `Revealed` - nothing put it back to `Idle`
+		// at the epoch boundary - and the idle commit only fires from `Idle`, so a
+		// player who moved once and then stood still committed nothing ever again
+		// and lost the avatar four epochs later. Reported from play: "after 3 turns
+		// the avatar dies".
+		//
+		// One epoch is 44 seconds here: the commit phase closes at 40 and the
+		// reveal phase runs to 44.
+		const {round, calls, setTime} = idleRound(() => true);
+		const stop = round.start();
+
+		// Epoch 0: a turn the player actually planned.
+		round.plan([{cellID: 42n}]);
+		await round.commit();
+		setTime(41);
+		await vi.waitFor(() => expect(round.value.step).toBe('Revealed'));
+
+		// Epoch 1, closing. The player has done nothing, and something is still at
+		// risk, so the loop owes an empty turn.
+		setTime(44 + CLOSING);
+		await vi.waitFor(() => expect(calls.commit.length).toBe(2));
+		expect((calls.commit[1] as {actions: Action[]}).actions).toEqual([]);
+
+		// And it is the REVEAL that advances `lastEpoch`, so the round has to see
+		// this one through as well.
+		setTime(44 + config.commitPhaseDuration + 1);
+		await vi.waitFor(() => expect(calls.reveal.length).toBe(2));
+
+		// Still going a third time, which is what "keeps turning" means.
+		setTime(88 + CLOSING);
+		await vi.waitFor(() => expect(calls.commit.length).toBe(3));
+		stop();
+	});
+
+	it('keeps turning after a MISSED reveal, which is when it matters most', async () => {
+		// A missed reveal already cost the player the turn and left a commitment
+		// the contract will reject the next one over. Parking the round on `Missed`
+		// for good would then let the avatar die of the silence that followed,
+		// which is a second, larger punishment for the same mistake.
+		const {round, calls, setTime} = idleRound(() => true);
+		const stop = round.start();
+
+		round.plan([{cellID: 42n}]);
+		await round.commit();
+		expect(round.value.step).toBe('Committed');
+
+		// The epoch turns over with the commitment still open: the reveal window
+		// has gone.
+		setTime(44);
+		await vi.waitFor(() => expect(round.value.step).toBe('Missed'));
+
+		setTime(44 + CLOSING);
+		await vi.waitFor(() => expect(calls.commit.length).toBe(2));
+		stop();
+	});
+
+	it('never sends a second commitment for an epoch it has already played', async () => {
+		// The guard on "a finished round is nothing pending": finished IN AN
+		// EARLIER epoch. One commitment per epoch is the contract's rule, and a
+		// round that has been revealed has already had its one; committing again
+		// against it would spend gas to be rejected.
+		const {round, calls, setTime} = idleRound(() => true);
+		const stop = round.start();
+
+		round.plan([{cellID: 42n}]);
+		await round.commit();
+		await round.reveal();
+		// Epoch 2 is the FIRST epoch: they are numbered from 2, which `epoch.ts`
+		// explains and every other test here spells out the same way.
+		expect(round.value).toMatchObject({step: 'Revealed', epoch: 2});
+		expect(calls.commit).toHaveLength(1);
+
+		// Still epoch 0, still its commit phase.
+		setTime(CLOSING);
+		await round.commit();
+		await new Promise((r) => setTimeout(r, 10));
+		expect(calls.commit).toHaveLength(1);
+		stop();
+	});
+
 	it('is off unless a game asks for it', async () => {
 		// The default has to stay "a quiet epoch just passes": for the template's
 		// own game an empty commitment is gas spent to say nothing.
