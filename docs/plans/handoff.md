@@ -13,7 +13,7 @@ spawn, move, leave, and the round commits and reveals by itself.
 | --- | --- |
 | branch | `port/template-commit-reveal`. **Never work on `main`**, which is the pre-port app and 50+ commits behind |
 | `cd web && pnpm check` | 0 errors |
-| `cd web && pnpm test:unit` | 1423 + 53, all passing, about 40 seconds |
+| `cd web && pnpm test:unit` | 1426 + 53, all passing, about 40 seconds |
 | `cd contracts && pnpm test` | 7 passing |
 | `cd web && pnpm build localhost` | clean |
 
