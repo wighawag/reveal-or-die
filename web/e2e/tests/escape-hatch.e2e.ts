@@ -8,7 +8,6 @@ import {
 	lockStallingWallet,
 	sendAndStall as stallARequest,
 	sentHashes,
-	STALLING_WALLET_ACCOUNT,
 	writeForm,
 } from '../fixtures/stalling-wallet';
 
@@ -268,37 +267,35 @@ describe('Stopping waiting for the wallet', () => {
 
 		// And the flow is raised again, which IS the transition.
 		//
-		// `ensureConnected`, not `connect()`, and the difference is deliberate on
-		// both sides. `ensureConnected` promises a TARGET, so it is the one that
-		// reconnects a locked wallet by replaying the existing mechanism; `connect()`
-		// drives the flow from the user's CHOICE and opens the picker. Upstream made
-		// that asymmetry explicit in 0.11.0 rather than removing it, and the picker
-		// path is covered by the next test.
+		// `unlock()`, because it is the ONE route into that rebuild that every app
+		// in this tree actually has. What is being pinned is the rebuild, not the
+		// call that causes it, so the call should be the one no app has to override.
 		//
-		// IT NAMES THE ADDRESS IT NEEDS TO SIGN AS, rather than calling the bare
-		// `ensureConnected()` and letting the app's configured target imply it.
-		// A bare call asks for the app's OWN target step, which makes "does this
-		// rebuild a locked wallet" a property of the app rather than of this test:
-		// `targetReached` counts a locked wallet as unsatisfactory only for a
-		// `WalletConnected` target, because a SIGNED-IN app acts through its session
-		// account and a locked wallet does not invalidate that. That is correct, and
-		// it meant this test asked a descendant that signs in for something it was
-		// right to refuse, then failed on the refusal - with the app showing the
-		// locked-wallet modal and its Unlock button, exactly as it should.
+		// This used to be a bare `ensureConnected()`, and that only worked here by
+		// accident of configuration. `ensureConnected` promises the app's TARGET
+		// step, and upstream treats a locked wallet as failing that target only when
+		// the target is `WalletConnected` (ADR-0002): a SIGNED-IN app acts through
+		// its session account, which a locked wallet does not invalidate, so there
+		// the call correctly finds the target already reached and reconnects
+		// nothing. Every descendant that signs in therefore inherited a test that
+		// waited 30 seconds for a status that was never coming - which `bleeps` and
+		// `mandalas` each diagnosed and patched locally, in the same way, because
+		// the template gave them no version that worked.
 		//
-		// Naming the address states the requirement instead, and it is the same
-		// requirement in every app in this tree: the request being defended is one
-		// the WALLET is holding, so the transition worth driving is the one that
-		// rebuilds a wallet able to sign as that account. `canActAs` is false for a
-		// locked wallet, so this reconnects everywhere, and it is what upstream
-		// points at for precisely this case (see its note on `canActAs`).
-		await page.evaluate(
-			(address) =>
-				(globalThis as any).context.connection.ensureConnected(
-					'WalletConnected',
-					{type: 'wallet', address},
-				),
-			STALLING_WALLET_ACCOUNT,
+		// Naming a wallet mechanism instead (`ensureConnected('WalletConnected',
+		// {type: 'wallet', address})`) does force the reconnect, and is wrong for a
+		// different reason: from a signed-in state it routes through `connect()` and
+		// opens the WALLET PICKER, which nobody in this test is there to answer. The
+		// picker is the next test's subject, not this one's.
+		//
+		// `unlock()` is what this app puts in front of the user in exactly this
+		// state (see `walletPromptCopy`: "Your wallet is locked ... Unlock it to see
+		// the request"), it rebuilds wallet state under the parked request, and it
+		// keeps the step, the account and the wallet where re-running the flow would
+		// rebuild all three. The next test still drives `connect()`, so the harsher
+		// rebuild - the one that lands on NO wallet at all - stays covered.
+		await page.evaluate(() =>
+			(globalThis as any).context.connection.unlock(),
 		);
 		await expect
 			.poll(() => walletStatus(page), {timeout: 30_000})
