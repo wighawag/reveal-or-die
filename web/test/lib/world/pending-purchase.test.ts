@@ -47,6 +47,25 @@ function operation(overrides: {
 	} as unknown as OnchainOperation;
 }
 
+/** A purchase that was stuck, replaced, and whose REPLACEMENT is the one that landed. */
+function replacedOperation() {
+	return {
+		metadata: {
+			type: 'functionCall' as const,
+			functionName: 'purchase',
+			args: [],
+		},
+		call: {to: SALE},
+		attempts: [{hash: '0xfirst'}, {hash: '0xreplacement'}],
+		state: {
+			inclusion: 'Included',
+			outcome: 'Success',
+			final: false,
+			via: {kind: 'attempt', attemptIndex: 1},
+		},
+	} as unknown as OnchainOperation;
+}
+
 const find = (operations: Record<string, OnchainOperation>) =>
 	findPendingPurchase({operations, sale: SALE});
 
@@ -280,5 +299,20 @@ describe('catching up once a recovered purchase finishes', () => {
 		stop();
 		purchase.set({step: 'Idle'});
 		expect(onSettled).not.toHaveBeenCalled();
+	});
+});
+
+describe('which hash a replaced purchase reports', () => {
+	it('reports the attempt that landed, not the one it replaced', () => {
+		// They differ exactly when a purchase got stuck and was resubmitted, which
+		// is when this hash is most likely to be looked at. Reporting the
+		// superseded attempt sends the player to a transaction that never made it.
+		expect(find({'100': replacedOperation()})?.hash).toBe('0xreplacement');
+	});
+
+	it('still reports the first attempt while nothing has been included', () => {
+		expect(
+			find({'100': operation({state: {inclusion: 'InMemPool'}})})?.hash,
+		).toBe('0xabc');
 	});
 });

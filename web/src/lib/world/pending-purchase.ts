@@ -23,7 +23,7 @@
  * browser or an app context.
  */
 import type {OnchainOperation} from '$lib/account/AccountData';
-import {getOperationStatusInfo} from '$lib/view/operation';
+import {getMainTxHash, getOperationStatusInfo} from '$lib/view/operation';
 
 export type PendingPurchase = {
 	/** The operation's id in the ledger. */
@@ -96,9 +96,13 @@ export function findPendingPurchase(params: {
 		newest = at;
 		found = {
 			id,
-			// The first broadcast, exactly as before: `attempts` is the app's own
-			// list of dispatches, in the order it made them.
-			hash: operation.attempts[0]?.hash,
+			// The attempt that actually LANDED when one has, not merely the first
+			// one sent. They differ exactly when a purchase was stuck and replaced,
+			// and that is the case where this hash is most likely to be looked at:
+			// reporting the superseded attempt would send the player to a
+			// transaction that never made it. Falls back to the first attempt, which
+			// is what it always was, while nothing has been included yet.
+			hash: getMainTxHash(operation),
 			landed: status === 'success',
 		};
 	}
