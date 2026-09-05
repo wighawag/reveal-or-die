@@ -77,13 +77,15 @@ export function findPendingPurchase(params: {
 		const metadata = operation.metadata;
 		if (metadata.type !== 'functionCall') continue;
 		if (metadata.functionName !== 'purchase') continue;
-		if (metadata.tx.to?.toLowerCase() !== wanted) continue;
+		// `call.to`: what was ASKED is one fact per operation now, hoisted out of
+		// the metadata it used to be nested beside.
+		if (operation.call.to?.toLowerCase() !== wanted) continue;
 
 		// The same rule the transaction list and the pending badge use, rather than
-		// a second reading of `transactionIntent.state` here. Two answers to "is
-		// this still happening" is how a spinner and a list end up contradicting
-		// each other in front of the player.
-		const status = getOperationStatusInfo(operation.transactionIntent).kind;
+		// a second reading of the observer's state here. Two answers to "is this
+		// still happening" is how a spinner and a list end up contradicting each
+		// other in front of the player.
+		const status = getOperationStatusInfo(operation.state).kind;
 		if (status !== 'pending' && status !== 'success') continue;
 
 		// Ids are generated from the clock, so the largest is the most recent. It
@@ -94,7 +96,9 @@ export function findPendingPurchase(params: {
 		newest = at;
 		found = {
 			id,
-			hash: operation.transactionIntent.transactions[0]?.hash,
+			// The first broadcast, exactly as before: `attempts` is the app's own
+			// list of dispatches, in the order it made them.
+			hash: operation.attempts[0]?.hash,
 			landed: status === 'success',
 		};
 	}

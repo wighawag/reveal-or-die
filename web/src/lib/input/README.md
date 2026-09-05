@@ -2,11 +2,11 @@
 
 Two thin modules with the same shape as `$lib/game/render/gestures.ts`: a pure recogniser that turns raw input into a `ControlIntent`, and a small DOM half that feeds it. Nothing here knows what an avatar, a round or an epoch is.
 
-| file | pure half | DOM half |
-| --- | --- | --- |
-| `intents.ts` | the vocabulary: `direction`, `confirm`, `secondary`, `cancel` | none |
-| `keys.ts` | `recognizeKey(sample)` | `attachKeys(target, onIntent)` |
-| `gamepad.ts` | `createGamepadRecognizer().poll(pads)` | `attachGamepad(onIntent)` |
+| file         | pure half                                                     | DOM half                       |
+| ------------ | ------------------------------------------------------------- | ------------------------------ |
+| `intents.ts` | the vocabulary: `direction`, `confirm`, `secondary`, `cancel` | none                           |
+| `keys.ts`    | `recognizeKey(sample)`                                        | `attachKeys(target, onIntent)` |
+| `gamepad.ts` | `createGamepadRecognizer().poll(pads)`                        | `attachGamepad(onIntent)`      |
 
 ## Why this is not in `$lib/world/`
 

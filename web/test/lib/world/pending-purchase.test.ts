@@ -27,7 +27,7 @@ function operation(overrides: {
 	to?: `0x${string}` | null;
 	functionName?: string;
 	unknownMetadata?: boolean;
-	state?: {inclusion: string; status?: string; final?: boolean};
+	state?: {inclusion: string; outcome?: string; final?: boolean};
 	hash?: `0x${string}`;
 }): OnchainOperation {
 	const metadata = overrides.unknownMetadata
@@ -38,14 +38,12 @@ function operation(overrides: {
 				args: [],
 			};
 	return {
-		metadata: {
-			...metadata,
-			tx: {to: overrides.to === undefined ? SALE : overrides.to},
-		},
-		transactionIntent: {
-			transactions: [{hash: overrides.hash ?? '0xabc'}],
-			state: overrides.state,
-		},
+		// Metadata is only what the transaction MEANS now; what was asked lives
+		// in `call`, and each broadcast in `attempts`.
+		metadata,
+		call: {to: overrides.to === undefined ? SALE : overrides.to},
+		attempts: [{hash: overrides.hash ?? '0xabc'}],
+		state: overrides.state,
 	} as unknown as OnchainOperation;
 }
 
@@ -71,7 +69,7 @@ describe('finding a purchase in the operations ledger', () => {
 		// to sell them a second avatar.
 		const found = find({
 			'100': operation({
-				state: {inclusion: 'Included', status: 'Success', final: false},
+				state: {inclusion: 'Included', outcome: 'Success', final: false},
 			}),
 		});
 		expect(found?.landed).toBe(true);
@@ -84,7 +82,7 @@ describe('finding a purchase in the operations ledger', () => {
 		expect(
 			find({
 				'100': operation({
-					state: {inclusion: 'Included', status: 'Failure', final: true},
+					state: {inclusion: 'Included', outcome: 'Failure', final: true},
 				}),
 			}),
 		).toBeUndefined();
