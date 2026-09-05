@@ -8,6 +8,7 @@ import {
 	lockStallingWallet,
 	sendAndStall as stallARequest,
 	sentHashes,
+	STALLING_WALLET_ACCOUNT,
 	writeForm,
 } from '../fixtures/stalling-wallet';
 
@@ -267,16 +268,37 @@ describe('Stopping waiting for the wallet', () => {
 
 		// And the flow is raised again, which IS the transition.
 		//
-		// `ensureConnected()`, not `connect()`, and the difference is deliberate on
-		// both sides now. `ensureConnected` promises a TARGET, so it is the one that
+		// `ensureConnected`, not `connect()`, and the difference is deliberate on
+		// both sides. `ensureConnected` promises a TARGET, so it is the one that
 		// reconnects a locked wallet by replaying the existing mechanism; `connect()`
 		// drives the flow from the user's CHOICE and opens the picker. Upstream made
 		// that asymmetry explicit in 0.11.0 rather than removing it, and the picker
-		// path is covered by the next test. This is also the app's own send path: the
-		// first thing `routes/demo/lib/setGreeting.ts` does is await this, so pressing
-		// Send against a locked wallet runs exactly this line.
-		await page.evaluate(() =>
-			(globalThis as any).context.connection.ensureConnected(),
+		// path is covered by the next test.
+		//
+		// IT NAMES THE ADDRESS IT NEEDS TO SIGN AS, rather than calling the bare
+		// `ensureConnected()` and letting the app's configured target imply it.
+		// A bare call asks for the app's OWN target step, which makes "does this
+		// rebuild a locked wallet" a property of the app rather than of this test:
+		// `targetReached` counts a locked wallet as unsatisfactory only for a
+		// `WalletConnected` target, because a SIGNED-IN app acts through its session
+		// account and a locked wallet does not invalidate that. That is correct, and
+		// it meant this test asked a descendant that signs in for something it was
+		// right to refuse, then failed on the refusal - with the app showing the
+		// locked-wallet modal and its Unlock button, exactly as it should.
+		//
+		// Naming the address states the requirement instead, and it is the same
+		// requirement in every app in this tree: the request being defended is one
+		// the WALLET is holding, so the transition worth driving is the one that
+		// rebuilds a wallet able to sign as that account. `canActAs` is false for a
+		// locked wallet, so this reconnects everywhere, and it is what upstream
+		// points at for precisely this case (see its note on `canActAs`).
+		await page.evaluate(
+			(address) =>
+				(globalThis as any).context.connection.ensureConnected(
+					'WalletConnected',
+					{type: 'wallet', address},
+				),
+			STALLING_WALLET_ACCOUNT,
 		);
 		await expect
 			.poll(() => walletStatus(page), {timeout: 30_000})
