@@ -326,7 +326,7 @@ describe('Transaction inspector', () => {
 
 	test('records WHICH ROUTE signed it, so it can be replaced later', async ({
 		connectedPage,
-		authoriseBrowser,
+		connectWallet,
 	}) => {
 		// THE ONE LINK NOTHING ELSE CHECKS END TO END. `source` is stamped by a
 		// thunk handed to the tracker at construction, carried through the
@@ -339,11 +339,7 @@ describe('Transaction inspector', () => {
 		// works, the operation is listed, and nothing looks wrong until somebody
 		// needs to unstick one.
 		const page = connectedPage;
-		await submitAndOpenTransactions(
-			page,
-			authoriseBrowser,
-			`Source test ${Date.now()}`,
-		);
+		await submitAndOpenTransactions(page, connectWallet, '0');
 
 		await expect
 			.poll(() => storedTxSources(page), {timeout: 15000})
@@ -378,14 +374,10 @@ describe('Transaction inspector', () => {
 	 */
 	test('keeps its dispatch facts across a reload, while the observer updates it', async ({
 		connectedPage,
-		authoriseBrowser,
+		connectWallet,
 	}) => {
 		const page = connectedPage;
-		await submitAndOpenTransactions(
-			page,
-			authoriseBrowser,
-			`Reload shape ${Date.now()}`,
-		);
+		await submitAndOpenTransactions(page, connectWallet, '0');
 
 		// Wait for the record to actually be on disk: synqable debounces its
 		// saves, and reloading before the write tests nothing at all.
