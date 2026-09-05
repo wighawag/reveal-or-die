@@ -76,21 +76,34 @@ export default defineConfig({
 	// workers, and the full suite flaked on five of six runs at the default.
 	// `bleeps` capped at 4 for the same reason and the same measurement.
 	//
-	// RE-MEASURED AT 2, because the load went up. The sending-indicator suite
-	// used to fail fast here (it drove the template's demo page, which this app
-	// does not send through, so it waited thirty seconds for a wallet nobody was
-	// going to ask). Fixing it means a SECOND suite now walks all the way to a
-	// held transaction, and two of those against one node is what 4 could no
-	// longer feed: at 4 the full suite failed four runs out of five, at 3 it
-	// still failed, and the failure kept moving between the two heavy suites -
-	// the same wandering signature described above. At 2 it passed twice in a
-	// row, and costs about a minute of wall clock (10.0m against 8.9m).
+	// ONE NAME IN THAT LIST DID NOT BELONG THERE: escape-hatch. It, and the
+	// sending-indicator suite that shares its fixture, were failing on a bug in
+	// `waitUntilHolding` - a "Sign in" click with no timeout, resolved against a
+	// button the closing modal had already removed, which Playwright waits out
+	// forever instead of failing. The loop never reached its own deadline, so the
+	// test died on Playwright's 120s timeout with nothing ever dispatched.
 	//
-	// What it looks like when it bites, so the next person does not spend an
-	// evening on it: the app sits on "Executing...", the wallet-action modal is
-	// up, and nothing is ever held, because the wallet is waiting on the node
-	// for a read that a busier node has not answered yet. The stalling wallet
-	// now names the call it is waiting on when it gives up.
+	// It is called out because that failure mode is indistinguishable from real
+	// contention at a glance (a suite that hangs, and hangs less often when the
+	// box is quieter, because worker count moves the timing of the race) and it
+	// cost an afternoon. The tell is that a genuinely starved node makes the
+	// stalling wallet's error name the RPC method it is waiting on; the fixture
+	// bug never let that error print at all.
+	//
+	// THEN LOWERED TO 2 HERE, FOR THAT SAME WRONG REASON, and left at 2. The
+	// story was that a SECOND suite now walked all the way to a held transaction
+	// and two of those against one node was what 4 could no longer feed. The
+	// measurements were real - at 4 the full suite failed four runs out of five,
+	// at 3 it still failed, at 2 it passed twice, and the failure kept moving
+	// between the two heavy suites. That wandering was the tell, and it was read
+	// backwards: the two suites that kept swapping places are the two that share
+	// the fixture above. The full suite failed at ONE worker too.
+	//
+	// The cap is kept because the paragraph two up stands on its own evidence
+	// (the other three suites in that list are real), and because it has not been
+	// re-derived since. If you want that minute of wall clock back, raising it is
+	// a reasonable thing to measure - just do not read a stalling-wallet failure
+	// as proof that you cannot.
 	workers: env.CI ? 1 : 2,
 
 	// Reporter to use

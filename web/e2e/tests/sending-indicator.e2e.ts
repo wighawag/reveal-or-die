@@ -40,13 +40,27 @@ describe('Explaining a dispatch in flight', () => {
 	// node with every other worker (see the workers note in
 	// playwright.config.ts, which caps them for the same reason).
 	//
-	// Measured: with both stalling-wallet suites doing real work - which they
-	// only started doing once the sending indicator's suite was fixed - whichever
-	// of the two met the node at a bad moment ran past the default two minutes,
-	// sitting on "Executing..." with the send waiting on RPC. At 4 workers that
-	// was the escape hatch, at 3 the sending indicator: the signature of
-	// contention rather than of a stuck app. Both pass alone and with the suite
-	// narrowed.
+	// WHAT THIS PARAGRAPH USED TO SAY WAS WRONG, and it is corrected in place
+	// because it was confident, detailed, and it sent the next person down a dead
+	// end. It read: whichever of the two stalling-wallet suites met the node at a
+	// bad moment ran past two minutes, sitting on "Executing..." with the send
+	// waiting on RPC; at 4 workers that was the escape hatch, at 3 the sending
+	// indicator; the signature of contention.
+	//
+	// It was not contention. `waitUntilHolding` in the shared fixture clicked
+	// "Sign in" with no timeout, and the sign-in modal closes the moment the
+	// signature lands, so the click routinely resolved against a button that had
+	// already gone - which Playwright waits out forever instead of failing. The
+	// loop never got back to its own deadline, so the send was never dispatched,
+	// nothing was ever held, and the test died on Playwright's own timeout. "The
+	// app sits on Executing... and nothing is held" is that bug's signature, not
+	// the node's. Worker count only moved the timing of the race, which is why
+	// fewer workers looked like a cure and why the failure wandered between the
+	// two suites that share the fixture. The full suite failed at ONE worker too.
+	//
+	// The budget below is therefore NOT what makes this suite pass - the fixture
+	// fix is - and it has not been re-derived since. It is kept only for the
+	// first paragraph's reason, that the walk really is heavy in this app.
 	//
 	// A budget is the right lever here because nothing being measured is a
 	// duration: this suite asserts an ORDER (pulse before words) and a floor
