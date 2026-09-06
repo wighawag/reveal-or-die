@@ -475,14 +475,27 @@ export async function selectContract(
 	page: Page,
 	name: string = WRITE_CONTRACT,
 ): Promise<void> {
-	const trigger = page.getByRole('combobox');
+	// BY `data-slot`, NOT BY ROLE. bits-ui renders the trigger as a plain
+	// `button` whose accessible name is the selected contract, so
+	// `getByRole('combobox')` matches nothing here.
+	const trigger = page.locator('[data-slot="select-trigger"]');
 	await expect(trigger).toBeVisible({timeout: 30_000});
+	const selected = () => trigger.textContent().then((t) => (t ?? '').trim());
 	// Already there: the page opens on one of them, and re-picking it is a no-op
 	// that still costs a dropdown round trip.
-	if (((await trigger.textContent()) ?? '').trim() === name) return;
+	if ((await selected()) === name) return;
+
 	await trigger.click();
-	await page.getByRole('option', {name, exact: true}).click({timeout: 30_000});
-	await expect(trigger).toHaveText(name, {timeout: 30_000});
+	// EXACTLY, because the list is `Object.keys(deployments.contracts)` and a
+	// routed proxy publishes a dozen of them: `Game`, but also `Game_Proxy`,
+	// `Game_Implementation` and one entry per route. A substring match on "Game"
+	// is ambiguous between all of them.
+	await page
+		.locator('[data-slot="select-item"]')
+		.filter({hasText: new RegExp(`^\\s*${name}\\s*$`)})
+		.first()
+		.click({timeout: 30_000});
+	await expect.poll(selected, {timeout: 30_000}).toBe(name);
 }
 
 /**

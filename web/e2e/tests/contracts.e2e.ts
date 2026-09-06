@@ -30,7 +30,7 @@ describe('Contracts Page', () => {
 		// What is worth pinning is that the page comes up ON something rather than
 		// empty, and that the game is reachable from the picker, since every other
 		// test in this file depends on getting there.
-		const trigger = page.getByRole('combobox');
+		const trigger = page.locator('[data-slot="select-trigger"]');
 		await expect(trigger).toBeVisible({timeout: 10_000});
 		await expect(trigger).not.toHaveText('Select a contract');
 
