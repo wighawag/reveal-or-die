@@ -17,4 +17,5 @@ database.sql
 .kilocode/
 
 # agent scratch (subagent transcripts and artifacts)
+# Scratch space for subagent runs (artifacts, transcripts). Never committed.
 .pi-subagents/
