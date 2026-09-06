@@ -3,7 +3,7 @@ import {
 	selectContract,
 	WRITE_CONTRACT,
 	WRITE_FUNCTION,
-} from '../fixtures/stalling-wallet';
+} from '../fixtures/contracts-page';
 
 describe('Contracts Page', () => {
 	test('should show contract selection dropdown', async ({page}) => {

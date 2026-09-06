@@ -5,7 +5,7 @@ import {
 	selectContract,
 	WRITE_FUNCTION,
 	writeForm,
-} from '../fixtures/stalling-wallet';
+} from '../fixtures/contracts-page';
 
 /**
  * The transaction inspector, driven the way a user reaches it.
