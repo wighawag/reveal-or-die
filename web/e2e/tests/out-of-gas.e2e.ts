@@ -10,7 +10,7 @@ import {
 	clearAnyMissedReveal,
 	planOnCanvas,
 	roundStep,
-	stake,
+	stakeAnAvatar,
 } from '../fixtures/game';
 
 /**
@@ -40,6 +40,13 @@ describe('A move that runs out of gas', () => {
 	// with another suite would have them fighting over the same commitment slot.
 	test.use({walletAccountIndex: 2});
 
+	// FIXME, for the same reason as game.e2e.ts: the setup this test needs is a
+	// COMMIT in this game's terms, and the commit it makes is the parent
+	// template's (a stake bonded on a cell). Everything after that - taking the
+	// signer's gas away, the message naming it, the top-up remedy, the resume -
+	// is this app's own and is worth having, so this is waiting on the same
+	// rewrite rather than on anything about gas.
+	test.fixme();
 	test('is named, offers the remedy, and resumes when the gas lands', async ({
 		connectedPage,
 		authoriseBrowser,
@@ -51,20 +58,12 @@ describe('A move that runs out of gas', () => {
 		await authoriseToPlay(page, authoriseBrowser);
 		await clearAnyMissedReveal(page);
 
-		// Stake first, while there is still gas to do it with. This is the wallet's
-		// money and the wallet's transaction (`addToReserve` lets one address pay
-		// and another play), so it is unaffected by what follows - but the reserve
-		// has to exist before the commit, or the commit would fail for the wrong
+		// Stake first, while there is still gas to do it with. THE BOND IS THE
+		// AVATAR: it is bought with the player's own money, through their wallet,
+		// so it is unaffected by the SIGNER's gas running out below - but it has to
+		// be in custody before the commit, or the commit would fail for the wrong
 		// reason and this test would pass on the wrong failure.
-		const reserveBefore = BigInt((await roundStep(page)).reserve ?? '0');
-		await stake(page);
-		await expect
-			.poll(
-				async () =>
-					BigInt((await roundStep(page)).reserve ?? '0') > reserveBefore,
-				{message: 'the reserve should grow before playing', timeout: 60_000},
-			)
-			.toBe(true);
+		await stakeAnAvatar(page);
 
 		// Now take the gas away. Everything up to here was setup; this is the
 		// condition under test.

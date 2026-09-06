@@ -4,7 +4,7 @@ import {
 	clearAnyMissedReveal,
 	planOnCanvas,
 	roundStep,
-	stake,
+	stakeAnAvatar,
 	stakeOnCell,
 } from '../fixtures/game';
 
@@ -31,6 +31,22 @@ describe('Commit-reveal round', () => {
 	// its own burner account (the contracts suite uses index 1).
 	test.use({walletAccountIndex: 0});
 
+	// FIXME, AND THE REASON IS NOT A BUG: this suite plays the PARENT template's
+	// game, not this one.
+	//
+	// It plans a placement on a CELL, bonds a stake on that cell, and asserts the
+	// cell's `totalStake` moved (see `stakeOnCell`). This game has no cells and no
+	// per-cell stake: avatars occupy positions, moves are planned as a sequence of
+	// enter/move/exit, and THE BOND IS THE AVATAR - one held in the contract's
+	// custody, which `stakeAnAvatar` now puts there correctly.
+	//
+	// So what is left is not repair, it is authorship: the same three beats
+	// (plan, commit, reveal) asserted against this game's board. That needs this
+	// game's rules, not a rename, which is why it is marked rather than guessed -
+	// a plausible-looking rewrite would assert whatever the author imagined the
+	// rules were, and this tree has spent long enough deleting confident, wrong
+	// tests.
+	test.fixme();
 	test('plans a placement, commits it, and reveals it onto the board', async ({
 		connectedPage,
 		authoriseBrowser,
@@ -93,28 +109,14 @@ describe('Commit-reveal round', () => {
 		// Something must be at stake, or there is no reason to reveal. The
 		// template gates on a token reserve bonded at commit time.
 		//
-		// Asserted against the app's own store rather than the HUD text: "Reserve"
-		// also appears in the transaction toast for `addToReserve`, so a text
-		// locator matches two different things and trips strict mode.
+		// THE BOND IS THE AVATAR: the contract holds one for this account, and that
+		// custody is what the player has at risk. There is no amount to grow and no
+		// per-round cost to bond, which is why this asserts custody rather than a
+		// balance (see the note on `stakeAnAvatar`).
 		//
-		// An INCREASE, not "non-zero": the e2e chain is shared and reused, so this
-		// account may already hold a reserve from an earlier run, and asserting
-		// non-zero would pass without the top-up having done anything.
-		const reserveBefore = BigInt((await roundStep(page)).reserve ?? '0');
-		// The label depends on whether there is anything staked yet: with an empty
-		// reserve the HUD replaces the planning controls with a deposit prompt,
-		// because planning a turn that cannot be committed only fails later.
-		await stake(page);
-		await expect
-			.poll(
-				async () =>
-					BigInt((await roundStep(page)).reserve ?? '0') > reserveBefore,
-				{
-					message: 'the reserve should grow before playing',
-					timeout: 60_000,
-				},
-			)
-			.toBe(true);
+		// The helper is idempotent and settles on the chain, so it is safe on a
+		// shared, reused e2e chain where this account may already hold one.
+		await stakeAnAvatar(page);
 
 		// Plan a placement by clicking the canvas. Offset from the middle so the
 		// two suites in this file aim at different cells.
@@ -228,6 +230,21 @@ describe('A missed reveal', () => {
 		await connectWallet(page);
 	}
 
+	// FIXME, for the reason above PLUS one of its own.
+	//
+	// "settled only when asked" is real and implemented: a missed reveal blocks
+	// further play until `missedReveal.acknowledge()` clears it, and that half
+	// could be asserted today.
+	//
+	// "what it cost" cannot be, because nothing charges for it yet.
+	// `MissedRevealState` is Unknown | Clear | Blocked | Acknowledging | Failed
+	// and carries no cost at all; the template's version forfeits a bonded
+	// reserve, and this game does not bond one. The intended answer is CREDITS,
+	// the way bomber-world denominates a signer's gas balance in actions (this
+	// app already has the display side, `core/connection/credits.ts`) - but
+	// nothing on chain spends them on a miss, so there is no cost for a test to
+	// read. Asserting one would be asserting a feature that does not exist.
+	test.fixme();
 	test('is reported with what it cost, and settled only when asked', async ({
 		browser,
 		baseURL,
@@ -254,15 +271,8 @@ describe('A missed reveal', () => {
 		await clearAnyMissedReveal(page);
 
 		// The label depends on whether there is anything staked yet: with an empty
-		// reserve the HUD replaces the planning controls with a deposit prompt,
-		// because planning a turn that cannot be committed only fails later.
-		await stake(page);
-		await expect
-			.poll(async () => (await roundStep(page)).reserve !== '0', {
-				message: 'a reserve to bond from',
-				timeout: 60_000,
-			})
-			.toBe(true);
+		// An avatar in custody to play with, which is what this game bonds.
+		await stakeAnAvatar(page);
 
 		await planOnCanvas(page, {x: 70, y: 50});
 

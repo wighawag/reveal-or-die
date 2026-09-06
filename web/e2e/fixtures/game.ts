@@ -26,7 +26,8 @@ const READ = `
 export async function roundStep(page: Page): Promise<{
 	step: string;
 	message?: string;
-	reserve?: string;
+	/** How many avatars the contract holds for this account: what is at stake. */
+	deposited?: number;
 	cellID?: string;
 	planned: number;
 }> {
@@ -35,48 +36,104 @@ export async function roundStep(page: Page): Promise<{
 		const context = globalThis.context;
 		const round = read(context.game.round);
 		const view = read(context.viewState);
-		const reserve = read(context.game.reserve);
+		// WHAT IS AT STAKE HERE IS AN AVATAR, not a token reserve. The template
+		// bonds a balance per round and reports an amount; this game puts an NFT in
+		// the contract's custody, so the question is HOW MANY are deposited rather
+		// than how much. context.game.reserve does not exist here, and reading it
+		// threw before any assertion ran.
+		//
+		// NO BACKTICKS IN HERE: this whole body is a template literal, so a
+		// backtick in a comment ends the string and breaks the file.
+		const deposited = read(context.game.deposited);
+		const plan = read(context.game.planning.plan);
 
 		// The cell this round is about, and what the board says about it. Every
 		// bigint leaves as a string: bigint cannot cross the evaluate boundary.
+		//
+		// DEFENSIVE, because this shape is the TEMPLATE's. See stakeOnCell below:
+		// that game plays cells, this one plays avatars at positions, so a round
+		// here carries no cellID and this is undefined rather than throwing.
 		const cellID =
-			'actions' in round && round.actions.length > 0
+			round && 'actions' in round && round.actions && round.actions.length > 0
 				? round.actions[0].cellID
 				: undefined;
 
 		return {
 			step: round.step,
 			message: round.message,
-			reserve: reserve.step === 'Loaded' ? reserve.amount.toString() : undefined,
+			deposited:
+				deposited.step === 'Loaded' ? deposited.avatars.length : undefined,
 			cellID: cellID === undefined ? undefined : cellID.toString(),
-			planned:
-				view.step === 'Loaded'
-					? [...view.cells.values()].filter((c) => c.planned).length
-					: -1,
+			// WHAT THE PLAYER HAS PLANNED THIS EPOCH, read from the plan rather than
+			// counted off the board. The template counts cells flagged as planned;
+			// this game plans a sequence of avatar actions (enter / move / exit), so
+			// the count lives on the plan itself and view.cells does not exist.
+			planned: plan && plan.planned ? plan.planned.length : -1,
 		};
 	})()`) as Promise<{
 		step: string;
 		message?: string;
-		reserve?: string;
+		deposited?: number;
 		cellID?: string;
 		planned: number;
 	}>;
 }
 
 /**
- * Put something at stake, whichever affordance is currently on screen.
+ * Put an avatar at stake, which is what this game bonds.
  *
- * With an empty reserve the HUD shows a "Deposit to play" gate INSTEAD of the
- * planning controls; once there is a reserve the same action is a secondary
- * "Add stake" button.
+ * THE BOND IS THE AVATAR. The template stakes a token reserve and tops it up
+ * with a "Deposit to play" / "Add stake" button; this game has neither string
+ * anywhere in `src`, because an avatar in the contract's custody IS the stake.
+ * Inheriting that helper meant clicking for a button that was never going to
+ * exist, which is why the game suites failed before reaching anything they are
+ * about.
+ *
+ * So the equivalent is the SETUP GATE's buy step: the HUD replaces the planning
+ * controls with it until the account has an avatar, and buying one mints it
+ * straight into the game. Driven through the UI rather than through
+ * `purchase.buy()` so that the gate, the payer choice and the consent step are
+ * all exercised: a test that reached past them would not notice the gate
+ * refusing to open.
+ *
+ * Idempotent by intent: it returns as soon as the account holds an avatar, so a
+ * suite that already has one pays nothing.
  */
-export async function stake(page: Page): Promise<void> {
-	const deposit = page.getByRole('button', {name: /deposit to play/i});
-	if (await deposit.isVisible({timeout: 5_000}).catch(() => false)) {
-		await deposit.click();
-		return;
+export async function stakeAnAvatar(page: Page): Promise<void> {
+	if (((await roundStep(page)).deposited ?? 0) > 0) return;
+
+	// The gate's own button. Its label carries the price, so it is matched on the
+	// stem rather than in full.
+	await page
+		.getByRole('button', {name: /buy|get an avatar|play/i})
+		.first()
+		.click({timeout: 30_000});
+
+	// WHICHEVER PAYER IS OFFERED. With one method the flow skips the choice
+	// entirely, so this clicks only if the chooser is up.
+	const chooser = page.locator('[data-testid="purchase-payment-methods"]');
+	if (await chooser.isVisible({timeout: 10_000}).catch(() => false)) {
+		await page
+			.locator('[data-testid="purchase-pay-with-account"]')
+			.or(page.locator('[data-testid="purchase-pay-with-wallet"]'))
+			.first()
+			.click({timeout: 30_000});
 	}
-	await page.getByRole('button', {name: /add stake/i}).click();
+
+	// The consent step, when the purchase has something to sign.
+	const consent = page.getByRole('button', {name: /^(sign and buy|buy)$/i});
+	if (await consent.isVisible({timeout: 10_000}).catch(() => false)) {
+		await consent.click({timeout: 30_000});
+	}
+
+	// Settled ON THE CHAIN, not on the button: the avatar has to be in custody
+	// before anything can be committed with it.
+	await expect
+		.poll(async () => (await roundStep(page)).deposited ?? 0, {
+			message: "an avatar should be in the contract's custody to play with",
+			timeout: 120_000,
+		})
+		.toBeGreaterThan(0);
 }
 
 /** Where the round clock currently is. */
@@ -98,6 +155,14 @@ export async function currentPhase(
  * already carry stake from an earlier run. Total stake rather than the
  * claimant count for the same reason - a second placement by an account that
  * already holds a share of the cell adds stake without adding a claimant.
+ */
+/**
+ * THE TEMPLATE'S MODEL, AND NOT THIS GAME'S. Kept only because the suite that
+ * calls it is `test.fixme`d against a rewrite; see the note there.
+ *
+ * It reads a per-cell `totalStake` off a board of cells. This game has neither:
+ * avatars occupy positions, and what is bonded is the avatar itself rather than
+ * an amount staked on a square. Any call returns '0' here.
  */
 export async function stakeOnCell(page: Page, cellID: string): Promise<string> {
 	return page.evaluate(
