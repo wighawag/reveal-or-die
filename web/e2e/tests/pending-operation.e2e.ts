@@ -1,5 +1,11 @@
 import type {Page} from '@playwright/test';
 import {test, expect, describe} from '../fixtures/test';
+import {
+	executeButton,
+	selectContract,
+	WRITE_FUNCTION,
+	writeForm,
+} from '../fixtures/stalling-wallet';
 
 /**
  * The transaction inspector, driven the way a user reaches it.
@@ -87,30 +93,30 @@ describe('Transaction inspector', () => {
 	 * game's commit is the wrong instrument for that - it depends on the epoch
 	 * phase, keys one open commitment per player, and auto-commits as the phase
 	 * closes, so a suite that only wants "a transaction happened" would be racing
-	 * the round for no reason. `addToReserve` is a plain account-sent write that
-	 * exists on the deployed Game and needs no set-up, which is why
-	 * contracts.e2e.ts uses it too.
+	 * the round for no reason. `WRITE_FUNCTION` is a plain account-sent write that
+	 * exists on the deployed Game and needs no set-up, which is why the
+	 * stalling-wallet fixture and contracts.e2e.ts drive the same one.
+	 *
+	 * NAMED FROM THE FIXTURE, not spelled out. It has been wrong twice already:
+	 * the template's `setMessage`, which this app does not deploy, and then the
+	 * parent's `addToReserve`, which is on the parent's Game and not on this one.
+	 * Both times every suite that open-coded the literal failed at the walk.
 	 *
 	 * It also sends from the ACCOUNT rather than the local signer, so no
 	 * authorisation flow stands in front of it. This used to submit the template's
 	 * greeting, which this app does not have, and so failed at the first line.
 	 */
-	/** The connected account, which is who the reserve is credited to. */
-	async function playerAddress(page: Page): Promise<string> {
-		const address = await page.evaluate(() => {
-			const ctx = (globalThis as any).context;
-			let account: unknown;
-			ctx.account.subscribe((v: unknown) => (account = v))();
-			return typeof account === 'string' ? account : null;
-		});
-		if (!address) throw new Error('no connected account to credit');
-		return address;
-	}
+	/**
+	 * A delegate to withdraw authority from, which was never granted it.
+	 *
+	 * Any non-zero address does: the call writes `Status.Withdrawn` and emits,
+	 * whoever it names. Zero is the one value it rejects.
+	 */
+	const DELEGATE = '0x0000000000000000000000000000000000000021';
 
 	async function submitAndOpenTransactions(
 		page: Page,
 		connectWallet: (page: Page) => Promise<void>,
-		amount: string,
 	) {
 		await page.goto('/contracts');
 
@@ -125,30 +131,18 @@ describe('Transaction inspector', () => {
 			{timeout: 30000},
 		);
 
+		// The page opens on the FIRST deployed contract, which is not the Game.
+		await selectContract(page);
+
 		const writeTab = page.getByRole('tab', {name: 'Write'});
 		await expect(writeTab).toBeVisible({timeout: 30000});
 		await writeTab.click();
 
-		const writeFunctionText = page.getByText('addToReserve nonpayable');
-		await expect(writeFunctionText).toBeVisible({timeout: 30000});
-		const form = page
-			.locator('[class*="card"], [class*="function"]')
-			.filter({has: writeFunctionText})
-			.first();
-		// BOTH inputs. `addToReserve(address player, uint256 amount)` takes two, and
-		// filling only the amount left the address undefined, so viem threw
-		// `InvalidAddressError` and no transaction was ever sent. That is why this
-		// suite saw no pending operation - nothing to do with how fast the node
-		// mines, which is what it looked like from the outside.
-		await form
-			.getByPlaceholder('0x...')
-			.first()
-			.fill(await playerAddress(page));
-		await form.getByPlaceholder('Enter number or 0x...').first().fill(amount);
-		await form
-			.getByRole('button', {name: /execut/i})
-			.first()
-			.click();
+		await expect(page.getByText(WRITE_FUNCTION)).toBeVisible({timeout: 30000});
+		// The form and its submit come from the fixture, so this suite cannot end up
+		// asserting on a different form than the one it filled.
+		await writeForm(page).getByPlaceholder('0x...').first().fill(DELEGATE);
+		await executeButton(page).click();
 
 		// THE OPERATION, not the navbar badge.
 		//
@@ -283,7 +277,7 @@ describe('Transaction inspector', () => {
 		connectWallet,
 	}) => {
 		const page = connectedPage;
-		await submitAndOpenTransactions(page, connectWallet, '0');
+		await submitAndOpenTransactions(page, connectWallet);
 
 		const inspect = page.getByRole('button', {name: /inspect/i}).first();
 		await expect(inspect).toBeVisible({timeout: 30000});
@@ -306,7 +300,7 @@ describe('Transaction inspector', () => {
 		connectWallet,
 	}) => {
 		const page = connectedPage;
-		await submitAndOpenTransactions(page, connectWallet, '0');
+		await submitAndOpenTransactions(page, connectWallet);
 
 		await page
 			.getByRole('button', {name: /inspect/i})
@@ -339,7 +333,7 @@ describe('Transaction inspector', () => {
 		// works, the operation is listed, and nothing looks wrong until somebody
 		// needs to unstick one.
 		const page = connectedPage;
-		await submitAndOpenTransactions(page, connectWallet, '0');
+		await submitAndOpenTransactions(page, connectWallet);
 
 		await expect
 			.poll(() => storedTxSources(page), {timeout: 15000})
@@ -377,7 +371,7 @@ describe('Transaction inspector', () => {
 		connectWallet,
 	}) => {
 		const page = connectedPage;
-		await submitAndOpenTransactions(page, connectWallet, '0');
+		await submitAndOpenTransactions(page, connectWallet);
 
 		// Wait for the record to actually be on disk: synqable debounces its
 		// saves, and reloading before the write tests nothing at all.
@@ -437,7 +431,7 @@ describe('Transaction inspector', () => {
 		connectWallet,
 	}) => {
 		const page = connectedPage;
-		await submitAndOpenTransactions(page, connectWallet, '0');
+		await submitAndOpenTransactions(page, connectWallet);
 
 		await page
 			.getByRole('button', {name: /inspect/i})

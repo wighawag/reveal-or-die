@@ -1,4 +1,9 @@
 import {test, expect, describe} from '../fixtures/test';
+import {
+	selectContract,
+	WRITE_CONTRACT,
+	WRITE_FUNCTION,
+} from '../fixtures/stalling-wallet';
 
 describe('Contracts Page', () => {
 	test('should show contract selection dropdown', async ({page}) => {
@@ -11,13 +16,28 @@ describe('Contracts Page', () => {
 		await expect(selector).toBeVisible({timeout: 5000});
 	});
 
-	test('should display the Game contract by default', async ({page}) => {
+	test('opens on a deployed contract, and can be pointed at the game', async ({
+		page,
+	}) => {
 		await page.goto('/contracts');
 
-		// Should show the Game contract (as button or heading)
-		await expect(page.getByText('Game').first()).toBeVisible({
-			timeout: 5000,
-		});
+		// The page opens on the FIRST deployed contract (`contractNames[0]`), which
+		// in this app is `Avatars` - it deploys three. The inherited version of this
+		// test asserted the Game was shown "by default" and failed on a page that
+		// was working perfectly: that is true of the parent template, which deploys
+		// one contract, and was never true here.
+		//
+		// What is worth pinning is that the page comes up ON something rather than
+		// empty, and that the game is reachable from the picker, since every other
+		// test in this file depends on getting there.
+		const trigger = page.getByRole('combobox');
+		await expect(trigger).toBeVisible({timeout: 10_000});
+		await expect(trigger).not.toHaveText('Select a contract');
+
+		await selectContract(page);
+		await expect(
+			page.getByRole('heading', {name: WRITE_CONTRACT, exact: true}),
+		).toBeVisible({timeout: 10_000});
 	});
 
 	test('should display contract address', async ({page}) => {
@@ -41,6 +61,10 @@ describe('Contracts Page', () => {
 	test('should display view functions in Read tab', async ({page}) => {
 		await page.goto('/contracts');
 
+		// The game's own view functions are on the GAME, which is not the contract
+		// the page opens on.
+		await selectContract(page);
+
 		// Wait for Read tab to be visible and click it
 		const readTab = page.getByRole('tab', {name: 'Read'});
 		await expect(readTab).toBeVisible({timeout: 5000});
@@ -61,13 +85,17 @@ describe('Contracts Page', () => {
 	test('should display write functions in Write tab', async ({page}) => {
 		await page.goto('/contracts');
 
+		// The write under test is on the GAME, which is not the contract the page
+		// opens on.
+		await selectContract(page);
+
 		// Wait for Write tab to be visible and click it
 		const writeTab = page.getByRole('tab', {name: 'Write'});
 		await expect(writeTab).toBeVisible({timeout: 5000});
 		await writeTab.click();
 
 		// Should show a state-changing function of the game
-		await expect(page.getByText('addToReserve').first()).toBeVisible({
+		await expect(page.getByText(WRITE_FUNCTION).first()).toBeVisible({
 			timeout: 5000,
 		});
 	});
@@ -132,13 +160,17 @@ describe('Contracts Page - Write Functions', () => {
 	}) => {
 		await page.goto('/contracts');
 
+		// The write under test is on the GAME, which is not the contract the page
+		// opens on.
+		await selectContract(page);
+
 		// Wait for Write tab to be visible and click it
 		const writeTab = page.getByRole('tab', {name: 'Write'});
 		await expect(writeTab).toBeVisible({timeout: 10000});
 		await writeTab.click();
 
 		// Wait for the write function to appear
-		const writeFunctionText = page.getByText('addToReserve nonpayable');
+		const writeFunctionText = page.getByText(WRITE_FUNCTION);
 		await expect(writeFunctionText).toBeVisible({timeout: 10000});
 
 		// Find the parent section containing the function
@@ -149,12 +181,13 @@ describe('Contracts Page - Write Functions', () => {
 			})
 			.first();
 
-		// Zero is a deliberately harmless amount: this test is about the connect
-		// flow, and a real top-up would need a token allowance first.
-		const amountInput = functionSection
-			.getByPlaceholder('Enter number or 0x...')
-			.first();
-		await amountInput.fill('0');
+		// Any non-zero address: this test is about the CONNECT flow, and the call
+		// withdraws an authority that was never granted, so it is harmless whoever
+		// it names. Zero is the one value the call rejects.
+		await functionSection
+			.getByPlaceholder('0x...')
+			.first()
+			.fill('0x0000000000000000000000000000000000000031');
 
 		// Click the Execute button (or Connect + Execute if wallet not connected)
 		const executeButton = functionSection.getByRole('button', {
@@ -221,13 +254,17 @@ describe('Contracts Page - Write Functions', () => {
 			{timeout: 30000},
 		);
 
+		// The write under test is on the GAME, which is not the contract the page
+		// opens on.
+		await selectContract(page);
+
 		// Wait for Write tab to be visible and click it
 		const writeTab = page.getByRole('tab', {name: 'Write'});
 		await expect(writeTab).toBeVisible({timeout: 10000});
 		await writeTab.click();
 
 		// Wait for the write function to appear
-		const writeFunctionText = page.getByText('addToReserve nonpayable');
+		const writeFunctionText = page.getByText(WRITE_FUNCTION);
 		await expect(writeFunctionText).toBeVisible({timeout: 10000});
 
 		// Find the parent section containing the function
@@ -238,29 +275,19 @@ describe('Contracts Page - Write Functions', () => {
 			})
 			.first();
 
-		// BOTH inputs. `addToReserve(address player, uint256 amount)` takes two, and
-		// this filled only the amount: the address stayed undefined, viem threw
+		// FILL THE ARGUMENT. When this drove `addToReserve(address, uint256)` it
+		// filled only the amount, so the address stayed undefined, viem threw
 		// `InvalidAddressError` before anything was sent, and the assertion below
-		// ("no operation is pending") was then trivially true of a page on which
-		// nothing had happened. It passed for a year without executing a write.
-		const playerAddress = await page.evaluate(() => {
-			const ctx = (globalThis as any).context;
-			let account: unknown;
-			ctx.account.subscribe((v: unknown) => (account = v))();
-			return typeof account === 'string' ? account : null;
-		});
-		expect(playerAddress, 'a connected account to credit').toBeTruthy();
+		// ("no operation is pending") was trivially true of a page on which nothing
+		// had happened. It passed for a year without executing a write, which is
+		// why the single argument this call takes is filled explicitly.
+		//
+		// What is under test is that a write reaches the chain from this page and
+		// settles, not what the game does with it, so any non-zero address serves.
 		await functionSection
 			.getByPlaceholder('0x...')
 			.first()
-			.fill(playerAddress as string);
-
-		// Zero again: what is under test is that a write reaches the chain from
-		// this page and settles, not what the game does with it.
-		const amountInput = functionSection
-			.getByPlaceholder('Enter number or 0x...')
-			.first();
-		await amountInput.fill('0');
+			.fill('0x0000000000000000000000000000000000000032');
 
 		// Click the Execute button (wallet already connected)
 		const executeButton = functionSection.getByRole('button', {

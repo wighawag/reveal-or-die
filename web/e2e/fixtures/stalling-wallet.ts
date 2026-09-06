@@ -292,15 +292,17 @@ export function walletWaitingOn(
  * app named what it is sending (the sending notice does) reads it from here
  * rather than repeating a literal - `setMessage` is the template's
  * GreetingsRegistry, and a descendant that does not deploy it inherited an
- * assertion for a function it never calls, which is this app: it sends
- * `addToReserve`, and the inherited literal made a passing notice look like a
- * broken one.
+ * assertion for a function it never calls. This app inherited that mistake
+ * TWICE: from the template as `setMessage`, then from its own parent as
+ * `addToReserve`, which belongs to the parent's Game and does not exist on this
+ * one. Both times the suites failed here, at a form that was never going to
+ * appear, rather than at anything they are about.
  *
  * The same name as {@link WRITE_FUNCTION} below, minus the mutability the
  * contracts page prints beside it, because the sending notice shows the function
  * and the contracts page shows the signature.
  */
-export const STALLED_SEND_NAME = 'addToReserve';
+export const STALLED_SEND_NAME = 'revokeDelegate';
 
 /**
  * Get this app to hand the stalling wallet a transaction, and leave it holding
@@ -371,12 +373,20 @@ export async function sendAndStall(
 	// page the window does not exist. The ACCOUNT executor still goes to the
 	// wallet, and `/contracts` calls it directly.
 	//
-	// THE FUNCTION. `addToReserve` is THIS app's contract, and the same write
-	// contracts.e2e.ts drives, for the same reason: it exists on the deployed
-	// Game and needs no set-up. It used to be `setMessage`, inherited from the
-	// template's GreetingsRegistry, which this app does not deploy - so the form
-	// was never found and the suite failed here rather than at anything it is
-	// about.
+	// THE FUNCTION. `revokeDelegate` is THIS app's own, and the same write
+	// contracts.e2e.ts drives, for the same reason: it is on the deployed Game,
+	// needs no set-up, and CANNOT REVERT for any address but zero - it writes
+	// `Status.Withdrawn` for a delegate that was never registered and emits. That
+	// matters because the tests that approve the held request need it to reach a
+	// block, and the app declines to send a call it can see will fail.
+	//
+	// It was `addToReserve` before, inherited from the parent template whose Game
+	// bonds a token reserve. This game stakes an NFT in custody instead, so that
+	// function does not exist here and the form was never found: the suites failed
+	// at the walk rather than at anything they are about. Before that it was
+	// `setMessage`, inherited from the template's GreetingsRegistry, which this
+	// app does not deploy either. Twice is a pattern, so the name now lives in
+	// WRITE_FUNCTION beside a note saying which contract it is on.
 	//
 	// Stated HERE rather than in a suite, because two suites need it and stating
 	// it in one of them is precisely how the other spent thirty seconds waiting
@@ -402,32 +412,29 @@ export async function sendAndStall(
 		{timeout: 30_000},
 	);
 
+	// THE CONTRACT, before the tab: this app deploys three and the page opens on
+	// the first of them (Avatars), so the Game has to be asked for.
+	await selectContract(page);
+
 	const writeTab = page.getByRole('tab', {name: 'Write'});
 	await expect(writeTab).toBeVisible({timeout: 30_000});
 	await writeTab.click();
 
 	await expect(page.getByText(WRITE_FUNCTION)).toBeVisible({timeout: 30_000});
 
-	// BOTH inputs: `addToReserve(address player, uint256 amount)`. Filling only
-	// the amount left the address undefined and viem threw before anything
-	// reached the wallet, so there was never a held transaction to stop waiting
-	// for.
+	// ONE input: `revokeDelegate(address delegate)`. The caller's distinctive
+	// value goes in it, which is why every caller here passes an ADDRESS rather
+	// than a sentence - what a descendant's write accepts is the descendant's
+	// business, and a suite that filled prose into an address field left the form
+	// unsubmittable and nothing ever reached the wallet.
 	//
-	// THE AMOUNT IS ALWAYS ZERO. A real amount reverts without a token allowance,
-	// and the app declines to send a call it can see will fail, so nothing ever
-	// reaches the wallet. The caller's distinctive value therefore goes in the
-	// ADDRESS, which is not validated against any balance: `options.message` is
-	// whatever the caller needs to recognise later, and here that is an address.
+	// NEVER THE ZERO ADDRESS, which is the one input this call rejects
+	// (`InvalidDelegate`). Any other address revokes an authority that was never
+	// granted, which is a harmless write and, importantly, a SUCCEEDING one.
 	await writeForm(page)
 		.getByPlaceholder('0x...')
 		.first()
-		// The zero address when a caller does not care: `amount` is zero, so this
-		// call is harmless whoever it names, and it is never mined anyway.
-		.fill(options?.input ?? '0x0000000000000000000000000000000000000000');
-	await writeForm(page)
-		.getByPlaceholder('Enter number or 0x...')
-		.first()
-		.fill('0');
+		.fill(options?.input ?? '0x0000000000000000000000000000000000000001');
 	await executeButton(page).click();
 
 	await chooseStallingWallet(page);
@@ -443,11 +450,40 @@ export async function sendAndStall(
 /**
  * The write this fixture drives, named once.
  *
- * `addToReserve`, this app's own, for the reasons in `sendAndStall` above. The
+ * `revokeDelegate`, this app's own, for the reasons in `sendAndStall` above. The
  * suites import it rather than restating it, because a suite that asserts on a
  * form has to be looking at the form that was actually filled.
  */
-export const WRITE_FUNCTION = 'addToReserve nonpayable';
+export const WRITE_FUNCTION = 'revokeDelegate nonpayable';
+
+/** The contract `sendAndStall` drives, which is NOT the one the page opens on. */
+export const WRITE_CONTRACT = 'Game';
+
+/**
+ * Put the contracts page on a named contract.
+ *
+ * The page opens on the FIRST deployed contract (`contractNames[0]`), and this
+ * app deploys three, so that is `Avatars` and the Game has to be asked for. The
+ * template deploys one and never needed this, which is why the inherited walk
+ * went straight to the Write tab and looked for a function that was on a
+ * contract nobody had selected.
+ *
+ * Shared with `contracts.e2e.ts`, which drives the same page for its own
+ * reasons: one definition of "how you get to a contract here".
+ */
+export async function selectContract(
+	page: Page,
+	name: string = WRITE_CONTRACT,
+): Promise<void> {
+	const trigger = page.getByRole('combobox');
+	await expect(trigger).toBeVisible({timeout: 30_000});
+	// Already there: the page opens on one of them, and re-picking it is a no-op
+	// that still costs a dropdown round trip.
+	if (((await trigger.textContent()) ?? '').trim() === name) return;
+	await trigger.click();
+	await page.getByRole('option', {name, exact: true}).click({timeout: 30_000});
+	await expect(trigger).toHaveText(name, {timeout: 30_000});
+}
 
 /**
  * The write form `sendAndStall` drives, and its submit control.
