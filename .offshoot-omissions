@@ -35,20 +35,21 @@ web/e2e/tests/game.e2e.ts
 # report the way the template forfeits a bonded reserve. A missed reveal here
 # blocks play until it is acknowledged, and that is the whole of it.
 #
-# This game deserves its own suite - plan, commit, reveal, asserted against THIS
-# board - and it has to be written against this game's rules rather than renamed
-# out of the template's. Deleted rather than left failing or marked `fixme`,
-# because a suite for a different app is not a to-do list for this one.
+# REPLACED BY web/e2e/tests/board.e2e.ts, which plays the same three beats
+# (plan, commit, reveal) against this game: an avatar enters the world, the
+# commitment hides where until the reveal, and only the reveal puts it on the
+# board. Written on its own path rather than over this one, so the template can
+# go on changing its own suite without ever conflicting with ours.
 
 web/e2e/tests/out-of-gas.e2e.ts
-# Its SUBJECT belongs here - the signer running dry mid-move, the message that
+# Its SUBJECT belongs here - the signer running dry mid-round, the message that
 # names it, the top-up remedy, the resume - but it can only reach that subject
 # through a commit, and the commit it makes is the template's (a stake bonded on
-# a cell). So it goes with game.e2e.ts and comes back with it, written against
-# this game.
+# a cell).
 #
-# Recorded separately from the entry above because the two are not the same
-# decision: that one does not apply here, this one does and is owed a rewrite.
+# REPLACED BY web/e2e/tests/signer-out-of-gas.e2e.ts, which is the same test
+# with the same assertions, reaching the same subject through this game's own
+# commit. Only the way in had to change.
 
 web/e2e/fixtures/game.ts
 # The fixture those two suites drove, and nothing else uses it. Mostly the
@@ -69,4 +70,10 @@ web/e2e/fixtures/game.ts
 #   "Sign and buy" or "Buy"; custody is then visible as
 #   `context.game.deposited` going from Loaded/[] to Loaded/[one].
 #
-# The code, if it is ever wanted, is in e0b7885.
+# REPLACED BY web/e2e/fixtures/board.ts, which reads this game's board (round
+# step, planned actions, where the avatar is, what is in custody) and drives it
+# (buy an avatar, skip the welcome overlay, plan by clicking). `stakeAnAvatar`
+# was re-derived there and is now executed green by both suites, which is what
+# it never was here.
+#
+# The old code, if it is ever wanted, is in e0b7885.
