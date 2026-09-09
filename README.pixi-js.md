@@ -120,8 +120,15 @@ pnpm --filter ./web run test:unit
 BASE=main FEATURES=with/pixi-js \
   WATCH="web/src/lib/game/render web/src/lib/placement/render" \
   ALLOWED="web/src/lib/placement/render/index.ts" \
-  bash <(git -C ../jolly-roger show tooling:check-shared-divergence.sh)
+  bash <(git show tooling:check-shared-divergence.sh)
 ```
+
+`tooling` is a LOCAL orphan branch here, adopted verbatim from jolly-roger's
+(N6), so the command needs no sibling checkout on disk. It shares history with
+nothing and is not in `fanout.config.json`, so it can never arrive through a
+merge or be cascaded into. Refresh it with `git fetch stem tooling && git branch
+-f tooling stem/tooling`, and do NOT edit it here: a local edit to a shared tool
+is the same divergence-by-copy the tool exists to catch, one level up.
 
 The `ALLOWED` entry is the renderer selector, and it is the exact analogue of
 `mode.ts` upstream: the one file that is SUPPOSED to differ, because it is the
@@ -129,3 +136,13 @@ switch this branch exists to flip. Anything else drifting under those paths is
 the failure the script is for - a cascade whose conflicts were all resolved
 correctly and which still left a shared file holding two versions of the same
 logic.
+
+**Two things it will not tell you**, both measured on its first real run here:
+
+- It compares `.ts` only, by design upstream. The shared file this branch most
+  depends on staying identical is `routes/play/+page.svelte`, which it never
+  looks at. That one is covered by `render-host-boundary.test.ts` instead.
+- It cannot see a DELETION, because it compares files two branches share. That
+  is the shape that makes `main` currently unmergeable into reveal-or-die: the
+  pixi host was deleted upstream and is still imported there, and the merge
+  reports success on that hunk.
