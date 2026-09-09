@@ -117,8 +117,8 @@ list and the trigger are in
 git merge main
 pnpm --filter ./web check
 pnpm --filter ./web run test:unit
-BASE=main FEATURES=with/pixi-js \
-  WATCH="web/src/lib/game/render web/src/lib/placement/render" \
+BASE=main FEATURES=with/pixi-js EXT="ts svelte" \
+  WATCH="web/src web/test" \
   ALLOWED="web/src/lib/placement/render/index.ts" \
   bash <(git show tooling:check-shared-divergence.sh)
 ```
@@ -149,12 +149,16 @@ the failure the script is for - a cascade whose conflicts were all resolved
 correctly and which still left a shared file holding two versions of the same
 logic.
 
-**Two things it will not tell you**, both measured on its first real run here:
+`EXT="ts svelte"` matters here and is why the command above is not the upstream
+default. The script watched `.ts` only, which is right for jolly-roger's
+connection layer (apps restyle their own wallet flows) and wrong for a renderer
+swap, where the shared file this branch most depends on staying identical is
+`routes/play/+page.svelte`. That is now a variable upstream, with `ts` still the
+default; the run covers 530 shared files rather than 367.
 
-- It compares `.ts` only, by design upstream. The shared file this branch most
-  depends on staying identical is `routes/play/+page.svelte`, which it never
-  looks at. That one is covered by `render-host-boundary.test.ts` instead.
-- It cannot see a DELETION, because it compares files two branches share. That
-  is the shape that makes `main` currently unmergeable into reveal-or-die: the
-  pixi host was deleted upstream and is still imported there, and the merge
-  reports success on that hunk.
+**One thing it still will not tell you: a DELETION.** It compares files two
+branches SHARE, so a file removed on one side and still imported on the other
+leaves nothing to diff. That is the shape that makes `main` currently
+unmergeable into reveal-or-die - the pixi host was deleted upstream and is still
+imported there, and the merge reports success on that hunk while conflicting on
+three unrelated files. What catches that is the cascade's `verify` step.
