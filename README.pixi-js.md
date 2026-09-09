@@ -19,42 +19,44 @@ cascade can conflict. Growing the list needs a reason.
 | file | what the branch changes | kind |
 | --- | --- | --- |
 | `web/src/lib/placement/render/index.ts` | selects the pixi host instead of the canvas-2d one | **the point of the branch** |
-| `web/vite.config.ts` | an import, and `assetpackPlugin()` in `plugins` | dependency wiring |
+| `web/vite.plugins.ts` | adds `assetpackPlugin()` beside the inherited `tailwindcss()` | **a file that exists to differ** |
 | `web/package.json` | `pixi.js`, `@assetpack/core` | dependency |
 | `pnpm-lock.yaml` | generated | dependency |
 
-**Two of those are real and two are bookkeeping.** The lockfile and
+**None of those is a file this branch has to fight for.** The lockfile and
 `package.json` are what any branch that adds a dependency must touch; both are
-generated or append-only, and they merge without a human. The ones that can
-actually go wrong are the other two.
+generated or append-only and merge without a human. The other two are files
+whose whole purpose is to differ.
 
-It was five until the pipeline's `.gitignore` entries moved to `main`. They
-belong there anyway - a checkout that has been on this branch leaves generated
-files behind, and on a base that did not ignore them `format:check` went red on
-a generated manifest - so the base pays four lines about a build it does not
-have, and this branch stops holding a difference in a file every descendant
-edits.
+**`web/vite.config.ts` USED TO BE ON THIS LIST AND WAS THE ONE REAL HAZARD.**
+It is byte-identical to jolly-roger's, developed two repos up, and restructured
+wholesale in a descendant, so the two lines this branch kept there were a
+conflict site on every cascade forever. It came off the list by fixing the cause
+where it lived: `template-svelte`, the root of the tree, now spreads
+`extraPlugins()` from `web/vite.plugins.ts` into its plugin list, so a
+descendant, a variant or a branch adds a plugin by editing a small file instead
+of a large shared one. Every level of the tree had been paying that tax to say
+the same one thing.
+
+`.gitignore` came off earlier, when the pipeline's entries moved to `main` -
+they belong there anyway, because a checkout that has been on this branch leaves
+generated files behind and `format:check` went red on a generated manifest.
+
+So the list went five -> four -> three, and each removal was a fix upstream
+rather than a workaround here.
 
 - **`placement/render/index.ts` is the intended difference** and is close to
   free: it is this repo's own file, nothing upstream develops it, and it is the
   one file the template already documented as "the one file to edit to change
   the renderer". This is the `mode.ts`/`TARGET_STEP` shape from N2 applied to a
   different axis.
-- **`web/vite.config.ts` is the one that will hurt**, and it is a known,
-  recorded problem rather than a surprise. That file is **byte-identical to
-  jolly-roger's** on `main`, so it is developed two repos up, and reveal-or-die
-  restructured it wholesale downstream. The pipeline is a vite plugin, so it has
-  to be wired in somewhere.
-
-  The branch's edit is kept to two lines on purpose: `assetpackPlugin()` returns
-  `false` when there is no art and under vitest, and vite filters falsy plugins,
-  so the caller has no condition in it. Both copies this was reconciled from put
-  the `existsSync` check in `vite.config.ts` and paid four lines for it.
-
-  **The structural fix is jolly-roger's, not this branch's** - a config that can
-  be extended by adding a file rather than by editing it. Written up in
-  `work:work/notes/observations/the-vite-config-is-the-asset-pipelines-conflict-site.md`,
-  with the trigger: the second branch that needs a vite plugin.
+- **`web/vite.plugins.ts` is where the pipeline is wired**, and it is cheap for
+  the same reason `mode.ts` is cheap upstream: it is a few lines that exist to
+  be different, not a hunk inside something else. The entry is one
+  unconditional line, because `assetpackPlugin()` returns `false` when there is
+  no art and under vitest and vite filters falsy plugins - so the decision
+  stays with the paths it depends on. Both copies this was reconciled from put
+  that `existsSync` check in `vite.config.ts` and paid four lines for it.
 
 ### What is NOT on the list, and why that took work
 

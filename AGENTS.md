@@ -71,6 +71,16 @@ that, and both are easy to break by accident.
   instance); what the framework needs is only that _something_ is lost by not
   revealing.
 
+## TEMPORARY: do not cascade `main` into `reveal-or-die` yet
+
+**Delete this section when reveal-or-die's `stemBranch` moves to `with/all`.** It describes a state, not a rule, and a stale warning is worse than none.
+
+`main` no longer carries a rendering library: the pixi host moved to the `with/pixi-js` branch (D11 in the plan below). reveal-or-die still imports it, at `web/src/lib/world/render/index.ts`, so it cannot merge from `main` until its stem points at a branch that has pixi again.
+
+What makes this worth a warning rather than leaving it to be discovered: **the merge does not fail on the thing that is wrong.** `offshoot-fanout` reports three conflicts (`pnpm-lock.yaml`, `web/package.json`, `web/src/lib/placement/render/index.ts`), all of them routine and none of them the problem. The deletion of the pixi host merges CLEANLY, and reveal-or-die is then left importing a file that is not there.
+
+`--verify` catches it, because reveal-or-die's verify runs `check`. Resolving the three conflicts by hand and not running `check` does not. So: if you are told to resolve a reveal-or-die conflict against this repo, stop and read `work:work/notes/findings/main-cannot-be-cascaded-into-reveal-or-die-until-the-repoint.md` first.
+
 ## Where the plan and the handoff live: the `work` branch
 
 **They are not in this working tree, so `ls` and `find` will not show them.** Every repo in this tree keeps its maintainer material on an orphan branch called `work`, which has no merge base with anything and therefore never cascades into a descendant. Nothing checks it out. Start by asking what this repo's branch holds, rather than assuming a path:

@@ -1,10 +1,9 @@
 import {defineConfig} from 'vitest/config';
 import {playwright} from '@vitest/browser-playwright';
-import tailwindcss from '@tailwindcss/vite';
 import {execSync} from 'node:child_process';
 import devtoolsJson from 'vite-plugin-devtools-json';
 import {sveltekit} from '@sveltejs/kit/vite';
-import {assetpackPlugin} from './vite.assetpack.js';
+import {extraPlugins} from './vite.plugins.js';
 
 let FIRST_COMMIT: string | undefined;
 
@@ -21,14 +20,12 @@ try {
 export default defineConfig(({mode}) => ({
 	plugins: [
 		devtoolsJson(FIRST_COMMIT ? {uuid: FIRST_COMMIT} : undefined),
-		tailwindcss(),
+		// What THIS project adds, in the one slot every repo in this tree has
+		// always put it. Edit `vite.plugins.ts`, not this file: see the note
+		// there for why a descendant editing this one buys a merge conflict
+		// forever.
+		...extraPlugins(),
 		sveltekit(),
-		// Returns false when there is no `../assets` and under vitest, and vite
-		// filters falsy plugins - so this stays ONE line. See vite.assetpack.ts
-		// for why the decision lives there rather than here: this file is
-		// byte-identical to jolly-roger's on `main`, and every line of difference
-		// is merged around on every cascade forever.
-		assetpackPlugin(),
 	],
 	build: {
 		emptyOutDir: true,
