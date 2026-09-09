@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import {execSync} from 'node:child_process';
 import devtoolsJson from 'vite-plugin-devtools-json';
 import {sveltekit} from '@sveltejs/kit/vite';
+import {assetpackPlugin} from './vite.assetpack.js';
 
 let FIRST_COMMIT: string | undefined;
 
@@ -22,6 +23,12 @@ export default defineConfig(({mode}) => ({
 		devtoolsJson(FIRST_COMMIT ? {uuid: FIRST_COMMIT} : undefined),
 		tailwindcss(),
 		sveltekit(),
+		// Returns false when there is no `../assets` and under vitest, and vite
+		// filters falsy plugins - so this stays ONE line. See vite.assetpack.ts
+		// for why the decision lives there rather than here: this file is
+		// byte-identical to jolly-roger's on `main`, and every line of difference
+		// is merged around on every cascade forever.
+		assetpackPlugin(),
 	],
 	build: {
 		emptyOutDir: true,
