@@ -126,9 +126,21 @@ BASE=main FEATURES=with/pixi-js \
 `tooling` is a LOCAL orphan branch here, adopted verbatim from jolly-roger's
 (N6), so the command needs no sibling checkout on disk. It shares history with
 nothing and is not in `fanout.config.json`, so it can never arrive through a
-merge or be cascaded into. Refresh it with `git fetch stem tooling && git branch
--f tooling stem/tooling`, and do NOT edit it here: a local edit to a shared tool
-is the same divergence-by-copy the tool exists to catch, one level up.
+merge or be cascaded into.
+
+**It is deliberately NOT pushed to this repo's origin**, which is the whole
+point rather than an oversight. jolly-roger's copy is the only canonical one; a
+pushed copy here would be a second place it can drift, which is exactly the
+failure the script exists to catch, one level up. It is a cache, and it is
+rebuilt in one command:
+
+```sh
+git fetch stem tooling && git branch -f tooling stem/tooling
+```
+
+Run that on a fresh clone, and again whenever jolly-roger's moves. **Do not edit
+it here.** If the script needs changing, change it on jolly-roger's `tooling`
+branch and re-fetch, or the next person to re-fetch silently loses the fix.
 
 The `ALLOWED` entry is the renderer selector, and it is the exact analogue of
 `mode.ts` upstream: the one file that is SUPPOSED to differ, because it is the
