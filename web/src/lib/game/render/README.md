@@ -26,6 +26,16 @@ If you are unsure, the answer is reactive until it is slow, then immediate. Stat
 
 Only the last two are `GameRenderer`s, and only they are swapped by editing `$lib/placement/render/index.ts`. Reactive is a different shape: no surface, no frame loop, nothing to hand to `onAppStarted`. It is listed here as a peer because it is a real choice, not because it is the same kind of change.
 
+### Which host is on which branch
+
+**`main` carries no rendering library at all.** The host it ships is the immediate one on a canvas-2d surface, which needs nothing installed, and that is what the template's own game draws with.
+
+The pixi host lives on the **`with/pixi-js`** branch, together with this game's pixi board (`board-renderer.ts`, `CellObject.ts`) and the sprite pipeline. The reason is install cost rather than bundle size: `pixi.js` is a 79M install, the canvas is dynamically imported already, and a branch is what the tree charges for a dependency a non-adopter would otherwise pay for. See D11 in `work:work/specs/proposed/games-on-this-foundation.md`.
+
+What is NOT on that branch is the diffing machinery. `stateful.ts` and `reconcile.ts` import no rendering library, they are what ANY scene-graph host builds on, and they stay here so that a three.js or twgl host finds them without adopting pixi. They are therefore exercised one node down rather than by the base, which is the normal shape of a fan and not a smell.
+
+This file describes both nodes deliberately, so that the branch does not have to edit it. Keep it that way: a doc that has to be edited on the branch is a merge conflict for every future change to it.
+
 ### Reactive
 
 The view state is a Svelte store, so a component subscribes to it like any other:
@@ -130,7 +140,7 @@ Two guards in `attachKeys` are worth not losing, because both were paid for:
 
 **A click leaves this layer as a world POINT, not a cell.** Snapping is a game rule: rounding to the nearest integer would make every game on the template a square grid with cells centred on integers. The template's game does that rounding in its own click handler in `context/game.ts`; a hex board or a continuous world does something else.
 
-Two units, and confusing them is the only way to be wrong here: **world means GAME units (cells), and `scale` is CSS pixels per game unit.** Device pixel ratio belongs to the surface, which scales its own backing store. `cellSize` is only meaningful to a scene graph authored in pixels, and it appears in exactly one framework file (`pixi/world.ts`).
+Two units, and confusing them is the only way to be wrong here: **world means GAME units (cells), and `scale` is CSS pixels per game unit.** Device pixel ratio belongs to the surface, which scales its own backing store. `cellSize` is only meaningful to a scene graph authored in PIXELS, so an immediate renderer never needs it: it draws in game units under the camera transform and lets the context do the conversion. On `with/pixi-js` it appears in exactly one framework file (`pixi/world.ts`); here it appears in none, and is carried through the host's props only so that swapping costs one file.
 
 ### Why not pixi-viewport
 
@@ -140,9 +150,11 @@ What was dropped, because no game on this template ever called it: deceleration 
 
 ## Switching renderer
 
-`$lib/placement/render/index.ts` is the only file to edit. It names the surface type, the renderer factory and the canvas component, and the commented block at the bottom is the immediate-mode version of all three.
+`$lib/placement/render/index.ts` is the only file to edit. It names the surface type, the renderer factory and the canvas component.
 
-`PixiCanvas.svelte` and `Canvas2DCanvas.svelte` take **identical props** on purpose, so `routes/play/+page.svelte` does not change when you switch. If you add a prop to one host, add it to the other.
+That it is only one file is a property with a price, and it is worth knowing what pays for it. `PixiCanvas.svelte` and `Canvas2DCanvas.svelte` take **identical props**, so `routes/play/+page.svelte` does not change when you switch - including `cellSize` and `gridCells`, which only a scene-graph host has any use for and which the canvas-2d host accepts and ignores. Those two look like dead props and are not: removing them would move the swap's cost into a route file that both branches keep developing. `web/test/render-host-boundary.test.ts` fails if the page passes a prop the selected host does not declare.
+
+So: if you add a prop to one host, add it to the other.
 
 Writing a third host (twgl, three.js) is `Canvas2DCanvas.svelte` with `getContext('2d')` replaced and the surface type changed. Everything else in it is framework wiring: `connectSurfaceInput` for gestures, the resize observer and click-to-cell, and `createFrameLoop` for the elapsed/delta arithmetic. Only the schedule is the host's, because a library with its own ticker (pixi) has to keep it in order to render after the scene is updated.
 
@@ -155,4 +167,6 @@ Writing a third host (twgl, three.js) is `Canvas2DCanvas.svelte` with `getContex
 
 Only step 4 is renderer-specific.
 
-`frame.devicePixelRatio` is what the host ACTUALLY configured its buffer to, which is not always `window.devicePixelRatio`. The pixi host pins pixi's `resolution` to 1 because the art is pixelated and upscaling it defeats the point, so it reports 1 and a renderer sizing a hairline off it is right to draw one CSS pixel. The canvas-2d host uses the device ratio and reports that. Report what you configured, or renderers that trust the number will draw at the wrong size.
+`frame.devicePixelRatio` is what the host ACTUALLY configured its buffer to, which is not always `window.devicePixelRatio`. The canvas-2d host sizes its backing store at the device ratio and reports that. The pixi host on `with/pixi-js` pins pixi's `resolution` to 1, because the art is pixelated and upscaling it defeats the point, so it reports 1 and a renderer sizing a hairline off it is right to draw one CSS pixel. Report what you configured, or renderers that trust the number will draw at the wrong size.
+
+The canvas-2d host is covered two ways, and the split is deliberate because one of them cannot see the other's subject. `test/lib/game/render/canvas2d.svelte.test.ts` mounts it on a real canvas and reads PIXELS back, which is the only way to catch a coordinate or alpha drift between `beginFrame`, `applyCamera` and the renderer. `test/lib/placement/board-immediate.test.ts` drives the board renderer against a context that RECORDS calls, because culling changes no picture at all - canvas discards an out-of-range `fillRect` silently - so a pixel test cannot see the one piece of logic in that file that is not a drawing call.

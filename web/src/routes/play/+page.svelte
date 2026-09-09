@@ -76,8 +76,10 @@
 	covers the top of the HUD. Same casualty, reached from the other direction.
 -->
 <div class="relative h-full w-full overflow-hidden">
-	<!-- pixi needs a real canvas and a WebGL context, so it only mounts in the
-	     browser; the page still prerenders (see ADR-0002). -->
+	<!-- A canvas host needs a real canvas, so it only mounts in the browser; the
+	     page still prerenders (see ADR-0002). Which host that is belongs to
+	     `$lib/placement/render`, and differs by branch, so this page does not
+	     name one. -->
 	{#if canvasModule}
 		{#await canvasModule then { default: GameCanvas }}
 			<GameCanvas
