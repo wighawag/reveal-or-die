@@ -21,13 +21,19 @@ cascade can conflict. Growing the list needs a reason.
 | `web/src/lib/placement/render/index.ts` | selects the pixi host instead of the canvas-2d one | **the point of the branch** |
 | `web/vite.config.ts` | an import, and `assetpackPlugin()` in `plugins` | dependency wiring |
 | `web/package.json` | `pixi.js`, `@assetpack/core` | dependency |
-| `web/.gitignore` | the pipeline's generated output | dependency |
 | `pnpm-lock.yaml` | generated | dependency |
 
-**Two of those are real and three are bookkeeping.** The lockfile, `.gitignore`
-and `package.json` are what any branch that adds a dependency must touch; all
-three are append-only or generated, and they merge without a human. The ones
-that can actually go wrong are the other two.
+**Two of those are real and two are bookkeeping.** The lockfile and
+`package.json` are what any branch that adds a dependency must touch; both are
+generated or append-only, and they merge without a human. The ones that can
+actually go wrong are the other two.
+
+It was five until the pipeline's `.gitignore` entries moved to `main`. They
+belong there anyway - a checkout that has been on this branch leaves generated
+files behind, and on a base that did not ignore them `format:check` went red on
+a generated manifest - so the base pays four lines about a build it does not
+have, and this branch stops holding a difference in a file every descendant
+edits.
 
 - **`placement/render/index.ts` is the intended difference** and is close to
   free: it is this repo's own file, nothing upstream develops it, and it is the
