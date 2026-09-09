@@ -42,8 +42,18 @@ the same one thing.
 they belong there anyway, because a checkout that has been on this branch leaves
 generated files behind and `format:check` went red on a generated manifest.
 
-So the list went five -> four -> three, and each removal was a fix upstream
-rather than a workaround here.
+**The COUNT is still four, and saying otherwise would be the wrong claim.** The
+list went five to four when `.gitignore`'s entries moved to `main`; the vite
+change did not shorten it, it swapped one entry for a better one. What improved
+is the KIND of file the branch holds a difference in:
+
+| before | after |
+| --- | --- |
+| `web/vite.config.ts` - 108 lines, byte-identical to jolly-roger's, developed two repos up, restructured wholesale in a descendant | `web/vite.plugins.ts` - a few lines, exists in order to differ, nothing upstream will ever change it for another reason |
+
+That is the whole difference between a conflict site and a switch, and it is
+worth more than a smaller number would have been. Both removals were fixes
+upstream rather than workarounds here.
 
 - **`placement/render/index.ts` is the intended difference** and is close to
   free: it is this repo's own file, nothing upstream develops it, and it is the
