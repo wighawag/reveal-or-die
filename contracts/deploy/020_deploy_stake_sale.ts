@@ -31,11 +31,11 @@ export default deployScript(
 			recipient: admin,
 		};
 
-		const AvatarSale = await deploy(
-			'AvatarSale',
+		const GameAvatarSale = await deploy(
+			'GameAvatarSale',
 			{
 				account: deployer,
-				artifact: artifacts.AvatarSale,
+				artifact: artifacts.GameAvatarSale,
 				args: [GameAvatars.address, Game.address, config],
 			},
 			{
@@ -60,7 +60,7 @@ export default deployScript(
 		await execute(GameAvatars, {
 			account: admin,
 			functionName: 'setMinter',
-			args: [AvatarSale.address],
+			args: [GameAvatarSale.address],
 		});
 	},
 	{

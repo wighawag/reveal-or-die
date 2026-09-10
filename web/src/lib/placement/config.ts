@@ -118,7 +118,7 @@ export function resolvePlacementConfig(
 	// The AVATAR sale, which is the one difference between this file and
 	// `main`'s: what is sold differs, and what the client needs to know about a
 	// sale (where, how much, how much gas it forwards) does not.
-	const StakeSale = deployments.contracts.AvatarSale;
+	const StakeSale = deployments.contracts.GameAvatarSale;
 	const saleData = StakeSale.linkedData as DeclaredValues;
 
 	// The chain's own statement of the worst gas price it expects, which is what

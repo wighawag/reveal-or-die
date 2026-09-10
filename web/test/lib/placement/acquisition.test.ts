@@ -7,7 +7,7 @@ import type {TypedDeployments} from '$lib/core/connection/types';
 /**
  * Three arguments, two of which are addresses that mean opposite things.
  *
- * `AvatarSale.purchase(owner, stipendTo, stipend)` mints the avatar for
+ * `GameAvatarSale.purchase(owner, stipendTo, stipend)` mints the avatar for
  * `owner` and forwards gas to `stipendTo`. Swapping them does not revert: it
  * buys the avatar for the local signing key, which is exactly the address that
  * must never own anything (it lives in one browser's storage, and clearing site
@@ -28,12 +28,12 @@ const config = {
 } as unknown as PlacementConfig;
 
 const deployments = {
-	contracts: {AvatarSale: {address: SALE, abi: []}},
+	contracts: {GameAvatarSale: {address: SALE, abi: []}},
 } as unknown as TypedDeployments;
 
 const acquisition = createStakeAcquisition({config, deployments});
 
-describe('the arguments to AvatarSale.purchase', () => {
+describe('the arguments to GameAvatarSale.purchase', () => {
 	it('credits the PLAYER and funds the signer, not the other way round', () => {
 		const {args} = acquisition.request({
 			owner: PLAYER,

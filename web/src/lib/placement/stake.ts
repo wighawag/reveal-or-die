@@ -75,7 +75,11 @@ export const STAKE = {
 	 * it.
 	 */
 	forfeited(_bond: bigint): string {
-		return 'Your avatar is gone, and you cannot play again until you acknowledge it and get another.';
+		// "is forfeit" is kept from upstream's wording deliberately: it is the
+		// word the app uses everywhere for a stake that has been lost, and the
+		// e2e asserts the player was TOLD rather than asserting a sentence. A
+		// synonym here would have cost that suite an edit for nothing.
+		return 'Your avatar is forfeit, and you cannot play again until you acknowledge it and get another one.';
 	},
 
 	/**

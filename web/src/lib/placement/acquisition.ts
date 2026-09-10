@@ -3,7 +3,7 @@
  *
  * THIS BRANCH GATES ON CUSTODY OF AN AVATAR, so what a new player has to get is
  * a token, minted straight into the game where it is at stake from the moment
- * it exists. `AvatarSale.purchase` is one call that mints it AND funds the
+ * it exists. `GameAvatarSale.purchase` is one call that mints it AND funds the
  * local signer's gas, which is what lets the rail above this file be one
  * transaction end to end.
  *
@@ -45,7 +45,7 @@ export function createStakeAcquisition(params: {
 		stipend: config.sale.stipend,
 		gas: PURCHASE_GAS,
 		request: ({owner, stipendTo, stipend}) => ({
-			abi: deployments.contracts.AvatarSale.abi as Abi,
+			abi: deployments.contracts.GameAvatarSale.abi as Abi,
 			// `owner` first, then where the gas goes and how much of the value it
 			// is. The owner is an ARGUMENT rather than `msg.sender` on purpose:
 			// that is what lets a wallet pay for an account that has none of its

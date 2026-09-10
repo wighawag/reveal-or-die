@@ -179,20 +179,15 @@ describe('Commit-reveal round', () => {
 			)
 			.toBe(true);
 
-		// Read the cost from the deployment rather than hard-coding it, so changing
-		// `placementCost` in the deploy script cannot leave this quietly asserting
-		// the old number.
-		const placementCost = BigInt(
-			await page.evaluate(() =>
-				(
-					globalThis as unknown as {context: any}
-				).context.game.config.placementCost.toString(),
-			),
-		);
+		// EXACTLY ONE NEW CLAIMANT, which is what a placement adds on a board where
+		// placements are free. Upstream this reads `placementCost` off the
+		// deployment and asserts the stake went up by it; here that number is zero
+		// by design (custody is the stake, not a bond), so the quantity that moves
+		// is who has claimed the cell. See `stakeOnCell`.
 		expect(
 			BigInt(await stakeOnCell(page, cellID)),
-			'the reveal should add exactly one placement of stake',
-		).toBe(stakeBefore + placementCost);
+			'the reveal should add exactly one claim',
+		).toBe(stakeBefore + 1n);
 
 		expect(
 			(await roundStep(page)).planned,

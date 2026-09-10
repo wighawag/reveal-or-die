@@ -1,6 +1,6 @@
 import {Abi_GameToken} from '../../../generated/abis/GameToken.js';
 import {Abi_IGame} from '../../../generated/abis/IGame.js';
-import {Abi_AvatarSale} from '../../../generated/abis/AvatarSale.js';
+import {Abi_GameAvatarSale} from '../../../generated/abis/GameAvatarSale.js';
 import {Abi_GameAvatars} from '../../../generated/abis/GameAvatars.js';
 import {loadAndExecuteDeploymentsFromFiles} from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
@@ -60,22 +60,22 @@ export async function avatarOwner(
  * its owner can play it or take it out.
  */
 export async function enterGame(
-	fixtures: {env: any; Game: any; AvatarSale: any},
+	fixtures: {env: any; Game: any; GameAvatarSale: any},
 	account: `0x${string}`,
 	options?: {payer?: `0x${string}`},
 ): Promise<bigint> {
-	const {env, AvatarSale} = fixtures;
+	const {env, GameAvatarSale} = fixtures;
 	const payer = options?.payer ?? account;
-	const price = (AvatarSale.linkedData as {price: string}).price;
+	const price = (GameAvatarSale.linkedData as {price: string}).price;
 
 	// The id is read back rather than predicted: it is the sale's to allocate
 	// (sequential, from 1), and a test that computed it would be asserting
 	// against its own copy of that rule instead of against the contract's.
-	const avatarID = (await env.read(AvatarSale, {
+	const avatarID = (await env.read(GameAvatarSale, {
 		functionName: 'lastAvatarID',
 	})) as bigint;
 
-	await env.execute(AvatarSale, {
+	await env.execute(GameAvatarSale, {
 		account: payer,
 		functionName: 'purchase',
 		args: [account, zeroAddress, 0n],
@@ -94,7 +94,7 @@ export function setupFixtures(provider: EthereumProvider) {
 
 			const Game = env.get<Abi_IGame>('Game');
 			const GameToken = env.get<Abi_GameToken>('GameToken');
-			const AvatarSale = env.get<Abi_AvatarSale>('AvatarSale');
+			const GameAvatarSale = env.get<Abi_GameAvatarSale>('GameAvatarSale');
 			const GameAvatars = env.get<Abi_GameAvatars>('GameAvatars');
 
 			const linkedData = Game.linkedData as {
@@ -176,7 +176,7 @@ export function setupFixtures(provider: EthereumProvider) {
 				env,
 				Game,
 				GameToken,
-				AvatarSale,
+				GameAvatarSale,
 				GameAvatars,
 				linkedData,
 				getEpoch,

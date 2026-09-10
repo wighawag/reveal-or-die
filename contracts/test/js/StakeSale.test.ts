@@ -28,8 +28,8 @@ const {deployAll} = setupFixtures(provider);
  * it is worth.
  */
 
-function saleConfig(AvatarSale: {linkedData?: unknown}) {
-	const data = AvatarSale.linkedData as {price: string};
+function saleConfig(GameAvatarSale: {linkedData?: unknown}) {
+	const data = GameAvatarSale.linkedData as {price: string};
 	return {price: BigInt(data.price)};
 }
 
@@ -45,28 +45,28 @@ async function balanceOf(
 	);
 }
 
-async function nextAvatarID(env: any, AvatarSale: any): Promise<bigint> {
+async function nextAvatarID(env: any, GameAvatarSale: any): Promise<bigint> {
 	return (
-		((await env.read(AvatarSale, {
+		((await env.read(GameAvatarSale, {
 			functionName: 'lastAvatarID',
 		})) as bigint) + 1n
 	);
 }
 
-describe('AvatarSale', function () {
+describe('GameAvatarSale', function () {
 	it('puts an avatar at stake AND funds their play key, in one call', async function () {
-		const {env, Game, AvatarSale, unnamedAccounts} =
+		const {env, Game, GameAvatarSale, unnamedAccounts} =
 			await networkHelpers.loadFixture(deployAll);
 
-		const {price} = saleConfig(AvatarSale);
+		const {price} = saleConfig(GameAvatarSale);
 		const payer = unnamedAccounts[0];
 		const signer = unnamedAccounts[1];
 		const stipend = 12345n;
 
-		const avatarID = await nextAvatarID(env, AvatarSale);
+		const avatarID = await nextAvatarID(env, GameAvatarSale);
 		const signerBefore = await balanceOf(provider, signer);
 
-		await env.execute(AvatarSale, {
+		await env.execute(GameAvatarSale, {
 			account: payer,
 			functionName: 'purchase',
 			args: [payer, signer, stipend],
@@ -88,16 +88,16 @@ describe('AvatarSale', function () {
 		// anything, so somebody else's wallet sets it up. Only the player may end
 		// up with the avatar, or "pay for a friend" would quietly buy one for the
 		// payer.
-		const {env, Game, AvatarSale, unnamedAccounts} =
+		const {env, Game, GameAvatarSale, unnamedAccounts} =
 			await networkHelpers.loadFixture(deployAll);
 
-		const {price} = saleConfig(AvatarSale);
+		const {price} = saleConfig(GameAvatarSale);
 		const payer = unnamedAccounts[2];
 		const player = unnamedAccounts[3];
 
-		const avatarID = await nextAvatarID(env, AvatarSale);
+		const avatarID = await nextAvatarID(env, GameAvatarSale);
 
-		await env.execute(AvatarSale, {
+		await env.execute(GameAvatarSale, {
 			account: payer,
 			functionName: 'purchase',
 			args: [player, zeroAddress, 0n],
@@ -112,16 +112,16 @@ describe('AvatarSale', function () {
 		// client bug: sizing the value from the price alone leaves the stipend
 		// taken out of the payment, and sending price plus stipend while naming
 		// nobody to forward it to would leave the stipend stuck in the sale.
-		const {env, AvatarSale, unnamedAccounts} =
+		const {env, GameAvatarSale, unnamedAccounts} =
 			await networkHelpers.loadFixture(deployAll);
 
-		const {price} = saleConfig(AvatarSale);
+		const {price} = saleConfig(GameAvatarSale);
 		const payer = unnamedAccounts[4];
 		const signer = unnamedAccounts[5];
 		const stipend = 1000n;
 
 		await expect(
-			env.execute(AvatarSale, {
+			env.execute(GameAvatarSale, {
 				account: payer,
 				functionName: 'purchase',
 				args: [payer, signer, stipend],
@@ -130,7 +130,7 @@ describe('AvatarSale', function () {
 		).toBeRejected();
 
 		await expect(
-			env.execute(AvatarSale, {
+			env.execute(GameAvatarSale, {
 				account: payer,
 				functionName: 'purchase',
 				args: [payer, zeroAddress, 0n],
@@ -140,7 +140,7 @@ describe('AvatarSale', function () {
 
 		// A stipend with nowhere to go is refused rather than kept.
 		await expect(
-			env.execute(AvatarSale, {
+			env.execute(GameAvatarSale, {
 				account: payer,
 				functionName: 'purchase',
 				args: [payer, zeroAddress, stipend],
@@ -156,20 +156,20 @@ describe('AvatarSale', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
-		const {price} = saleConfig(AvatarSale);
+		const {price} = saleConfig(GameAvatarSale);
 		const player = unnamedAccounts[6];
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const avatarID = await nextAvatarID(env, AvatarSale);
-		await env.execute(AvatarSale, {
+		const avatarID = await nextAvatarID(env, GameAvatarSale);
+		await env.execute(GameAvatarSale, {
 			account: player,
 			functionName: 'purchase',
 			args: [player, zeroAddress, 0n],
@@ -210,7 +210,7 @@ describe('AvatarSale', function () {
 		// The mechanism is one address, and the assertion is about the mechanism
 		// rather than about the price: charging in an ERC20 later is a new sale
 		// and one `setMinter` call, and this test keeps its meaning through that.
-		const {env, GameAvatars, AvatarSale, unnamedAccounts} =
+		const {env, GameAvatars, GameAvatarSale, unnamedAccounts} =
 			await networkHelpers.loadFixture(deployAll);
 
 		const stranger = unnamedAccounts[7];
@@ -233,6 +233,6 @@ describe('AvatarSale', function () {
 			String(
 				await env.read(GameAvatars, {functionName: 'minter'}),
 			).toLowerCase(),
-		).toEqual(AvatarSale.address.toLowerCase());
+		).toEqual(GameAvatarSale.address.toLowerCase());
 	});
 });

@@ -116,7 +116,7 @@ contract AvatarGameCustody is UsingAvatarIdentity, IERC721Receiver {
     ///      victim as the owner of an avatar they control.
     ///
     ///      A MINT (`from == 0`) proves nothing on its own, and it exists for
-    ///      the one-transaction entry: `AvatarSale` mints straight into this
+    ///      the one-transaction entry: `GameAvatarSale` mints straight into this
     ///      contract with the buyer in `data`, so buying, staking and funding
     ///      the play key are one confirmation. It is exactly as trustworthy as
     ///      the minter, which is why `GameAvatars.mint` is restricted to one

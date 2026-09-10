@@ -104,7 +104,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
     ///      An id of zero can never pass, which is worth being deliberate
     ///      about rather than leaving to the mint: on an address game zero
     ///      means "as the caller", so an avatar zero would make one identity
-    ///      behave differently from every other one. `AvatarSale` starts at 1
+    ///      behave differently from every other one. `GameAvatarSale` starts at 1
     ///      and this refuses zero anyway, because two independent reasons is
     ///      what a silent aliasing bug is worth.
     function _playerOf(
@@ -160,7 +160,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
             revert InvalidDepositData();
         }
         if (avatarID == 0) {
-            // Unreachable through `AvatarSale`, which starts at 1. Refused
+            // Unreachable through `GameAvatarSale`, which starts at 1. Refused
             // anyway, because an avatar zero would be an identity `_playerOf`
             // can never resolve and therefore a token that is permanently
             // stuck in this contract.

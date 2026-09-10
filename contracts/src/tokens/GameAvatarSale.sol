@@ -34,7 +34,7 @@ import "./GameAvatars.sol";
 ///      zero, because zero is the id `_playerOf` refuses: `makeCommitment(0)`
 ///      means "as the caller" on an address game and must not quietly become a
 ///      real avatar here.
-contract AvatarSale {
+contract GameAvatarSale {
     /// @notice `msg.value` minus the stipend was not the price.
     error WrongPaymentAmount(uint256 amount, uint256 expected);
     error FailedToTransferNativeToken(address recipient, uint256 amount);

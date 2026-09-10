@@ -49,7 +49,7 @@ describe('Game', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			advanceToRevealPhase,
@@ -62,7 +62,7 @@ describe('Game', function () {
 		await advanceToEpoch(startEpoch + 2, true);
 
 		// Buy an avatar, which puts it at stake in the same transaction.
-		const identity = await enterGame({env, Game, AvatarSale}, player);
+		const identity = await enterGame({env, Game, GameAvatarSale}, player);
 
 		// WHAT IS AT STAKE, and the identity that is playing, are one thing here.
 		expect(await avatarOwner(env, Game, identity)).toEqual(player);
@@ -123,7 +123,7 @@ describe('Game', function () {
 			const {
 				env,
 				Game,
-				AvatarSale,
+				GameAvatarSale,
 				unnamedAccounts,
 				advanceToEpoch,
 				advanceToRevealPhase,
@@ -137,8 +137,8 @@ describe('Game', function () {
 			const {epoch: startEpoch} = getEpoch(await getTimestamp());
 			await advanceToEpoch(startEpoch + 2, true);
 
-			const identityA = await enterGame({env, Game, AvatarSale}, playerA);
-			const identityB = await enterGame({env, Game, AvatarSale}, playerB);
+			const identityA = await enterGame({env, Game, GameAvatarSale}, playerA);
+			const identityB = await enterGame({env, Game, GameAvatarSale}, playerB);
 
 			// Both players commit to the SAME cell, blind to each other, and each
 			// also takes a cell of their own. The private cells are what make the
@@ -249,7 +249,7 @@ describe('Game', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -260,7 +260,7 @@ describe('Game', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, player);
+		const identity = await enterGame({env, Game, GameAvatarSale}, player);
 
 		const placements: Placement[] = [{cellID: cellAt(1, 1)}];
 		await env.execute(Game, {
@@ -308,7 +308,7 @@ describe('Game', function () {
 			env,
 			Game,
 			GameAvatars,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -319,10 +319,10 @@ describe('Game', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, player);
+		const identity = await enterGame({env, Game, GameAvatarSale}, player);
 
 		// Nothing committed yet, so leaving is allowed - and it really leaves.
-		const second = await enterGame({env, Game, AvatarSale}, player);
+		const second = await enterGame({env, Game, GameAvatarSale}, player);
 		await env.execute(Game, {
 			account: player,
 			functionName: 'withdrawAvatar',
@@ -377,7 +377,7 @@ describe('Game', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			advanceToRevealPhase,
@@ -391,7 +391,7 @@ describe('Game', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, player, {
+		const identity = await enterGame({env, Game, GameAvatarSale}, player, {
 			payer,
 		});
 
@@ -439,7 +439,7 @@ describe('Game', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			advanceToRevealPhase,
@@ -451,7 +451,7 @@ describe('Game', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, player);
+		const identity = await enterGame({env, Game, GameAvatarSale}, player);
 
 		// Two cells inside zone 0 (which spans -8..7 on both axes).
 		const placements: Placement[] = [
@@ -503,7 +503,7 @@ describe('Game delegation', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -517,7 +517,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, account);
+		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 
 		await env.execute(Game, {
 			account,
@@ -565,7 +565,7 @@ describe('Game delegation', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -577,7 +577,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, account);
+		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 
 		// Without the check this succeeds, and that is the theft: a stranger bonds
 		// someone else's reserve to a commitment only they know the secret for, so
@@ -610,13 +610,13 @@ describe('Game delegation', function () {
 		// other avatar - and it would do so silently, on the one id a fresh
 		// counter is most likely to hand out.
 		//
-		// Refused twice over, deliberately: `AvatarSale` allocates from 1, and
+		// Refused twice over, deliberately: `GameAvatarSale` allocates from 1, and
 		// `_playerOf` rejects an undeposited id anyway. Two independent reasons
 		// is what a silent aliasing bug is worth.
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -627,7 +627,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, account);
+		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 
 		await expect(
 			env.execute(Game, {
@@ -668,7 +668,7 @@ describe('Game delegation', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -679,7 +679,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, account);
+		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 
 		const aliased = idOf(account) + (1n << 160n);
 		await expect(
@@ -717,7 +717,7 @@ describe('Game delegation', function () {
 		const {
 			env,
 			Game,
-			AvatarSale,
+			GameAvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -729,7 +729,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, AvatarSale}, account);
+		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 		await env.execute(Game, {
 			account,
 			functionName: 'registerDelegate',

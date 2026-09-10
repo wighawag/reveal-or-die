@@ -117,13 +117,22 @@ export async function currentPhase(
 }
 
 /**
- * The confirmed stake on one cell, as the board reports it.
+ * What one cell holds, as the board reports it.
  *
- * Assertions are made against the CHANGE in this rather than against an
- * absolute figure: the e2e chain is shared and reused, so the cell may
- * already carry stake from an earlier run. Total stake rather than the
- * claimant count for the same reason - a second placement by an account that
- * already holds a share of the cell adds stake without adding a claimant.
+ * THE CLAIMANT COUNT HERE, AND THE TOTAL STAKE UPSTREAM, and the reason is the
+ * whole difference this branch makes: a placement costs nothing when what is at
+ * stake is custody of an avatar, so the stake on a cell never moves and an
+ * assertion against it would be trivially true of a board nothing had reached.
+ *
+ * The claimant count is the right quantity here for a reason that does not hold
+ * upstream, so this is a swap rather than a fix. The e2e chain is shared and
+ * reused, and upstream the same burner ACCOUNT plays every run: its second
+ * placement on a cell adds stake without adding a claimant, which is why that
+ * one counts stake. Here every run BUYS AN AVATAR, so the identity is new every
+ * time and a claim is always a new claim.
+ *
+ * Assertions are still made against the CHANGE rather than an absolute, because
+ * the cell may already carry claims from an earlier run.
  */
 export async function stakeOnCell(page: Page, cellID: string): Promise<string> {
 	return page.evaluate(
@@ -132,7 +141,7 @@ export async function stakeOnCell(page: Page, cellID: string): Promise<string> {
 			const view = read(globalThis.context.viewState);
 			if (view.step !== 'Loaded') return '0';
 			const cell = view.cells.get(BigInt('${cellID}'));
-			return cell ? cell.totalStake.toString() : '0';
+			return cell ? String(cell.numClaimants) : '0';
 		})()`,
 	) as Promise<string>;
 }
