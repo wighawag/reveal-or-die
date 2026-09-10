@@ -238,29 +238,21 @@ describe('Contracts Page - Write Functions', () => {
 			})
 			.first();
 
-		// BOTH inputs. `addToReserve(address player, uint256 amount)` takes two, and
-		// this filled only the amount: the address stayed undefined, viem threw
-		// `InvalidAddressError` before anything was sent, and the assertion below
-		// ("no operation is pending") was then trivially true of a page on which
-		// nothing had happened. It passed for a year without executing a write.
-		const playerAddress = await page.evaluate(() => {
-			const ctx = (globalThis as any).context;
-			let account: unknown;
-			ctx.account.subscribe((v: unknown) => (account = v))();
-			return typeof account === 'string' ? account : null;
-		});
-		expect(playerAddress, 'a connected account to credit').toBeTruthy();
-		await functionSection
-			.getByPlaceholder('0x...')
-			.first()
-			.fill(playerAddress as string);
+		// BOTH inputs. `addToReserve(uint256 player, uint256 amount)` takes two,
+		// and this filled only the amount: the other stayed undefined, viem threw
+		// before anything was sent, and the assertion below ("no operation is
+		// pending") was then trivially true of a page on which nothing had
+		// happened. It passed for a year without executing a write.
+		//
+		// BOTH ARE NUMBERS, and the player used to be an address: the contract
+		// keys players by `uint256` so that a game whose identity is a token
+		// changes no signature. Zero is a fine player to credit nothing to.
+		const numbers = functionSection.getByPlaceholder('Enter number or 0x...');
+		await numbers.first().fill('0');
 
 		// Zero again: what is under test is that a write reaches the chain from
 		// this page and settles, not what the game does with it.
-		const amountInput = functionSection
-			.getByPlaceholder('Enter number or 0x...')
-			.first();
-		await amountInput.fill('0');
+		await numbers.nth(1).fill('0');
 
 		// Click the Execute button (wallet already connected)
 		const executeButton = functionSection.getByRole('button', {

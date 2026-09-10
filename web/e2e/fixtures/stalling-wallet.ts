@@ -348,15 +348,16 @@ export async function sendAndStall(
 		 * input survived. Optional, and that is the interface working rather than
 		 * a convenience.
 		 *
-		 * WHAT IT IS HAS TO BE THE APP'S BUSINESS, not the caller's. This app fills
-		 * `addToReserve`'s ADDRESS argument, so a caller that passes one must pass
-		 * an address; a descendant's write takes an ADDRESS,
-		 * and a suite that hardcoded 'sending indicator' there filled an invalid
-		 * field, so the form never submitted and nothing ever reached the wallet -
-		 * the same failure this whole helper exists to stop, one layer in. A suite
-		 * that does not care omits it and gets whatever this app can send; a suite
-		 * that does care is a suite already adapted per app, and passes something
-		 * valid here.
+		 * WHAT IT IS HAS TO BE THE APP'S BUSINESS, not the caller's. This app
+		 * fills `addToReserve`'s PLAYER argument, which is a `uint256` (the
+		 * contract keys players by number and never by address - see
+		 * `IGame.sol`), so a caller that passes one must pass digits. It used to
+		 * be an address, and a suite that hardcoded 'sending indicator' there
+		 * filled an invalid field, so the form never submitted and nothing ever
+		 * reached the wallet - the same failure this whole helper exists to stop,
+		 * one layer in. A suite that does not care omits it and gets whatever this
+		 * app can send; a suite that does care is a suite already adapted per app,
+		 * and passes something valid here.
 		 */
 		input?: string;
 	},
@@ -408,26 +409,26 @@ export async function sendAndStall(
 
 	await expect(page.getByText(WRITE_FUNCTION)).toBeVisible({timeout: 30_000});
 
-	// BOTH inputs: `addToReserve(address player, uint256 amount)`. Filling only
-	// the amount left the address undefined and viem threw before anything
+	// BOTH inputs: `addToReserve(uint256 player, uint256 amount)`. Filling only
+	// the amount left the player undefined and viem threw before anything
 	// reached the wallet, so there was never a held transaction to stop waiting
 	// for.
 	//
 	// THE AMOUNT IS ALWAYS ZERO. A real amount reverts without a token allowance,
 	// and the app declines to send a call it can see will fail, so nothing ever
 	// reaches the wallet. The caller's distinctive value therefore goes in the
-	// ADDRESS, which is not validated against any balance: `options.message` is
-	// whatever the caller needs to recognise later, and here that is an address.
-	await writeForm(page)
-		.getByPlaceholder('0x...')
-		.first()
-		// The zero address when a caller does not care: `amount` is zero, so this
-		// call is harmless whoever it names, and it is never mined anyway.
-		.fill(options?.input ?? '0x0000000000000000000000000000000000000000');
-	await writeForm(page)
-		.getByPlaceholder('Enter number or 0x...')
-		.first()
-		.fill('0');
+	// PLAYER, which is not validated against anything: `options.input` is
+	// whatever the caller needs to recognise later, and here that is a number.
+	//
+	// BOTH ARGUMENTS ARE NUMBERS NOW, and the player used to be an address. The
+	// signature changed when the identity stopped being an account (see
+	// `game/identity.ts` and `_playerOf`), and this fixture is what noticed:
+	// nothing else in the tree looks at a form field's type.
+	const numbers = writeForm(page).getByPlaceholder('Enter number or 0x...');
+	// Zero when a caller does not care: `amount` is zero, so this call is
+	// harmless whoever it names, and it is never mined anyway.
+	await numbers.first().fill(options?.input ?? '0');
+	await numbers.nth(1).fill('0');
 	await executeButton(page).click();
 
 	await chooseStallingWallet(page);

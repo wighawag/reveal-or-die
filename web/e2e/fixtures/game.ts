@@ -75,11 +75,16 @@ export async function roundStep(page: Page): Promise<{
  * gate, the payer choice and the consent step are all exercised.
  */
 export async function stake(page: Page): Promise<void> {
-	const deposit = page.getByRole('button', {name: /stake (for|to play)/i});
+	// BY TESTID, NOT BY LABEL. Both labels say what THIS game sells, and a game
+	// that gates differently rewrites them: matching on the words made this
+	// fixture fail on the first branch that sold an avatar instead of a bond,
+	// thirty seconds at a time, with a timeout that named a button nobody had
+	// removed. The testids are on the two controls in `GameHud.svelte`.
+	const deposit = page.locator('[data-testid="acquire-stake"]');
 	if (await deposit.isVisible({timeout: 5_000}).catch(() => false)) {
 		await deposit.click();
 	} else {
-		await page.getByRole('button', {name: /add stake/i}).click();
+		await page.locator('[data-testid="acquire-more-stake"]').click();
 	}
 
 	// WHICHEVER PAYER IS OFFERED. With only one method the rail skips the choice
