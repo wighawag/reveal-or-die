@@ -3,6 +3,7 @@ import {Abi_IGame} from '../../../generated/abis/IGame.js';
 import {Abi_StakeSale} from '../../../generated/abis/StakeSale.js';
 import {loadAndExecuteDeploymentsFromFiles} from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
+import {parseEther} from 'viem';
 
 /**
  * The identity an ACCOUNT plays as, in a game whose identity is the account.
@@ -20,6 +21,50 @@ import {EthereumProvider} from 'hardhat/types/providers';
  */
 export function idOf(account: `0x${string}`): bigint {
 	return BigInt(account);
+}
+
+/**
+ * GET AN ACCOUNT INTO THE GAME, and hand back the identity it plays as.
+ *
+ * Every suite here needs this and none of them is about it, which is why it is
+ * one function rather than three calls repeated six times. It is also the ONE
+ * place a game with a different identity model has to differ: on this template
+ * a player is an account with a staked reserve, so entering is mint, approve
+ * and `addToReserve`, and the identity is the account itself. On
+ * `with/nft-identity` the same call buys an avatar into the game's custody and
+ * returns its token id, and the suites that use it are unchanged.
+ *
+ * `payer` is separable because it genuinely is: the wallet holding the money
+ * and the key playing the game are different addresses by design (see the
+ * delegation suite), and topping up someone else's reserve is a gift rather
+ * than an attack, since only its owner can withdraw it.
+ */
+export async function enterGame(
+	fixtures: {env: any; Game: any; GameToken: any},
+	account: `0x${string}`,
+	options?: {amount?: bigint; payer?: `0x${string}`},
+): Promise<bigint> {
+	const {env, Game, GameToken} = fixtures;
+	const amount = options?.amount ?? parseEther('10');
+	const payer = options?.payer ?? account;
+
+	await env.execute(GameToken, {
+		account: payer,
+		functionName: 'mint',
+		args: [payer, amount],
+	});
+	await env.execute(GameToken, {
+		account: payer,
+		functionName: 'approve',
+		args: [Game.address, amount],
+	});
+	await env.execute(Game, {
+		account: payer,
+		functionName: 'addToReserve',
+		args: [idOf(account), amount],
+	});
+
+	return idOf(account);
 }
 
 export function setupFixtures(provider: EthereumProvider) {
