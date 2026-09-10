@@ -144,9 +144,14 @@
 				{$hud.setup.detail}
 			</p>
 			{#if $hud.setup.action === 'stake'}
+				<!-- The testid is what an e2e presses. Its LABEL says what this game
+				     sells, so a suite matching on the words breaks the moment the
+				     stake changes - which is exactly what happened when a branch
+				     started selling avatars instead of tokens. -->
 				<Button
 					size="sm"
 					class="mt-3"
+					data-testid="acquire-stake"
 					disabled={$hud.setup.busy}
 					onclick={() => acquisition.buy()}
 				>
@@ -239,6 +244,7 @@
 				<Button
 					size="sm"
 					variant="secondary"
+					data-testid="acquire-more-stake"
 					disabled={$hud.acquiring !== undefined}
 					onclick={() => acquisition.buy()}
 				>

@@ -95,18 +95,6 @@ describe('Transaction inspector', () => {
 	 * authorisation flow stands in front of it. This used to submit the template's
 	 * greeting, which this app does not have, and so failed at the first line.
 	 */
-	/** The connected account, which is who the reserve is credited to. */
-	async function playerAddress(page: Page): Promise<string> {
-		const address = await page.evaluate(() => {
-			const ctx = (globalThis as any).context;
-			let account: unknown;
-			ctx.account.subscribe((v: unknown) => (account = v))();
-			return typeof account === 'string' ? account : null;
-		});
-		if (!address) throw new Error('no connected account to credit');
-		return address;
-	}
-
 	async function submitAndOpenTransactions(
 		page: Page,
 		connectWallet: (page: Page) => Promise<void>,
@@ -135,16 +123,17 @@ describe('Transaction inspector', () => {
 			.locator('[class*="card"], [class*="function"]')
 			.filter({has: writeFunctionText})
 			.first();
-		// BOTH inputs. `addToReserve(address player, uint256 amount)` takes two, and
-		// filling only the amount left the address undefined, so viem threw
-		// `InvalidAddressError` and no transaction was ever sent. That is why this
-		// suite saw no pending operation - nothing to do with how fast the node
-		// mines, which is what it looked like from the outside.
-		await form
-			.getByPlaceholder('0x...')
-			.first()
-			.fill(await playerAddress(page));
-		await form.getByPlaceholder('Enter number or 0x...').first().fill(amount);
+		// BOTH inputs. `addToReserve(uint256 player, uint256 amount)` takes two,
+		// and filling only the amount left the player undefined, so viem threw and
+		// no transaction was ever sent. That is why this suite saw no pending
+		// operation - nothing to do with how fast the node mines, which is what it
+		// looked like from the outside.
+		//
+		// Both are numbers: the contract keys players by `uint256` rather than by
+		// address, so that a game whose identity is a token changes no signature.
+		const numbers = form.getByPlaceholder('Enter number or 0x...');
+		await numbers.first().fill('0');
+		await numbers.nth(1).fill(amount);
 		await form
 			.getByRole('button', {name: /execut/i})
 			.first()
