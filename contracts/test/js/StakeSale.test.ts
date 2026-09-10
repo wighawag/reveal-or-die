@@ -1,7 +1,7 @@
 import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
-import {setupFixtures} from './utils/index.js';
+import {setupFixtures, idOf} from './utils/index.js';
 import {zeroAddress} from 'viem';
 
 const {provider, networkHelpers} = await network.connect();
@@ -46,7 +46,7 @@ describe('StakeSale', function () {
 
 		const reserveBefore = (await env.read(Game, {
 			functionName: 'getReserve',
-			args: [payer],
+			args: [idOf(payer)],
 		})) as bigint;
 		const signerBefore = await balanceOf(provider, signer);
 
@@ -63,7 +63,7 @@ describe('StakeSale', function () {
 		expect(
 			(await env.read(Game, {
 				functionName: 'getReserve',
-				args: [payer],
+				args: [idOf(payer)],
 			})) as bigint,
 		).toEqual(reserveBefore + amount);
 		expect(await balanceOf(provider, signer)).toEqual(signerBefore + stipend);
@@ -82,11 +82,11 @@ describe('StakeSale', function () {
 
 		const payerBefore = (await env.read(Game, {
 			functionName: 'getReserve',
-			args: [payer],
+			args: [idOf(payer)],
 		})) as bigint;
 		const playerBefore = (await env.read(Game, {
 			functionName: 'getReserve',
-			args: [player],
+			args: [idOf(player)],
 		})) as bigint;
 
 		await env.execute(StakeSale, {
@@ -99,13 +99,13 @@ describe('StakeSale', function () {
 		expect(
 			(await env.read(Game, {
 				functionName: 'getReserve',
-				args: [player],
+				args: [idOf(player)],
 			})) as bigint,
 		).toEqual(playerBefore + amount);
 		expect(
 			(await env.read(Game, {
 				functionName: 'getReserve',
-				args: [payer],
+				args: [idOf(payer)],
 			})) as bigint,
 		).toEqual(payerBefore);
 	});
@@ -182,7 +182,7 @@ describe('StakeSale', function () {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
-				zeroAddress,
+				0n,
 				'0x000000000000000000000000000000000000000000000001',
 				amount,
 				zeroAddress,

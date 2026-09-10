@@ -14,13 +14,13 @@ contract GameGetters is IGameGetters, UsingGameInternal {
 
     /// @inheritdoc IGameGetters
     function getCommitment(
-        address player
+        uint256 player
     ) external view returns (Commitment memory commitment) {
         return _commitments[player];
     }
 
     /// @inheritdoc IGameGetters
-    function getReserve(address player) external view returns (uint256 amount) {
+    function getReserve(uint256 player) external view returns (uint256 amount) {
         return _reserve[player];
     }
 
@@ -44,7 +44,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     /// @inheritdoc IGameGetters
     function getStakeOnCell(
         uint64 cellID,
-        address player
+        uint256 player
     ) external view returns (uint256 stake) {
         return _stakeOnCellBy[cellID][player];
     }

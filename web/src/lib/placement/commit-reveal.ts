@@ -11,7 +11,7 @@ import {get} from 'svelte/store';
 import {encodeAbiParameters, keccak256, zeroAddress, type Account} from 'viem';
 import type {Context} from '$lib/context/types';
 import type {CommitRevealAdapter} from '$lib/game/core/seams';
-import type {GameIdentity} from '$lib/game/identity';
+import {onchainIdentity, type GameIdentity} from '$lib/game/identity';
 import {costOfPlacements, type PlacementConfig} from './config';
 import {isInsufficientFundsFailure} from '$lib/core/transaction';
 import {SignerOutOfFundsError} from './errors';
@@ -242,7 +242,11 @@ export function createPlacementCommitReveal(params: {
 						// quietly bonding its own empty reserve. The commitment, the
 						// bond and the cells it wins all belong to the identity, so
 						// losing this browser costs a key and nothing else.
-						args: [identity, hash, bond, zeroAddress],
+						//
+						// `onchainIdentity` and not the identity itself: how this
+						// game's identity is spelled in a contract argument is the one
+						// thing `$lib/game/identity` knows and this file must not.
+						args: [onchainIdentity(identity), hash, bond, zeroAddress],
 						account: executor.account,
 						chain: null,
 					},
@@ -266,7 +270,7 @@ export function createPlacementCommitReveal(params: {
 						// submitted by anyone, so that being offline is not automatically
 						// a forfeit. Here the player reveals for themselves.
 						args: [
-							identity,
+							onchainIdentity(identity),
 							actions as {cellID: bigint}[],
 							secret,
 							zeroAddress,

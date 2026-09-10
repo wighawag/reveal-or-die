@@ -9,7 +9,7 @@ contract GameReveal is IGameReveal, UsingGameInternal {
 
     /// @inheritdoc IGameReveal
     function reveal(
-        address player,
+        uint256 player,
         Placement[] calldata placements,
         bytes32 secret,
         address payable payee
@@ -23,7 +23,7 @@ contract GameReveal is IGameReveal, UsingGameInternal {
     }
 
     /// @inheritdoc IGameReveal
-    function acknowledgeMissedReveal(address player) external {
+    function acknowledgeMissedReveal(uint256 player) external {
         _acknowledgeMissedReveal(player);
     }
 

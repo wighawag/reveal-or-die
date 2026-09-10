@@ -40,12 +40,12 @@ contract StakeSale {
     error FailedToTransferNativeToken(address recipient, uint256 amount);
 
     /// @notice One player set up: staked, and their play key funded.
-    /// @dev `sender` is kept apart from `player` because they are routinely
+    /// @dev `sender` is kept apart from `owner` because they are routinely
     ///      different addresses, and reading the log as though they were the
     ///      same is how a payer gets mistaken for a participant.
     event Staked(
         address indexed sender,
-        address indexed player,
+        address indexed owner,
         uint256 amount,
         address stipendTo,
         uint256 stipend
@@ -73,9 +73,15 @@ contract StakeSale {
         RECIPIENT = config.recipient;
     }
 
-    /// @notice Stake for `player`, and fund the key that will play for them.
-    /// @param player The account the stake is credited to. Not necessarily the
+    /// @notice Stake for `owner`, and fund the key that will play for them.
+    /// @param owner The account the stake is credited to. Not necessarily the
     ///        caller: see the note on the contract.
+    /// @dev AN ADDRESS HERE AND A `uint256` AT THE GAME, deliberately. The sale
+    ///      is where an account turns into whatever this game plays as, which
+    ///      is why the widening happens in THIS contract and not in the client:
+    ///      a game whose identity is a token mints one here instead, and the
+    ///      rail above (`web/src/lib/game/acquire`) sends the same call with
+    ///      the same arguments either way.
     /// @param stipendTo The local key to forward gas to, or the zero address
     ///        when there is none, in which case `stipend` must be zero and
     ///        `msg.value` is the price alone.
@@ -86,7 +92,7 @@ contract StakeSale {
     ///        client knows both. This contract's job is only to make it one
     ///        transaction.
     function purchase(
-        address player,
+        address owner,
         address payable stipendTo,
         uint256 stipend
     ) external payable {
@@ -111,7 +117,9 @@ contract StakeSale {
         // some.
         TOKENS.mint(address(this), AMOUNT);
         TOKENS.approve(address(GAME), AMOUNT);
-        GAME.addToReserve(player, AMOUNT);
+        // THE ADDRESS GAME'S IDENTITY, spelled out at the one place that knows
+        // this game is one.
+        GAME.addToReserve(uint256(uint160(owner)), AMOUNT);
 
         if (stipendTo != address(0) && stipend != 0) {
             _send(stipendTo, stipend);
@@ -120,7 +128,7 @@ contract StakeSale {
             _send(RECIPIENT, paymentAmount);
         }
 
-        emit Staked(msg.sender, player, AMOUNT, stipendTo, stipend);
+        emit Staked(msg.sender, owner, AMOUNT, stipendTo, stipend);
     }
 
     /// @dev `call` rather than `transfer`: the 2300 gas stamp is not enough for

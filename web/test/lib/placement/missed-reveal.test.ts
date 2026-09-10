@@ -27,6 +27,8 @@ function fakeDeps(options: {
 	signerBalance?: bigint;
 }) {
 	const writes: string[] = [];
+	const reads: {functionName: string; args?: readonly unknown[]}[] = [];
+	const sends: {functionName: string; args?: readonly unknown[]}[] = [];
 	const deps = {
 		connection: {ensureConnected: async () => {}} as never,
 		signerExecutor: writable({
@@ -34,7 +36,11 @@ function fakeDeps(options: {
 			address: PLAYER,
 			account: PLAYER,
 			client: {
-				writeContract: async () => {
+				writeContract: async (request: {
+					functionName: string;
+					args?: readonly unknown[];
+				}) => {
+					sends.push(request);
 					if (options.writeFails) throw new Error('user rejected');
 					return '0xtx' as `0x${string}`;
 				},
@@ -58,7 +64,14 @@ function fakeDeps(options: {
 			value: options.signerBalance ?? 10n ** 18n,
 		}) as unknown as never,
 		publicClient: {
-			readContract: async ({functionName}: {functionName: string}) => {
+			readContract: async ({
+				functionName,
+				args,
+			}: {
+				functionName: string;
+				args?: readonly unknown[];
+			}) => {
+				reads.push({functionName, args});
 				if (options.readFails) throw new Error('rpc down');
 				if (functionName === 'getCommitment') return options.commitment;
 				if (functionName === 'getEpoch') return [options.currentEpoch, true];
@@ -75,7 +88,7 @@ function fakeDeps(options: {
 	const identity = writable(
 		'identity' in options ? options.identity : PLAYER,
 	) as unknown as never;
-	return {deps, identity, writes};
+	return {deps, identity, writes, reads, sends};
 }
 
 const config = {placementCost: 10n ** 18n} as never;
@@ -95,6 +108,39 @@ describe('a commitment that was never revealed', () => {
 			bond: 5n * 10n ** 18n,
 		});
 		expect(blocksCommitting(store.value)).toBe(true);
+	});
+
+	it('asks the chain about an identity the contract can key by', async () => {
+		// THE ARGUMENT, not just the answer. Every read and write here names the
+		// player, and the contract keys players by a `uint256` rather than by an
+		// address (`IGame.sol`), so the identity is widened on the way in by
+		// `onchainIdentity` in `$lib/game/identity` - the one place that knows how
+		// this game's identity is spelled on chain.
+		//
+		// A `typeof` and not a value, deliberately, so that this survives the
+		// cascade into a game whose identity is already a number: there the
+		// conversion is the identity itself and there is nothing to compare
+		// against. What it catches is the case that exists HERE, an address handed
+		// to a `uint256` parameter, which viem rejects at the call and which no
+		// other assertion in this file would notice, since they all fake the read.
+		const {deps, identity, reads, sends} = fakeDeps({
+			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
+			currentEpoch: 12n,
+		});
+		const store = createMissedReveal({deps, config, identity});
+		await store.check();
+		await store.acknowledge();
+
+		const commitmentRead = reads.find(
+			(r) => r.functionName === 'getCommitment',
+		);
+		expect(typeof commitmentRead?.args?.[0]).toBe('bigint');
+
+		// And the settlement, which spends the bond, names the same thing.
+		const settle = sends.find(
+			(s) => s.functionName === 'acknowledgeMissedReveal',
+		);
+		expect(typeof settle?.args?.[0]).toBe('bigint');
 	});
 
 	it('is NOT settled without the player asking', async () => {

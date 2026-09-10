@@ -32,7 +32,7 @@
  */
 import {derived, get, writable, type Readable} from 'svelte/store';
 import type {Context} from '$lib/context/types';
-import type {ActiveIdentityStore} from '$lib/game/identity';
+import {onchainIdentity, type ActiveIdentityStore} from '$lib/game/identity';
 import type {PlacementConfig} from './config';
 import {sendPlacementTransaction} from './commit-reveal';
 import type {LiveCommitment} from '$lib/game/core/recovery';
@@ -115,7 +115,7 @@ export function createMissedReveal(params: {
 				address: deployments.contracts.Game.address,
 				abi: deployments.contracts.Game.abi,
 				functionName: 'getCommitment',
-				args: [player],
+				args: [onchainIdentity(player)],
 			})) as {hash: `0x${string}`; epoch: bigint; bond: bigint};
 
 			if (onChain.epoch === 0n) {
@@ -177,7 +177,7 @@ export function createMissedReveal(params: {
 					// Takes the player rather than using msg.sender: anyone may settle
 					// anyone's missed reveal. Here the player settles their own.
 					functionName: 'acknowledgeMissedReveal',
-					args: [player],
+					args: [onchainIdentity(player)],
 					account: executor.account,
 					chain: null,
 				},

@@ -29,6 +29,13 @@ interface UsingGameErrors {
     /// @notice the player can still reveal, so the commitment cannot be voided
     error CanStillReveal(uint64 epoch);
 
+    /// @notice this identity cannot play this game
+    /// @dev What makes an identity invalid is the GAME's, and it is decided in
+    ///      one place: {UsingGameInternal-_playerOf}. Here that means an id
+    ///      that is not an account (an address game cannot represent one), and
+    ///      in a token game it means a token nobody has put at stake.
+    error InvalidPlayer(uint256 id);
+
     /// @notice the player's reserve cannot cover this
     error ReserveTooLow(uint256 current, uint256 required);
 

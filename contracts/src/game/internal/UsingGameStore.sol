@@ -21,16 +21,28 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     /// @notice the number of placements a hash represents
     uint8 internal constant MAX_NUM_PLACEMENTS_PER_HASH = 32;
 
-    /// @notice A player is nothing but their address here. There is no avatar,
-    ///         no token to own: your identity is your account and what you did.
-    ///         Games that want a controllable entity introduce one themselves.
-    mapping(address => uint256) internal _reserve;
+    /// @notice WHO PLAYS, as a number, and never as an address.
+    /// @dev A player is a `uint256` here whatever a given game means by one,
+    ///      which is the storage half of the rule the client keeps in
+    ///      `web/src/lib/game/identity.ts`. THIS game is an address game: its
+    ///      identity is the account, widened, and there is no avatar and no
+    ///      token to own. Games that key by an entity (an avatar, a character,
+    ///      an empire) put its token id in the same slot, and the only thing
+    ///      that has to change is {UsingGameInternal-_playerOf}.
+    ///
+    ///      It is deliberately NOT an `address` that a token game would cast
+    ///      into. Twenty bytes holds every account and does not hold every
+    ///      token id: reveal-or-die's are `owner << 96 | subID` and conquest's
+    ///      are derived the same way, so truncating would alias two players
+    ///      onto one reserve with nothing raised anywhere. See N4 of Decision 3
+    ///      in the plan on the `work` branch.
+    mapping(uint256 => uint256) internal _reserve;
 
-    mapping(address => Commitment) internal _commitments;
+    mapping(uint256 => Commitment) internal _commitments;
 
     /// @notice The board. Accumulated, never contested: see _reveal.
     mapping(uint64 => Cell) internal _cells;
-    mapping(uint64 => mapping(address => uint256)) internal _stakeOnCellBy;
+    mapping(uint64 => mapping(uint256 => uint256)) internal _stakeOnCellBy;
 
     /// @notice Which cells of a zone have ever been placed on.
     /// @dev The index that makes reading a viewport cost what the board HOLDS
