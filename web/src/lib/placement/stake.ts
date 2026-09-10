@@ -60,6 +60,20 @@ export const STAKE = {
 	},
 
 	/**
+	 * What a missed reveal cost, and what to do next.
+	 *
+	 * The number is only half of it: what was LOST is a fact about the stake, so
+	 * a game that seizes a thing rather than a quantity says a different
+	 * sentence rather than the same sentence about a different number. The
+	 * second clause is the framework's rule showing through - an unrevealed
+	 * commitment blocks the next one until it is settled - and every game has
+	 * it.
+	 */
+	forfeited(bond: bigint): string {
+		return `Your bond of ${this.amount(bond)} is forfeit, and you cannot commit again until you acknowledge it.`;
+	},
+
+	/**
 	 * What the acquisition dialog says is being bought.
 	 *
 	 * The rail (`$lib/game/acquire`) is shared and has no opinion about what

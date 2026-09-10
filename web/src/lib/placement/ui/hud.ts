@@ -207,7 +207,6 @@ export function describeMissedReveal(
 ): HudModel['missedReveal'] {
 	if (state.step === 'Clear' || state.step === 'Unknown') return undefined;
 
-	const lost = STAKE.amount(state.bond);
 	const headline = `You missed the reveal for epoch ${state.epoch}.`;
 
 	if (state.step === 'Acknowledging') {
@@ -228,7 +227,7 @@ export function describeMissedReveal(
 	}
 	return {
 		headline,
-		detail: `Your bond of ${lost} is forfeit, and you cannot commit again until you acknowledge it.`,
+		detail: STAKE.forfeited(state.bond),
 		busy: false,
 		canAcknowledge: true,
 	};
