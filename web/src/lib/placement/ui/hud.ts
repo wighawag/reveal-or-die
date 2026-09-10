@@ -8,6 +8,7 @@
  */
 import {derived, type Readable} from 'svelte/store';
 import {formatBalance} from '$lib/core/utils/format/balance';
+import {STAKE} from '../stake';
 import type {Context} from '$lib/context/types';
 import type {RoundState} from '$lib/game/core/round';
 
@@ -206,7 +207,7 @@ export function describeMissedReveal(
 ): HudModel['missedReveal'] {
 	if (state.step === 'Clear' || state.step === 'Unknown') return undefined;
 
-	const lost = `${formatBalance(state.bond)} TOK`;
+	const lost = STAKE.amount(state.bond);
 	const headline = `You missed the reveal for epoch ${state.epoch}.`;
 
 	if (state.step === 'Acknowledging') {
@@ -327,20 +328,14 @@ export function describeSetup(
 				action: 'authorise',
 			};
 		case 'stake':
+			// The WORDS are in `../stake.ts`, with what is at stake, because a game
+			// that gates differently rewrites every one of them and nothing else in
+			// this file. See the note there.
 			return {
-				headline: 'Stake before you play',
-				// Says what the ONE transaction covers, because the player is about to
-				// approve something that does three things: it puts tokens in a
-				// reserve only they can withdraw, it sends this browser's key enough
-				// gas to play with, and it is what lets that key be authorised without
-				// a second transaction. Saying only "stake" would make the wallet
-				// prompt look bigger than the price.
-				detail:
-					'A commitment bonds tokens from your reserve, and they are forfeit if you never reveal. That is what makes a commitment worth anything. One transaction sets you up: it puts a reserve in your name, which only you can withdraw, and funds the key this browser plays with.',
+				headline: STAKE.setup.headline,
+				detail: STAKE.setup.detail,
 				action: 'stake',
-				actionLabel: options?.priceLabel
-					? `Stake for ${options.priceLabel}`
-					: 'Stake to play',
+				actionLabel: STAKE.setup.action(options?.priceLabel),
 				busyLabel: options?.busyLabel,
 			};
 	}
@@ -479,14 +474,12 @@ export function createHud(context: Context): Readable<HudModel> {
 					: "This build does not sign in, so there is no local signing key and every commit and reveal needs a wallet signature. Set TARGET_STEP to 'SignedIn' in core/connection/mode.ts to play with one.",
 
 				plannedCount: $count,
-				costLabel: `${formatBalance($cost)} TOK`,
+				costLabel: STAKE.amount($cost),
 				reserveLabel:
-					reserveAmount === undefined
-						? '-'
-						: `${formatBalance(reserveAmount)} TOK`,
+					reserveAmount === undefined ? '-' : STAKE.amount(reserveAmount),
 				warning:
 					reserveAmount !== undefined && $cost > reserveAmount
-						? 'Not enough in your reserve to cover these placements.'
+						? STAKE.notEnough
 						: undefined,
 
 				roundLabel: round.label,

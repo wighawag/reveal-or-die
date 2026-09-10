@@ -14,6 +14,7 @@
 	import GameHud from '$lib/placement/ui/GameHud.svelte';
 	import AcquireModal from '$lib/game/acquire/AcquireModal.svelte';
 	import {loadCanvasComponent} from '$lib/placement/render';
+	import {STAKE} from '$lib/placement/stake';
 	import {gridTileCells} from '$lib/game/render/grid';
 
 	const context = getAppContext();
@@ -106,11 +107,13 @@
 		{/await}
 		<GameHud />
 		<!-- A surface over the board rather than part of it, and inside the `{#if}`
-		     because it means nothing without a canvas under it. The rail is shared;
-		     the sentence describing what is bought is this game's. -->
+	     because it means nothing without a canvas under it. The rail is shared;
+	     the sentence describing what is bought is this game's, and it lives with
+	     the rest of the stake's vocabulary in `$lib/placement/stake` so that a
+	     branch which stakes something else does not have to edit this route. -->
 		<AcquireModal
 			acquisition={game.acquisition}
-			explanation="One transaction puts a reserve in your name and funds the key this browser plays with. Whoever pays, the reserve belongs to your account, and only your account can ever withdraw it."
+			explanation={STAKE.acquireExplanation}
 			decimals={chain.nativeCurrency.decimals}
 			symbol={chain.nativeCurrency.symbol}
 		/>
