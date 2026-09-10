@@ -4,6 +4,24 @@ import {Abi_StakeSale} from '../../../generated/abis/StakeSale.js';
 import {loadAndExecuteDeploymentsFromFiles} from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
 
+/**
+ * The identity an ACCOUNT plays as, in a game whose identity is the account.
+ *
+ * The contract keys every player by a `uint256` and never by an address, so
+ * that a game keying by an avatar, a character or an empire puts its token id
+ * in the same slot without changing a signature (see
+ * `UsingGameInternal._playerOf`). This template is an address game, so the
+ * widening happens here, and it happens in ONE function so that the suites read
+ * as "this account's reserve" rather than as arithmetic.
+ *
+ * Deliberately not applied to `GameToken.mint` or `approve`: those really do
+ * take an address, and a helper that got used on them would be hiding the
+ * distinction it exists to draw.
+ */
+export function idOf(account: `0x${string}`): bigint {
+	return BigInt(account);
+}
+
 export function setupFixtures(provider: EthereumProvider) {
 	return {
 		async deployAll() {

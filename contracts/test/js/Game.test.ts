@@ -1,7 +1,7 @@
 import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
-import {setupFixtures} from './utils/index.js';
+import {setupFixtures, idOf} from './utils/index.js';
 import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
 import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts';
 import {delegationMessage} from '@etherplay/delegation';
@@ -75,24 +75,25 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'addToReserve',
-			args: [player, parseEther('10')],
+			args: [idOf(player), parseEther('10')],
 		});
 
 		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [player]}),
+			await env.read(Game, {functionName: 'getReserve', args: [idOf(player)]}),
 		).toEqual(parseEther('10'));
 
 		// Commit.
 		//
-		// The FIRST zeroAddress is `player`: commit as whoever is calling. The
-		// last is `payee`, which is unrelated. A real client passes the account
-		// here and sends from its delegate; see the delegation tests below.
+		// The leading `0n` is `player`: commit as whoever is calling. The trailing
+		// zeroAddress is `payee`, which is unrelated. A real client passes the
+		// identity here and sends from its delegate; see the delegation tests
+		// below.
 		const placements: Placement[] = [{cellID: cellAt(3, 4)}];
 		await env.execute(Game, {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
-				zeroAddress,
+				0n,
 				commitmentHash(placements, SECRET_A),
 				parseEther('5'),
 				zeroAddress,
@@ -105,7 +106,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'reveal',
-			args: [player, placements, SECRET_A, zeroAddress],
+			args: [idOf(player), placements, SECRET_A, zeroAddress],
 		});
 
 		const cell = (await env.read(Game, {
@@ -118,7 +119,7 @@ describe('Game', function () {
 
 		// The placement was paid for out of the reserve.
 		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [player]}),
+			await env.read(Game, {functionName: 'getReserve', args: [idOf(player)]}),
 		).toEqual(parseEther('9'));
 	});
 
@@ -170,7 +171,7 @@ describe('Game', function () {
 				await env.execute(Game, {
 					account: player,
 					functionName: 'addToReserve',
-					args: [player, parseEther('10')],
+					args: [idOf(player), parseEther('10')],
 				});
 			}
 
@@ -189,7 +190,7 @@ describe('Game', function () {
 				account: playerA,
 				functionName: 'makeCommitment',
 				args: [
-					zeroAddress,
+					0n,
 					commitmentHash(placementsA, SECRET_A),
 					parseEther('5'),
 					zeroAddress,
@@ -199,7 +200,7 @@ describe('Game', function () {
 				account: playerB,
 				functionName: 'makeCommitment',
 				args: [
-					zeroAddress,
+					0n,
 					commitmentHash(placementsB, SECRET_B),
 					parseEther('5'),
 					zeroAddress,
@@ -213,13 +214,13 @@ describe('Game', function () {
 				env.execute(Game, {
 					account: playerA,
 					functionName: 'reveal',
-					args: [playerA, placementsA, SECRET_A, zeroAddress],
+					args: [idOf(playerA), placementsA, SECRET_A, zeroAddress],
 				});
 			const revealB = () =>
 				env.execute(Game, {
 					account: playerB,
 					functionName: 'reveal',
-					args: [playerB, placementsB, SECRET_B, zeroAddress],
+					args: [idOf(playerB), placementsB, SECRET_B, zeroAddress],
 				});
 
 			if (revealFirst === 'A') {
@@ -307,7 +308,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'addToReserve',
-			args: [player, parseEther('10')],
+			args: [idOf(player), parseEther('10')],
 		});
 
 		const placements: Placement[] = [{cellID: cellAt(1, 1)}];
@@ -315,7 +316,7 @@ describe('Game', function () {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
-				zeroAddress,
+				0n,
 				commitmentHash(placements, SECRET_A),
 				parseEther('4'),
 				zeroAddress,
@@ -329,12 +330,12 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: unnamedAccounts[1],
 			functionName: 'acknowledgeMissedReveal',
-			args: [player],
+			args: [idOf(player)],
 		});
 
 		// The bond is gone; the rest of the reserve is untouched.
 		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [player]}),
+			await env.read(Game, {functionName: 'getReserve', args: [idOf(player)]}),
 		).toEqual(parseEther('6'));
 	});
 
@@ -376,14 +377,14 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: payer,
 			functionName: 'addToReserve',
-			args: [player, parseEther('10')],
+			args: [idOf(player), parseEther('10')],
 		});
 
 		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [player]}),
+			await env.read(Game, {functionName: 'getReserve', args: [idOf(player)]}),
 		).toEqual(parseEther('10'));
 		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [payer]}),
+			await env.read(Game, {functionName: 'getReserve', args: [idOf(payer)]}),
 		).toEqual(0n);
 
 		// And the player, who never held a token, can now play on it.
@@ -392,7 +393,7 @@ describe('Game', function () {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
-				zeroAddress,
+				0n,
 				commitmentHash(placements, SECRET_A),
 				parseEther('1'),
 				zeroAddress,
@@ -404,7 +405,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'reveal',
-			args: [player, placements, SECRET_A, zeroAddress],
+			args: [idOf(player), placements, SECRET_A, zeroAddress],
 		});
 
 		const cell = (await env.read(Game, {
@@ -415,7 +416,7 @@ describe('Game', function () {
 
 		// Paid for out of the reserve the payer funded.
 		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [player]}),
+			await env.read(Game, {functionName: 'getReserve', args: [idOf(player)]}),
 		).toEqual(parseEther('9'));
 	});
 
@@ -448,7 +449,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'addToReserve',
-			args: [player, parseEther('10')],
+			args: [idOf(player), parseEther('10')],
 		});
 
 		// Two cells inside zone 0 (which spans -8..7 on both axes).
@@ -460,7 +461,7 @@ describe('Game', function () {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
-				zeroAddress,
+				0n,
 				commitmentHash(placements, SECRET_A),
 				parseEther('5'),
 				zeroAddress,
@@ -472,7 +473,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'reveal',
-			args: [player, placements, SECRET_A, zeroAddress],
+			args: [idOf(player), placements, SECRET_A, zeroAddress],
 		});
 
 		const [cells] = (await env.read(Game, {
@@ -523,7 +524,7 @@ describe('Game delegation', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'addToReserve',
-			args: [player, amount],
+			args: [idOf(player), amount],
 		});
 	}
 
@@ -568,7 +569,7 @@ describe('Game delegation', function () {
 			account: signer,
 			functionName: 'makeCommitment',
 			args: [
-				account,
+				idOf(account),
 				commitmentHash(placements, SECRET_A),
 				parseEther('1'),
 				zeroAddress,
@@ -580,13 +581,13 @@ describe('Game delegation', function () {
 		// would have come from a reserve the signer does not have.
 		const commitment = (await env.read(Game, {
 			functionName: 'getCommitment',
-			args: [account],
+			args: [idOf(account)],
 		})) as {hash: `0x${string}`; bond: bigint};
 		expect(commitment.bond).toEqual(parseEther('1'));
 
 		const signerCommitment = (await env.read(Game, {
 			functionName: 'getCommitment',
-			args: [signer],
+			args: [idOf(signer)],
 		})) as {hash: `0x${string}`; bond: bigint};
 		expect(signerCommitment.bond).toEqual(0n);
 	});
@@ -617,7 +618,7 @@ describe('Game delegation', function () {
 				account: stranger,
 				functionName: 'makeCommitment',
 				args: [
-					account,
+					idOf(account),
 					commitmentHash([{cellID: cellAt(1, 1)}], SECRET_A),
 					parseEther('1'),
 					zeroAddress,
@@ -627,7 +628,61 @@ describe('Game delegation', function () {
 
 		const commitment = (await env.read(Game, {
 			functionName: 'getCommitment',
-			args: [account],
+			args: [idOf(account)],
+		})) as {bond: bigint};
+		expect(commitment.bond).toEqual(0n);
+	});
+
+	it('refuses an identity this game cannot represent', async function () {
+		// THE ALIASING GUARD, and it is the price of keying players by a `uint256`
+		// rather than by an address.
+		//
+		// Every identity here is an account widened to 32 bytes, so the top 12
+		// bytes are always zero. Nothing about the TYPE says so: a caller can pass
+		// any 256-bit number, and without the check `_playerOf` would truncate it
+		// to 20 bytes and hand back an account that somebody else owns. The pair
+		// below is the cheapest instance of that - `account` and
+		// `account + 2^160` - and they would share one reserve and one commitment
+		// slot, with nothing raised anywhere.
+		//
+		// It is checked at the one place authority is granted, which is why a
+		// reveal needs no such check: it opens a commitment that only a checked
+		// call could ever have made.
+		const {
+			env,
+			Game,
+			GameToken,
+			unnamedAccounts,
+			advanceToEpoch,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
+
+		const account = unnamedAccounts[0];
+		const {epoch: startEpoch} = getEpoch(await getTimestamp());
+		await advanceToEpoch(startEpoch + 2, true);
+
+		await stake(env, Game, GameToken, account, parseEther('10'));
+
+		const aliased = idOf(account) + (1n << 160n);
+		await expect(
+			env.execute(Game, {
+				account,
+				functionName: 'makeCommitment',
+				args: [
+					aliased,
+					commitmentHash([{cellID: cellAt(2, 2)}], SECRET_A),
+					parseEther('1'),
+					zeroAddress,
+				],
+				gas: 1000000n,
+			}),
+		).toBeRejectedWith(`custom error 'InvalidPlayer(`);
+
+		// And the account it would have aliased onto is untouched.
+		const commitment = (await env.read(Game, {
+			functionName: 'getCommitment',
+			args: [idOf(account)],
 		})) as {bond: bigint};
 		expect(commitment.bond).toEqual(0n);
 	});
@@ -636,7 +691,8 @@ describe('Game delegation', function () {
 		// The line that makes a disposable key safe to hold. It may SPEND the
 		// reserve on playing, which is what it is for, and it may not take it out.
 		// `withdrawFromReserve` has no player argument at all, so the delegate can
-		// only ever withdraw its OWN reserve, which is empty.
+		// only ever withdraw the reserve of the identity its own address spells,
+		// which is empty.
 		const {
 			env,
 			Game,
@@ -668,7 +724,7 @@ describe('Game delegation', function () {
 		).toBeRejected();
 
 		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [account]}),
+			await env.read(Game, {functionName: 'getReserve', args: [idOf(account)]}),
 		).toEqual(parseEther('10'));
 	});
 

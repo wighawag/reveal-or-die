@@ -19,7 +19,7 @@
  */
 import {get, writable, type Readable} from 'svelte/store';
 import type {Context} from '$lib/context/types';
-import type {ActiveIdentityStore} from '$lib/game/identity';
+import {onchainIdentity, type ActiveIdentityStore} from '$lib/game/identity';
 import type {PlacementConfig} from './config';
 
 export type ReserveState =
@@ -94,7 +94,7 @@ export function createReserve(params: {
 				address: $deployments.contracts.Game.address,
 				abi: $deployments.contracts.Game.abi,
 				functionName: 'getReserve',
-				args: [player],
+				args: [onchainIdentity(player)],
 			}) as Promise<bigint>,
 			deps.publicClient.readContract({
 				address: $deployments.contracts.GameToken.address,

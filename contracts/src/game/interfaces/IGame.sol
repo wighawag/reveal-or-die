@@ -13,13 +13,20 @@ import "./UsingGameTypes.sol";
 import "./UsingGameEvents.sol";
 import "./UsingGameErrors.sol";
 
+/// @dev EVERY `player` HERE IS A `uint256`, and it is the identity rather than
+///      an account: what this game means by a player is decided in exactly one
+///      place, {UsingGameInternal-_playerOf}. On this game it is the account
+///      widened, because the template is deliberately an address game; on a
+///      game that keys by an avatar, a character or an empire it is that
+///      token's id, and nothing in this interface changes. See
+///      `web/src/lib/game/identity.ts` for the client's half of the same rule.
 interface IGameCommit is UsingGameTypes {
     /// @notice Top up the reserve a player is willing to risk.
     /// @dev Takes `player` rather than crediting msg.sender, so that the stake
     ///      can be paid from the wallet holding the funds while the game is
     ///      played by a local signing key that holds none. Anyone may top up
     ///      anyone; only the owner can withdraw.
-    function addToReserve(address player, uint256 amount) external;
+    function addToReserve(uint256 player, uint256 amount) external;
 
     /// @notice Take tokens back out. What is bonded to an open commitment stays.
     /// @dev Deliberately NOT delegable, and the only account-facing function
@@ -32,26 +39,26 @@ interface IGameCommit is UsingGameTypes {
     function withdrawFromReserve(uint256 amount) external;
 
     /// @notice Commit to placements for this epoch, bonding part of the reserve.
-    /// @param player The account the commitment is FOR. Pass the zero address
-    ///        to play as the caller. Anything else must be an account that has
-    ///        authorised the caller as its delegate, which is how a local
-    ///        signer commits for the player without holding their stake.
+    /// @param player The identity the commitment is FOR. Pass zero to play as
+    ///        the caller. Anything else must be an identity the caller may act
+    ///        for, which is how a local signer commits for the player without
+    ///        holding their stake.
     /// @dev Authority and identity are separate here, and only the FIRST is
     ///      checked: the caller must be allowed to act for `player`. Compare
     ///      {reveal}, which checks nothing, because a reveal is validated by
     ///      the commitment hash rather than by who submits it.
     function makeCommitment(
-        address player,
+        uint256 player,
         bytes24 commitmentHash,
         uint256 bond,
         address payable payee
     ) external payable;
 
     /// @notice Withdraw a commitment before the reveal phase begins.
-    /// @param player The account whose commitment it is; zero for the caller.
+    /// @param player The identity whose commitment it is; zero for the caller.
     ///        Delegable for the same reason committing is: the browser that
     ///        made it is the one that knows it should go.
-    function cancelCommitment(address player) external;
+    function cancelCommitment(uint256 player) external;
 }
 
 interface IGameReveal is UsingGameTypes {
@@ -60,14 +67,15 @@ interface IGameReveal is UsingGameTypes {
     ///      reveal for them: a player who is offline when the reveal phase
     ///      opens should not automatically forfeit.
     function reveal(
-        address player,
+        uint256 player,
         Placement[] calldata placements,
         bytes32 secret,
         address payable payee
     ) external payable;
 
-    /// @notice Forfeit the bond of a player who never revealed.
-    function acknowledgeMissedReveal(address player) external;
+    /// @notice Settle a player who never revealed, taking whatever this game
+    ///         puts at stake.
+    function acknowledgeMissedReveal(uint256 player) external;
 
     /// @notice Manually advance the epoch. Only on a manually-timed game.
     function moveToNextEpoch() external returns (ManualEpoch memory);
@@ -80,10 +88,10 @@ interface IGameGetters is UsingGameTypes {
     function getEpoch() external view returns (uint64 epoch, bool commiting);
 
     function getCommitment(
-        address player
+        uint256 player
     ) external view returns (Commitment memory commitment);
 
-    function getReserve(address player) external view returns (uint256 amount);
+    function getReserve(uint256 player) external view returns (uint256 amount);
 
     function getConfig() external view returns (Config memory config);
 
@@ -93,7 +101,7 @@ interface IGameGetters is UsingGameTypes {
     /// @notice What a specific player holds on a cell.
     function getStakeOnCell(
         uint64 cellID,
-        address player
+        uint256 player
     ) external view returns (uint256 stake);
 
     /// @notice Every non-empty cell in a zone, plus the epoch the answer is for.

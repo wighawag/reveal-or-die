@@ -7,10 +7,13 @@ import {
 	encodeErrorResult,
 } from 'viem';
 import {
+	createPlacementCommitReveal,
 	sendPlacementTransaction,
 	type CommitRevealDeps,
 } from '$lib/placement/commit-reveal';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
+import {onchainIdentity} from '$lib/game/identity';
+import type {PlacementConfig} from '$lib/placement/config';
 
 /**
  * The boundary, tested as a boundary.
@@ -193,6 +196,108 @@ describe('the game move boundary', () => {
 		await expect(
 			sendPlacementTransaction(deps, executor, {}, 'The reveal'),
 		).resolves.toBe('0xbeef');
+	});
+});
+
+/**
+ * WHAT ACTUALLY GOES ON THE WIRE, which nothing else in this repo checks.
+ *
+ * The contract keys every player by a `uint256` and never by an address, so
+ * the identity has to be widened on its way into the call. That is
+ * `onchainIdentity` in `$lib/game/identity`, and it is the client half of the
+ * same one-line seam the alias is: `with/nft-identity` changes it, and every
+ * site that spelled the conversion out itself would be a shared file that
+ * branch has to edit.
+ *
+ * WHY IT IS WORTH A TEST RATHER THAN A READING. Getting it wrong is silent in
+ * every direction that matters. A commitment filed under the wrong identity is
+ * accepted by the contract, bonds a reserve that is not the player's (or an
+ * empty one), and surfaces an epoch later as a reveal that cannot find it -
+ * by which time the bond is spent. Neither `check` nor any other suite here
+ * looks at an argument list: the ABI types it as `uint256` and an address
+ * widens to one perfectly happily.
+ */
+describe('the identity that reaches the contract', () => {
+	const PLAYER = '0x00000000000000000000000000000000000000ff' as const;
+
+	/** An adapter whose every write is captured instead of sent. */
+	function adapterRecording() {
+		const sent: {functionName: string; args: readonly unknown[]}[] = [];
+		const deps = {
+			connection: {ensureConnected: async () => {}},
+			signerExecutor: readable({
+				status: 'ready',
+				account: {address: '0xabc'} as unknown,
+				client: {
+					writeContract: async (request: {
+						functionName: string;
+						args: readonly unknown[];
+					}) => {
+						sent.push(request);
+						return '0xfeed' as `0x${string}`;
+					},
+				},
+			}) as never,
+			deployments: readable({
+				contracts: {Game: {address: '0xgame', abi: []}},
+			}) as never,
+			publicClient: {
+				waitForTransactionReceipt: async () => ({status: 'success'}),
+			},
+			signerBalance: FUNDED,
+		} as unknown as CommitRevealDeps;
+
+		return {
+			sent,
+			adapter: createPlacementCommitReveal({
+				deps,
+				config: {placementCost: 10n} as unknown as PlacementConfig,
+			}),
+		};
+	}
+
+	it('commits under the identity, widened the way the contract keys it', async () => {
+		const {sent, adapter} = adapterRecording();
+
+		await adapter.commit({
+			identity: PLAYER,
+			hash: '0xhash' as `0x${string}`,
+			actions: [{cellID: 1n}, {cellID: 2n}],
+			secret: '0xsecret' as `0x${string}`,
+			epoch: 3,
+			revealDueAt: 0,
+		});
+
+		expect(sent[0].functionName).toBe('makeCommitment');
+		// The identity, and NOT the address it happens to be spelled as here.
+		expect(sent[0].args[0]).toBe(onchainIdentity(PLAYER));
+		expect(typeof sent[0].args[0]).toBe('bigint');
+		// The bond is the exact cost of what was planned: bonding less makes the
+		// reveal revert once the commitment is already immovable.
+		expect(sent[0].args[2]).toBe(20n);
+	});
+
+	it('reveals against the same identity it committed under', async () => {
+		// Two calls an epoch apart, and a mismatch between them costs the stake
+		// rather than failing loudly: the reveal simply finds no commitment.
+		const {sent, adapter} = adapterRecording();
+
+		await adapter.commit({
+			identity: PLAYER,
+			hash: '0xhash' as `0x${string}`,
+			actions: [{cellID: 1n}],
+			secret: '0xsecret' as `0x${string}`,
+			epoch: 3,
+			revealDueAt: 0,
+		});
+		await adapter.reveal({
+			identity: PLAYER,
+			actions: [{cellID: 1n}],
+			secret: '0xsecret' as `0x${string}`,
+		});
+
+		expect(sent[1].functionName).toBe('reveal');
+		expect(sent[1].args[0]).toBe(sent[0].args[0]);
 	});
 });
 

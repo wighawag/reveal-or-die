@@ -5,6 +5,7 @@ import "./UsingGameStore.sol";
 import "../interfaces/UsingGameEvents.sol";
 import "../interfaces/UsingGameErrors.sol";
 import "../../utils/PositionUtils.sol";
+import {Delegation} from "@etherplay/delegation/contracts/Delegation.sol";
 
 abstract contract UsingGameInternal is
     UsingGameStore,
@@ -24,13 +25,13 @@ abstract contract UsingGameInternal is
     ///      prefers a different gate (custody of an NFT, say) substitutes its
     ///      own; what the framework needs is only that SOMETHING is forfeited
     ///      by _acknowledgeMissedReveal.
-    function _addToReserve(address player, uint256 amount) internal {
+    function _addToReserve(uint256 player, uint256 amount) internal {
         uint256 newAmount = _reserve[player] + amount;
         _reserve[player] = newAmount;
         emit ReserveDeposited(player, amount, newAmount);
     }
 
-    function _withdrawFromReserve(address player, uint256 amount) internal {
+    function _withdrawFromReserve(uint256 player, uint256 amount) internal {
         uint256 current = _reserve[player];
 
         // What is bonded to an open commitment cannot be withdrawn, or a player
@@ -53,7 +54,7 @@ abstract contract UsingGameInternal is
     //-------------------------------------------------------------------------
 
     function _makeCommitment(
-        address player,
+        uint256 player,
         bytes24 commitmentHash,
         uint256 bond
     ) internal {
@@ -80,7 +81,7 @@ abstract contract UsingGameInternal is
         emit CommitmentMade(player, epoch, commitmentHash, bond);
     }
 
-    function _cancelCommitment(address player) internal {
+    function _cancelCommitment(uint256 player) internal {
         (uint64 epoch, bool commiting) = _epoch();
         if (!commiting) {
             revert InRevealPhase(epoch);
@@ -115,7 +116,7 @@ abstract contract UsingGameInternal is
     ///      committing was supposed to prevent. Cells are shared here; two
     ///      players placing on the same cell both hold a share of it.
     function _reveal(
-        address player,
+        uint256 player,
         Placement[] calldata placements,
         bytes32 secret
     ) internal {
@@ -155,7 +156,7 @@ abstract contract UsingGameInternal is
 
     /// @dev Pure accumulation. No player's outcome depends on what another
     ///      player's reveal did this epoch, so it commutes. See _reveal.
-    function _place(address player, uint64 cellID) internal {
+    function _place(uint256 player, uint64 cellID) internal {
         Cell storage cell = _cells[cellID];
 
         if (cell.numClaimants == 0) {
@@ -190,9 +191,11 @@ abstract contract UsingGameInternal is
         emit Placed(player, cellID, PLACEMENT_COST);
     }
 
-    /// @notice Forfeit the bond of a player who committed and never revealed.
-    /// @dev This is the whole reason the reserve exists.
-    function _acknowledgeMissedReveal(address player) internal {
+    /// @notice Settle a player who committed and never revealed.
+    /// @dev The trigger, not the penalty. WHAT is lost is {_forfeit}, which a
+    ///      game overrides; this decides only that the moment has come and that
+    ///      the commitment stops blocking the next one.
+    function _acknowledgeMissedReveal(uint256 player) internal {
         Commitment storage commitment = _commitments[player];
 
         if (commitment.epoch == 0) {
@@ -205,11 +208,7 @@ abstract contract UsingGameInternal is
             revert CanStillReveal(epoch);
         }
 
-        uint256 forfeited = commitment.bond;
-        if (forfeited > _reserve[player]) {
-            forfeited = _reserve[player];
-        }
-        _reserve[player] -= forfeited;
+        uint256 forfeited = _forfeit(player, commitment.bond);
 
         commitment.epoch = 0;
         commitment.bond = 0;
@@ -259,6 +258,83 @@ abstract contract UsingGameInternal is
             _manualEpoch.epoch = currentManualEpoch.epoch + 1;
         }
         return _manualEpoch;
+    }
+
+    //-------------------------------------------------------------------------
+    // THE TWO SEAMS A GAME'S IDENTITY MODEL VARIES AT
+    //-------------------------------------------------------------------------
+
+    /// @notice WHO THE CALLER IS ACTING FOR, having checked that they may.
+    /// @param sender The account or key that sent the transaction.
+    /// @param id The identity, as the client named it.
+    /// @return player The identity this round is filed under, which is what
+    ///         every mapping in {UsingGameStore} is keyed by.
+    /// @dev THE SEAM. `virtual` and nothing else in this contract is, which is
+    ///      deliberate: a game that keys by a token overrides this ONE function
+    ///      and touches no store, no route and no other internal. The precedent
+    ///      is bomber-world's `_epoch()`, and the rule is N4 of Decision 3 in
+    ///      the plan on the `work` branch.
+    ///
+    ///      THIS GAME IS AN ADDRESS GAME, so the identity is the account and
+    ///      the only question is authority: may `sender` act for it? A token
+    ///      game answers a second question here as well - is this token in a
+    ///      state where it can be played at all - because there the identity is
+    ///      a thing that can be absent, and nothing else on the path knows that.
+    ///
+    ///      RESOLUTION AND AUTHORITY ARE ONE FUNCTION ON PURPOSE. Splitting
+    ///      them would let a caller reach a resolved identity without having
+    ///      passed the check, which is exactly the failure the check exists
+    ///      for. {_reveal} needs neither and takes the id directly, because a
+    ///      reveal is validated by the commitment hash and anyone may submit
+    ///      one - that is what stops an offline player forfeiting.
+    ///
+    ///      The delegation LIBRARY rather than inheriting {UsingDelegation},
+    ///      which would bring six external functions along; a router maps one
+    ///      selector to one route and they belong to {GameDelegation}, so a
+    ///      second copy would collide at deploy time. The library reads no
+    ///      `msg.sender` of its own, which is what makes it usable this way.
+    ///      Reverts with `NotDelegate` when the caller is not authorised, which
+    ///      is a better failure than the alternative: without the check a
+    ///      stranger could bond someone else's reserve to a commitment only
+    ///      they can reveal, and the reserve owner would lose it.
+    function _playerOf(
+        address sender,
+        uint256 id
+    ) internal view virtual returns (uint256 player) {
+        // An identity that is not an address CANNOT BE ONE HERE, and saying so
+        // is not pedantry: two ids that differ above the 160th bit would
+        // otherwise be the same player, sharing one reserve and one commitment,
+        // with nothing raised anywhere. The check costs one comparison on a
+        // path that already does an external call.
+        if (id > type(uint160).max) {
+            revert InvalidPlayer(id);
+        }
+        // Zero means "whoever is calling", which the library resolves.
+        return
+            uint256(
+                uint160(
+                    Delegation.requireAccountFor(sender, address(uint160(id)))
+                )
+            );
+    }
+
+    /// @notice WHAT NOT REVEALING COSTS.
+    /// @return forfeited How much of the bond was taken, for the event.
+    /// @dev The second seam, and the framework's only requirement is that
+    ///      SOMETHING is lost: a player who dislikes what they committed to can
+    ///      always go quiet, and this is what makes that expensive. This game
+    ///      takes the bond, which is what its reserve exists for. A game whose
+    ///      stake is custody of a token seizes the token here instead and
+    ///      returns zero, because it has no bond to settle in.
+    function _forfeit(
+        uint256 player,
+        uint256 bond
+    ) internal virtual returns (uint256 forfeited) {
+        forfeited = bond;
+        if (forfeited > _reserve[player]) {
+            forfeited = _reserve[player];
+        }
+        _reserve[player] -= forfeited;
     }
 
     //-------------------------------------------------------------------------

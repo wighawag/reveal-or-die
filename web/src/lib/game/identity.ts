@@ -53,6 +53,32 @@ import type {PlayerIdentity} from './core/seams';
 export type GameIdentity = `0x${string}`;
 
 /**
+ * THE SAME LINE, ON THE OTHER SIDE OF THE ABI.
+ *
+ * The contract keys every player by a `uint256` and never by an address (see
+ * `IGame.sol` and `UsingGameInternal._playerOf`), because twenty bytes holds
+ * every account and does not hold every token id: reveal-or-die's are
+ * `owner << 96 | subID` and conquest's are derived the same way, so a game
+ * that truncated would alias two players onto one reserve with nothing raised
+ * anywhere.
+ *
+ * So SOMETHING has to widen this game's identity into that argument, and it is
+ * this function, for the same reason the alias above is one line: every call
+ * site that spelled the conversion out would be a shared file the branch has
+ * to edit. `with/nft-identity` changes it to the identity itself, because
+ * there the identity already IS the number the contract wants.
+ *
+ * NOT A FORMATTER, and the distinction is what keeps it honest: it is the one
+ * place that knows how THIS game's identity is spelled on chain, which is the
+ * same job `_playerOf` does in Solidity. The two have to agree, and the e2e
+ * round is what proves they do - a disagreement surfaces as a commitment
+ * filed under an identity the reveal cannot find.
+ */
+export function onchainIdentity(identity: GameIdentity): bigint {
+	return BigInt(identity);
+}
+
+/**
  * The framework has to be able to carry it.
  *
  * Compile-time only. `PlayerIdentity` is the union the seams accept, so an
