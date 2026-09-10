@@ -37,7 +37,7 @@ gives one.
 **The plan predicted TWO** (`game/identity.ts`, and one line in
 `context/game.ts`). The prediction was right about identity and counted only
 identity; D2 lists three differences, and the other two have designated files
-of their own. The list is **fifteen**, and it splits into four groups that are
+of their own. The list is **seventeen**, and it splits into five groups that are
 worth reading separately, because they are not the same kind of cost.
 
 ### The seams: files that exist in order to differ (5)
@@ -120,6 +120,28 @@ even here.
 | --- | --- |
 | `web/test/lib/placement/reserve.test.ts` | custody, and the loading state that upstream does not have |
 
+### The e2e, where the board is different (2)
+
+| file | what the branch changes | lines |
+| --- | --- | --- |
+| `web/e2e/fixtures/game.ts` | `stakeOnCell` counts CLAIMS, not stake | 1 |
+| `web/e2e/tests/game.e2e.ts` | the assertion that a reveal reached the board | 8 |
+
+A placement costs nothing here, so the stake on a cell never moves and an
+assertion against it would be trivially true of a board nothing had reached.
+The claim count is the right quantity here for a reason that does not hold
+upstream, which is why this is a swap rather than a fix: the e2e chain is
+shared and reused, and upstream the same burner ACCOUNT plays every run, so its
+second placement on a cell adds stake without adding a claimant. Here every run
+buys an avatar, so the identity is new and a claim is always a new claim.
+
+**Everything else in the suite is inherited unchanged**, including the setup
+gate, the missed reveal and the round recovery. Two of those were made to work
+by fixing `main` rather than this branch: the `stake()` fixture pressed a
+button by its LABEL (which says what the game sells) and now presses a testid,
+and the stalling-wallet fixture filled an address into a `uint256`. Both fixes
+are upstream, so every future branch and descendant gets them.
+
 ## What is on the branch
 
 ```
@@ -175,8 +197,8 @@ git merge main
 pnpm --filter ./web check
 pnpm --filter ./web run test:unit
 BASE=main FEATURES=with/nft-identity EXT="ts svelte" \
-  WATCH="web/src web/test" \
-  ALLOWED="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts web/src/lib/placement/config.ts web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts web/test/lib/placement/reserve.test.ts" \
+  WATCH="web/src web/test web/e2e" \
+  ALLOWED="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts web/src/lib/placement/config.ts web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts web/test/lib/placement/reserve.test.ts web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts" \
   bash <(git show tooling:check-shared-divergence.sh)
 ```
 
@@ -201,7 +223,8 @@ because the script matched nothing.
 `EXT="ts svelte"` for the reason `with/pixi-js` needs it: the default watches
 `.ts` only, which is right for jolly-roger's connection layer and blind to a
 component. This branch has no `.svelte` difference at all, and that is a claim
-worth checking rather than remembering.
+worth checking rather than remembering: the whole point of `stake.ts` is that
+`GameHud.svelte` and `routes/play/+page.svelte` are byte-identical here.
 
 **One thing it will not tell you: a DELETION.** It compares files two branches
 SHARE, so a file removed on one side and still imported on the other leaves
@@ -217,7 +240,17 @@ nothing about a browser. Run it by hand for this node:
 cd web && CI=1 E2E_RPC_PORT=8638 E2E_PORT=4638 pnpm test:e2e
 ```
 
-The suite is `main`'s, unchanged, and that is the strongest single thing this
-branch has to say: the same 51 tests that click a real board, miss a reveal,
-run out of gas and recover a lost round pass against a game whose players are
-tokens, whose entry is a mint and whose stake is custody.
+**51 passed, no retries, 14.0 minutes, at load average 5.7** (2026-09-10).
+That is the strongest single thing this branch has to say: the same 51 tests
+that click a real board, miss a reveal, run out of gas and recover a lost round
+pass against a game whose players are tokens, whose entry is a mint and whose
+stake is custody. Two of them assert on the board and are listed in the budget
+above; the other 49 are inherited byte-for-byte.
+
+**One thing that run is NOT evidence for.** The `/contracts` page opens on
+whichever contract sorts first, so this branch's sale is called
+`GameAvatarSale` in order to sort after `Game`. That is a workaround, and the
+real fix already exists downstream: reveal-or-die has a `selectContract`
+fixture and a `contracts-page.ts` beside it, neither of which was ever
+backported. See
+`work:work/notes/observations/the-contracts-suite-assumes-which-contract-sorts-first.md`.
