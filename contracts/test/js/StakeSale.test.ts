@@ -1,7 +1,7 @@
 import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
-import {setupFixtures, idOf} from './utils/index.js';
+import {setupFixtures, avatarOwner} from './utils/index.js';
 import {zeroAddress} from 'viem';
 
 const {provider, networkHelpers} = await network.connect();
@@ -11,15 +11,26 @@ const {deployAll} = setupFixtures(provider);
  * Getting set up to play, in one transaction.
  *
  * The client rail above this contract is what a player actually meets, and the
- * property it depends on is here: ONE call both puts a stake at risk and funds
- * the local key that will spend it. If those come apart, the rail is two
+ * property it depends on is here: ONE call both puts something at risk and
+ * funds the local key that will spend it. If those come apart, the rail is two
  * transactions again and the second one is sent from a wallet the first just
  * spent down.
+ *
+ * WHAT IS AT RISK IS THE ONLY THING THAT CHANGES ON THIS BRANCH. Upstream the
+ * call mints an ERC20 and credits a reserve; here it mints an avatar straight
+ * into the game's custody. The arguments, the value split and the exactness of
+ * the payment check are the same, which is why `$lib/game/acquire` and this
+ * game's `placement/acquisition.ts` do not have to know which one they are
+ * talking to.
+ *
+ * The filename is upstream's, deliberately: see the note in
+ * `deploy/020_deploy_stake_sale.ts` for why renaming it would cost more than
+ * it is worth.
  */
 
-function saleConfig(StakeSale: {linkedData?: unknown}) {
-	const data = StakeSale.linkedData as {price: string; amount: string};
-	return {price: BigInt(data.price), amount: BigInt(data.amount)};
+function saleConfig(AvatarSale: {linkedData?: unknown}) {
+	const data = AvatarSale.linkedData as {price: string};
+	return {price: BigInt(data.price)};
 }
 
 async function balanceOf(
@@ -34,80 +45,66 @@ async function balanceOf(
 	);
 }
 
-describe('StakeSale', function () {
-	it('stakes for the player AND funds their play key, in one call', async function () {
-		const {env, Game, StakeSale, unnamedAccounts} =
+async function nextAvatarID(env: any, AvatarSale: any): Promise<bigint> {
+	return (
+		((await env.read(AvatarSale, {
+			functionName: 'lastAvatarID',
+		})) as bigint) + 1n
+	);
+}
+
+describe('AvatarSale', function () {
+	it('puts an avatar at stake AND funds their play key, in one call', async function () {
+		const {env, Game, AvatarSale, unnamedAccounts} =
 			await networkHelpers.loadFixture(deployAll);
 
-		const {price, amount} = saleConfig(StakeSale);
+		const {price} = saleConfig(AvatarSale);
 		const payer = unnamedAccounts[0];
 		const signer = unnamedAccounts[1];
 		const stipend = 12345n;
 
-		const reserveBefore = (await env.read(Game, {
-			functionName: 'getReserve',
-			args: [idOf(payer)],
-		})) as bigint;
+		const avatarID = await nextAvatarID(env, AvatarSale);
 		const signerBefore = await balanceOf(provider, signer);
 
-		await env.execute(StakeSale, {
+		await env.execute(AvatarSale, {
 			account: payer,
 			functionName: 'purchase',
 			args: [payer, signer, stipend],
 			value: price + stipend,
 		});
 
-		// BOTH, from one transaction. Asserting only the reserve would pass with
+		// BOTH, from one transaction. Asserting only the avatar would pass with
 		// the stipend silently kept by the sale, which is the failure that leaves
 		// a player staked and unable to move.
-		expect(
-			(await env.read(Game, {
-				functionName: 'getReserve',
-				args: [idOf(payer)],
-			})) as bigint,
-		).toEqual(reserveBefore + amount);
+		//
+		// And the avatar is IN THE GAME rather than in the buyer's wallet, which
+		// is the difference between owning one and having one at stake.
+		expect(await avatarOwner(env, Game, avatarID)).toEqual(payer);
 		expect(await balanceOf(provider, signer)).toEqual(signerBefore + stipend);
 	});
 
-	it('credits the PLAYER while somebody else pays', async function () {
+	it('gives the avatar to the PLAYER while somebody else pays', async function () {
 		// The case an account with no wallet of its own depends on: it cannot send
-		// anything, so somebody else's wallet sets it up. Only the player's own
-		// reserve may grow, or "pay for a friend" would quietly stake the payer.
-		const {env, Game, StakeSale, unnamedAccounts} =
+		// anything, so somebody else's wallet sets it up. Only the player may end
+		// up with the avatar, or "pay for a friend" would quietly buy one for the
+		// payer.
+		const {env, Game, AvatarSale, unnamedAccounts} =
 			await networkHelpers.loadFixture(deployAll);
 
-		const {price, amount} = saleConfig(StakeSale);
+		const {price} = saleConfig(AvatarSale);
 		const payer = unnamedAccounts[2];
 		const player = unnamedAccounts[3];
 
-		const payerBefore = (await env.read(Game, {
-			functionName: 'getReserve',
-			args: [idOf(payer)],
-		})) as bigint;
-		const playerBefore = (await env.read(Game, {
-			functionName: 'getReserve',
-			args: [idOf(player)],
-		})) as bigint;
+		const avatarID = await nextAvatarID(env, AvatarSale);
 
-		await env.execute(StakeSale, {
+		await env.execute(AvatarSale, {
 			account: payer,
 			functionName: 'purchase',
 			args: [player, zeroAddress, 0n],
 			value: price,
 		});
 
-		expect(
-			(await env.read(Game, {
-				functionName: 'getReserve',
-				args: [idOf(player)],
-			})) as bigint,
-		).toEqual(playerBefore + amount);
-		expect(
-			(await env.read(Game, {
-				functionName: 'getReserve',
-				args: [idOf(payer)],
-			})) as bigint,
-		).toEqual(payerBefore);
+		expect(await avatarOwner(env, Game, avatarID)).toEqual(player);
 	});
 
 	it('refuses a value that is not the price plus what it forwards', async function () {
@@ -115,16 +112,16 @@ describe('StakeSale', function () {
 		// client bug: sizing the value from the price alone leaves the stipend
 		// taken out of the payment, and sending price plus stipend while naming
 		// nobody to forward it to would leave the stipend stuck in the sale.
-		const {env, StakeSale, unnamedAccounts} =
+		const {env, AvatarSale, unnamedAccounts} =
 			await networkHelpers.loadFixture(deployAll);
 
-		const {price} = saleConfig(StakeSale);
+		const {price} = saleConfig(AvatarSale);
 		const payer = unnamedAccounts[4];
 		const signer = unnamedAccounts[5];
 		const stipend = 1000n;
 
 		await expect(
-			env.execute(StakeSale, {
+			env.execute(AvatarSale, {
 				account: payer,
 				functionName: 'purchase',
 				args: [payer, signer, stipend],
@@ -133,7 +130,7 @@ describe('StakeSale', function () {
 		).toBeRejected();
 
 		await expect(
-			env.execute(StakeSale, {
+			env.execute(AvatarSale, {
 				account: payer,
 				functionName: 'purchase',
 				args: [payer, zeroAddress, 0n],
@@ -143,7 +140,7 @@ describe('StakeSale', function () {
 
 		// A stipend with nowhere to go is refused rather than kept.
 		await expect(
-			env.execute(StakeSale, {
+			env.execute(AvatarSale, {
 				account: payer,
 				functionName: 'purchase',
 				args: [payer, zeroAddress, stipend],
@@ -152,26 +149,27 @@ describe('StakeSale', function () {
 		).toBeRejected();
 	});
 
-	it('leaves the stake usable: it can be bonded to a commitment', async function () {
-		// The reserve is only worth crediting if the game will accept it. Reading
-		// `getReserve` alone would pass with tokens the game never received, since
-		// the mapping and the token balance are written by different calls.
+	it('leaves the avatar usable: it can commit straight away', async function () {
+		// The avatar is only worth buying if the game will let it play. Reading
+		// custody alone would pass with an NFT the game never actually received,
+		// since the custody record and the token transfer are different writes.
 		const {
 			env,
 			Game,
-			StakeSale,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
-		const {price, amount} = saleConfig(StakeSale);
+		const {price} = saleConfig(AvatarSale);
 		const player = unnamedAccounts[6];
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		await env.execute(StakeSale, {
+		const avatarID = await nextAvatarID(env, AvatarSale);
+		await env.execute(AvatarSale, {
 			account: player,
 			functionName: 'purchase',
 			args: [player, zeroAddress, 0n],
@@ -182,20 +180,59 @@ describe('StakeSale', function () {
 			account: player,
 			functionName: 'makeCommitment',
 			args: [
-				0n,
+				avatarID,
 				'0x000000000000000000000000000000000000000000000001',
-				amount,
+				0n,
 				zeroAddress,
 			],
 		});
 
-		// Bonded to the commitment, so it cannot be taken back out.
+		// Committed, so the avatar is pinned: this is the same property the
+		// bonded reserve has upstream, expressed in custody.
 		await expect(
 			env.execute(Game, {
 				account: player,
-				functionName: 'withdrawFromReserve',
-				args: [amount],
+				functionName: 'withdrawAvatar',
+				args: [avatarID, player],
+				gas: 1000000n,
 			}),
 		).toBeRejected();
+	});
+
+	it('is the ONLY way an avatar can be minted', async function () {
+		// THE RULE THIS BRANCH INHERITS FROM reveal-or-die, which shipped this
+		// same NFT with an open `mint` and therefore with no stake at all: a
+		// player who disliked what they had committed to could go quiet, lose the
+		// avatar and mint another one for gas. A stake that costs nothing to
+		// acquire is not a stake, and that voids the invariant the whole
+		// framework rests on.
+		//
+		// The mechanism is one address, and the assertion is about the mechanism
+		// rather than about the price: charging in an ERC20 later is a new sale
+		// and one `setMinter` call, and this test keeps its meaning through that.
+		const {env, GameAvatars, AvatarSale, unnamedAccounts} =
+			await networkHelpers.loadFixture(deployAll);
+
+		const stranger = unnamedAccounts[7];
+
+		await expect(
+			env.execute(GameAvatars, {
+				account: stranger,
+				functionName: 'mint',
+				args: [stranger, 999999n, '0x'],
+				gas: 1000000n,
+			}),
+		).toBeRejectedWith(`custom error 'NotMinter(`);
+
+		// It is shut because exactly one address is open, and that address is a
+		// sale that charges. Read from the deployment rather than assumed, so
+		// this fails if the wiring in `020_deploy_stake_sale.ts` is dropped -
+		// which would otherwise leave a deployment where NOBODY can mint and the
+		// game cannot be entered at all.
+		expect(
+			String(
+				await env.read(GameAvatars, {functionName: 'minter'}),
+			).toLowerCase(),
+		).toEqual(AvatarSale.address.toLowerCase());
 	});
 });

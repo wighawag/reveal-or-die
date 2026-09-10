@@ -1,7 +1,7 @@
 import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
-import {setupFixtures, idOf, enterGame} from './utils/index.js';
+import {setupFixtures, idOf, enterGame, avatarOwner} from './utils/index.js';
 import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
 import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts';
 import {delegationMessage} from '@etherplay/delegation';
@@ -49,7 +49,7 @@ describe('Game', function () {
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			advanceToRevealPhase,
@@ -61,12 +61,11 @@ describe('Game', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		// Fund and stake.
-		const identity = await enterGame({env, Game, GameToken}, player);
+		// Buy an avatar, which puts it at stake in the same transaction.
+		const identity = await enterGame({env, Game, AvatarSale}, player);
 
-		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [identity]}),
-		).toEqual(parseEther('10'));
+		// WHAT IS AT STAKE, and the identity that is playing, are one thing here.
+		expect(await avatarOwner(env, Game, identity)).toEqual(player);
 
 		// Commit.
 		//
@@ -78,12 +77,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'makeCommitment',
-			args: [
-				identity,
-				commitmentHash(placements, SECRET_A),
-				parseEther('5'),
-				zeroAddress,
-			],
+			args: [identity, commitmentHash(placements, SECRET_A), 0n, zeroAddress],
 		});
 
 		// Reveal.
@@ -100,13 +94,13 @@ describe('Game', function () {
 			args: [cellAt(3, 4)],
 		})) as {totalStake: bigint; numClaimants: number};
 
-		expect(cell.totalStake).toEqual(parseEther('1'));
+		expect(cell.totalStake).toEqual(0n);
 		expect(cell.numClaimants).toEqual(1);
 
-		// The placement was paid for out of the reserve.
-		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [identity]}),
-		).toEqual(parseEther('9'));
+		// The placement cost nothing, and the avatar is still at stake: playing a
+		// round neither spends the stake nor releases it. On `main` this is where
+		// the reserve goes down by the placement cost.
+		expect(await avatarOwner(env, Game, identity)).toEqual(player);
 	});
 
 	/**
@@ -129,7 +123,7 @@ describe('Game', function () {
 			const {
 				env,
 				Game,
-				GameToken,
+				AvatarSale,
 				unnamedAccounts,
 				advanceToEpoch,
 				advanceToRevealPhase,
@@ -143,8 +137,8 @@ describe('Game', function () {
 			const {epoch: startEpoch} = getEpoch(await getTimestamp());
 			await advanceToEpoch(startEpoch + 2, true);
 
-			const identityA = await enterGame({env, Game, GameToken}, playerA);
-			const identityB = await enterGame({env, Game, GameToken}, playerB);
+			const identityA = await enterGame({env, Game, AvatarSale}, playerA);
+			const identityB = await enterGame({env, Game, AvatarSale}, playerB);
 
 			// Both players commit to the SAME cell, blind to each other, and each
 			// also takes a cell of their own. The private cells are what make the
@@ -163,7 +157,7 @@ describe('Game', function () {
 				args: [
 					identityA,
 					commitmentHash(placementsA, SECRET_A),
-					parseEther('5'),
+					0n,
 					zeroAddress,
 				],
 			});
@@ -173,7 +167,7 @@ describe('Game', function () {
 				args: [
 					identityB,
 					commitmentHash(placementsB, SECRET_B),
-					parseEther('5'),
+					0n,
 					zeroAddress,
 				],
 			});
@@ -240,7 +234,7 @@ describe('Game', function () {
 
 		// And it really is shared, rather than both reveals failing.
 		expect(aFirst.contested.numClaimants).toEqual(2);
-		expect(aFirst.contested.totalStake).toEqual(parseEther('2'));
+		expect(aFirst.contested.totalStake).toEqual(0n);
 
 		// The board a client READS is the same board too. This is a separate
 		// claim from the one above: the cells are listed out of a per-zone index
@@ -251,11 +245,11 @@ describe('Game', function () {
 		expect(aFirst.listed.length).toEqual(3);
 	});
 
-	it('forfeits the bond of a player who never reveals', async function () {
+	it('seizes the avatar of a player who never reveals', async function () {
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -266,18 +260,13 @@ describe('Game', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, GameToken}, player);
+		const identity = await enterGame({env, Game, AvatarSale}, player);
 
 		const placements: Placement[] = [{cellID: cellAt(1, 1)}];
 		await env.execute(Game, {
 			account: player,
 			functionName: 'makeCommitment',
-			args: [
-				identity,
-				commitmentHash(placements, SECRET_A),
-				parseEther('4'),
-				zeroAddress,
-			],
+			args: [identity, commitmentHash(placements, SECRET_A), 0n, zeroAddress],
 		});
 
 		// Let the epoch pass without revealing.
@@ -290,13 +279,96 @@ describe('Game', function () {
 			args: [identity],
 		});
 
-		// The bond is gone; the rest of the reserve is untouched.
-		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [identity]}),
-		).toEqual(parseEther('6'));
+		// THE WHOLE AVATAR IS GONE, which is what this branch puts at stake in
+		// place of a bond. The NFT stays in the game contract for good: nobody
+		// owns it, so nobody can play it and nobody can take it out.
+		expect(await avatarOwner(env, Game, identity)).toEqual(zeroAddress);
+
+		await expect(
+			env.execute(Game, {
+				account: player,
+				functionName: 'withdrawAvatar',
+				args: [identity, player],
+				gas: 1000000n,
+			}),
+		).toBeRejected();
 	});
 
-	it('lets one address pay the stake and another play with it', async function () {
+	it('will not let a player walk away from a commitment', async function () {
+		// THE COSTLESS EXIT, refused. Custody is only a stake while the game
+		// holds the avatar, so a player who dislikes what they have committed to
+		// must not be able to take it home before the reveal window shuts - and
+		// must not be able to rescue it afterwards either, because by then it is
+		// forfeit and `acknowledgeMissedReveal` is what makes that so.
+		//
+		// Reading `ownerOf` instead of holding the token would have exactly this
+		// hole with an extra step: sell the avatar inside the window and let the
+		// buyer be seized from.
+		const {
+			env,
+			Game,
+			GameAvatars,
+			AvatarSale,
+			unnamedAccounts,
+			advanceToEpoch,
+			getEpoch,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
+
+		const player = unnamedAccounts[0];
+		const {epoch: startEpoch} = getEpoch(await getTimestamp());
+		await advanceToEpoch(startEpoch + 2, true);
+
+		const identity = await enterGame({env, Game, AvatarSale}, player);
+
+		// Nothing committed yet, so leaving is allowed - and it really leaves.
+		const second = await enterGame({env, Game, AvatarSale}, player);
+		await env.execute(Game, {
+			account: player,
+			functionName: 'withdrawAvatar',
+			args: [second, player],
+		});
+		expect(
+			String(
+				await env.read(GameAvatars, {functionName: 'ownerOf', args: [second]}),
+			).toLowerCase(),
+		).toEqual(player);
+
+		await env.execute(Game, {
+			account: player,
+			functionName: 'makeCommitment',
+			args: [
+				identity,
+				commitmentHash([{cellID: cellAt(4, 4)}], SECRET_A),
+				0n,
+				zeroAddress,
+			],
+		});
+
+		// Committed: the avatar is pinned for as long as the commitment is open.
+		await expect(
+			env.execute(Game, {
+				account: player,
+				functionName: 'withdrawAvatar',
+				args: [identity, player],
+				gas: 1000000n,
+			}),
+		).toBeRejectedWith(`custom error 'AvatarIsCommitted(`);
+
+		// And still pinned once the window has shut, when it is forfeit.
+		const {epoch} = getEpoch(await getTimestamp());
+		await advanceToEpoch(epoch + 1, true);
+		await expect(
+			env.execute(Game, {
+				account: player,
+				functionName: 'withdrawAvatar',
+				args: [identity, player],
+				gas: 1000000n,
+			}),
+		).toBeRejectedWith(`custom error 'AvatarIsCommitted(`);
+	});
+
+	it('lets one address pay for an avatar and another play it', async function () {
 		// The split the whole client architecture depends on: a player's moves are
 		// signed by a local key that holds no funds, while the stake is paid from
 		// the wallet that does. Without this, a wallet prompt would be required for
@@ -305,7 +377,7 @@ describe('Game', function () {
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			advanceToRevealPhase,
@@ -319,15 +391,22 @@ describe('Game', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, GameToken}, player, {
+		const identity = await enterGame({env, Game, AvatarSale}, player, {
 			payer,
 		});
 
+		expect(await avatarOwner(env, Game, identity)).toEqual(player);
+		// The payer bought something and owns nothing: an avatar belongs to whoever
+		// it was bought FOR. `idOf` is what an address game would have keyed this
+		// address by, which is the only way to ask "is this address a player" on a
+		// game where players are avatars.
 		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [identity]}),
-		).toEqual(parseEther('10'));
-		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [idOf(payer)]}),
+			(
+				(await env.read(Game, {
+					functionName: 'getCommitment',
+					args: [idOf(payer)],
+				})) as {epoch: bigint}
+			).epoch,
 		).toEqual(0n);
 
 		// And the player, who never held a token, can now play on it.
@@ -335,12 +414,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'makeCommitment',
-			args: [
-				identity,
-				commitmentHash(placements, SECRET_A),
-				parseEther('1'),
-				zeroAddress,
-			],
+			args: [identity, commitmentHash(placements, SECRET_A), 0n, zeroAddress],
 		});
 
 		const {epoch} = getEpoch(await getTimestamp());
@@ -355,19 +429,17 @@ describe('Game', function () {
 			functionName: 'getCell',
 			args: [cellAt(5, 5)],
 		})) as {totalStake: bigint; numClaimants: number};
-		expect(cell.totalStake).toEqual(parseEther('1'));
+		expect(cell.numClaimants).toEqual(1);
 
-		// Paid for out of the reserve the payer funded.
-		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [identity]}),
-		).toEqual(parseEther('9'));
+		// Still at stake, and still the player's rather than the payer's.
+		expect(await avatarOwner(env, Game, identity)).toEqual(player);
 	});
 
 	it('lists placed cells in a zone', async function () {
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			advanceToRevealPhase,
@@ -379,7 +451,7 @@ describe('Game', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, GameToken}, player);
+		const identity = await enterGame({env, Game, AvatarSale}, player);
 
 		// Two cells inside zone 0 (which spans -8..7 on both axes).
 		const placements: Placement[] = [
@@ -389,12 +461,7 @@ describe('Game', function () {
 		await env.execute(Game, {
 			account: player,
 			functionName: 'makeCommitment',
-			args: [
-				identity,
-				commitmentHash(placements, SECRET_A),
-				parseEther('5'),
-				zeroAddress,
-			],
+			args: [identity, commitmentHash(placements, SECRET_A), 0n, zeroAddress],
 		});
 
 		const {epoch} = getEpoch(await getTimestamp());
@@ -432,12 +499,11 @@ describe('Game', function () {
  * both halves: what the delegate may do, and what it may not.
  */
 describe('Game delegation', function () {
-	/** Stake `amount` for `player`, paid by `player`. */
-	it('lets an authorised key commit for the account, bonding the ACCOUNT reserve', async function () {
+	it("lets an authorised key commit for the account's AVATAR", async function () {
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -451,7 +517,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, GameToken}, account);
+		const identity = await enterGame({env, Game, AvatarSale}, account);
 
 		await env.execute(Game, {
 			account,
@@ -473,35 +539,33 @@ describe('Game delegation', function () {
 			// SENT BY the signer, FOR the account.
 			account: signer,
 			functionName: 'makeCommitment',
-			args: [
-				identity,
-				commitmentHash(placements, SECRET_A),
-				parseEther('1'),
-				zeroAddress,
-			],
+			args: [identity, commitmentHash(placements, SECRET_A), 0n, zeroAddress],
 		});
 
-		// The commitment is the ACCOUNT'S, not the sender's. If it were filed
-		// under the signer, losing the browser would lose the round, and the bond
-		// would have come from a reserve the signer does not have.
+		// The commitment is the AVATAR'S, not the sender's. If it were filed
+		// under the signer, losing the browser would lose the round - and here it
+		// could not be filed there at all, because the signer owns no avatar,
+		// which is the identity model doing the same work the reserve did.
 		const commitment = (await env.read(Game, {
 			functionName: 'getCommitment',
 			args: [identity],
-		})) as {hash: `0x${string}`; bond: bigint};
-		expect(commitment.bond).toEqual(parseEther('1'));
+		})) as {hash: `0x${string}`; epoch: bigint};
+		expect(commitment.epoch > 0n).toEqual(true);
 
+		// And the signer is not a player at all: `idOf` is the identity an
+		// address game would have given it, and nothing here answers to it.
 		const signerCommitment = (await env.read(Game, {
 			functionName: 'getCommitment',
 			args: [idOf(signer)],
-		})) as {hash: `0x${string}`; bond: bigint};
-		expect(signerCommitment.bond).toEqual(0n);
+		})) as {hash: `0x${string}`; epoch: bigint};
+		expect(signerCommitment.epoch).toEqual(0n);
 	});
 
 	it('refuses a key the account never authorised', async function () {
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -513,7 +577,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, GameToken}, account);
+		const identity = await enterGame({env, Game, AvatarSale}, account);
 
 		// Without the check this succeeds, and that is the theft: a stranger bonds
 		// someone else's reserve to a commitment only they know the secret for, so
@@ -525,7 +589,7 @@ describe('Game delegation', function () {
 				args: [
 					identity,
 					commitmentHash([{cellID: cellAt(1, 1)}], SECRET_A),
-					parseEther('1'),
+					0n,
 					zeroAddress,
 				],
 			}),
@@ -538,18 +602,21 @@ describe('Game delegation', function () {
 		expect(commitment.bond).toEqual(0n);
 	});
 
-	it('reads a player of zero as the caller', async function () {
-		// THE SHORTHAND, and it is this game's answer rather than the framework's.
-		// `_playerOf` hands zero to the delegation library, which resolves it to
-		// the sender - so a client with no delegate can commit for itself without
-		// naming an identity at all. It is worth its own test because it is the
-		// one behaviour a token game CANNOT have: there, zero is a token id, and
-		// letting it mean "the caller" would make one identity behave unlike every
-		// other one.
+	it('refuses a player of zero rather than reading it as the caller', async function () {
+		// THE SHORTHAND `main` HAS AND THIS BRANCH MUST NOT. Upstream, a player of
+		// zero means "commit as whoever is calling", because there an identity is
+		// an account and zero is not one. Here zero is a token id like any other,
+		// so letting it mean the caller would make one avatar behave unlike every
+		// other avatar - and it would do so silently, on the one id a fresh
+		// counter is most likely to hand out.
+		//
+		// Refused twice over, deliberately: `AvatarSale` allocates from 1, and
+		// `_playerOf` rejects an undeposited id anyway. Two independent reasons
+		// is what a silent aliasing bug is worth.
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -560,37 +627,40 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, GameToken}, account);
+		const identity = await enterGame({env, Game, AvatarSale}, account);
 
-		await env.execute(Game, {
-			account,
-			functionName: 'makeCommitment',
-			args: [
-				0n,
-				commitmentHash([{cellID: cellAt(9, 9)}], SECRET_A),
-				parseEther('1'),
-				zeroAddress,
-			],
-		});
+		await expect(
+			env.execute(Game, {
+				account,
+				functionName: 'makeCommitment',
+				args: [
+					0n,
+					commitmentHash([{cellID: cellAt(9, 9)}], SECRET_A),
+					0n,
+					zeroAddress,
+				],
+				gas: 1000000n,
+			}),
+		).toBeRejectedWith(`custom error 'InvalidPlayer(`);
 
+		// The avatar this account really does own is untouched.
 		const commitment = (await env.read(Game, {
 			functionName: 'getCommitment',
 			args: [identity],
-		})) as {bond: bigint};
-		expect(commitment.bond).toEqual(parseEther('1'));
+		})) as {epoch: bigint};
+		expect(commitment.epoch).toEqual(0n);
 	});
 
-	it('refuses an identity this game cannot represent', async function () {
-		// THE ALIASING GUARD, and it is the price of keying players by a `uint256`
-		// rather than by an address.
+	it('refuses an identity nobody has put at stake', async function () {
+		// THE SAME TEST NAME'S JOB, ANSWERED DIFFERENTLY. Upstream this is an
+		// aliasing guard: an identity has to BE an account there, and an id above
+		// 2^160 would truncate onto somebody else's. Here any id is well-formed
+		// and the question is instead whether the avatar is in custody, which is
+		// what makes it a player at all.
 		//
-		// Every identity here is an account widened to 32 bytes, so the top 12
-		// bytes are always zero. Nothing about the TYPE says so: a caller can pass
-		// any 256-bit number, and without the check `_playerOf` would truncate it
-		// to 20 bytes and hand back an account that somebody else owns. The pair
-		// below is the cheapest instance of that - `account` and
-		// `account + 2^160` - and they would share one reserve and one commitment
-		// slot, with nothing raised anywhere.
+		// The id used is deliberately one an address game would have accepted
+		// (`account` widened, plus the aliasing offset), so the assertion is
+		// about custody rather than about arithmetic.
 		//
 		// It is checked at the one place authority is granted, which is why a
 		// reveal needs no such check: it opens a commitment that only a checked
@@ -598,7 +668,7 @@ describe('Game delegation', function () {
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -609,7 +679,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, GameToken}, account);
+		const identity = await enterGame({env, Game, AvatarSale}, account);
 
 		const aliased = idOf(account) + (1n << 160n);
 		await expect(
@@ -619,7 +689,7 @@ describe('Game delegation', function () {
 				args: [
 					aliased,
 					commitmentHash([{cellID: cellAt(2, 2)}], SECRET_A),
-					parseEther('1'),
+					0n,
 					zeroAddress,
 				],
 				gas: 1000000n,
@@ -634,16 +704,20 @@ describe('Game delegation', function () {
 		expect(commitment.bond).toEqual(0n);
 	});
 
-	it('never lets the delegate withdraw the stake', async function () {
-		// The line that makes a disposable key safe to hold. It may SPEND the
-		// reserve on playing, which is what it is for, and it may not take it out.
-		// `withdrawFromReserve` has no player argument at all, so the delegate can
-		// only ever withdraw the reserve of the identity its own address spells,
-		// which is empty.
+	it('never lets the delegate take the avatar out', async function () {
+		// THE LINE THAT MAKES A DISPOSABLE KEY SAFE TO HOLD, and this branch has
+		// to draw it in a different place from `main`. There the delegate may
+		// spend the reserve on playing and may never withdraw it; here the
+		// equivalent is that it may play the avatar and may never take it out of
+		// custody, because taking it out ends the stake.
+		//
+		// `withdrawAvatar` checks `msg.sender` against the recorded owner rather
+		// than going through `_playerOf`, which is exactly what makes this true:
+		// authority to PLAY is delegable and authority to LEAVE is not.
 		const {
 			env,
 			Game,
-			GameToken,
+			AvatarSale,
 			unnamedAccounts,
 			advanceToEpoch,
 			getEpoch,
@@ -655,7 +729,7 @@ describe('Game delegation', function () {
 		const {epoch: startEpoch} = getEpoch(await getTimestamp());
 		await advanceToEpoch(startEpoch + 2, true);
 
-		const identity = await enterGame({env, Game, GameToken}, account);
+		const identity = await enterGame({env, Game, AvatarSale}, account);
 		await env.execute(Game, {
 			account,
 			functionName: 'registerDelegate',
@@ -665,14 +739,13 @@ describe('Game delegation', function () {
 		await expect(
 			env.execute(Game, {
 				account: signer,
-				functionName: 'withdrawFromReserve',
-				args: [parseEther('10')],
+				functionName: 'withdrawAvatar',
+				args: [identity, signer],
+				gas: 1000000n,
 			}),
-		).toBeRejected();
+		).toBeRejectedWith(`custom error 'NotAvatarOwner(`);
 
-		expect(
-			await env.read(Game, {functionName: 'getReserve', args: [identity]}),
-		).toEqual(parseEther('10'));
+		expect(await avatarOwner(env, Game, identity)).toEqual(account);
 	});
 
 	it('routes every delegation selector on the proxy', async function () {

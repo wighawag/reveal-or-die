@@ -1,23 +1,27 @@
 /**
- * The reserve: the tokens a player puts at risk in order to play.
+ * WHAT IS AT STAKE: custody of the avatar you play.
  *
- * This is the template's answer to the second commit-reveal rule - something
+ * This is the branch's answer to the second commit-reveal rule - something
  * must be at stake, or nobody has to reveal. A player who dislikes what they
- * committed to can always go quiet; the bond taken from this reserve at commit
- * time, and forfeited by `acknowledgeMissedReveal`, is what makes that cost
- * them. A game that gates differently (holding custody of an item the player
- * bought, say) replaces this file; the framework only requires that SOMETHING
- * is lost.
+ * committed to can always go quiet; here that costs them the avatar itself,
+ * seized by `acknowledgeMissedReveal`, rather than a bond taken out of a
+ * reserve of tokens.
  *
- * This READS the stake and takes it back out. Putting one there is the
- * acquisition rail's job (`$lib/game/acquire`, wired through
- * `./acquisition.ts`), because acquiring a stake is the same shape in every
- * game and getting it wrong costs the player money. It used to be `fund()`
- * here: mint, approve, add to the reserve, three transactions the wallet asked
- * about one at a time with nothing on screen explaining why there were three,
- * and no memory of any of them across a reload.
+ * ON `main` THIS FILE READS AN ERC20 RESERVE, and it says in as many words
+ * that "a game that gates differently (holding custody of an item the player
+ * bought, say) replaces this file". This is that replacement, and the shape it
+ * keeps is what makes it cheap: the same store type, the same two methods, the
+ * same `{step, amount}` the setup gate reads. So `context/game.ts` wires it
+ * identically and `setupNeeded` is untouched - `amount === 0n` still means
+ * "you have nothing to play with", it just means an avatar rather than tokens.
+ *
+ * IT DERIVES RATHER THAN READING. The chain read it would need is the one the
+ * identity provider already makes (`$lib/game/identity`), and doing it twice
+ * would be two polls of the same state that can disagree for a frame - with
+ * the gate and the board drawn from different answers. The identity store is
+ * the authority on custody, because on this branch custody IS identity.
  */
-import {get, writable, type Readable} from 'svelte/store';
+import {derived, get, type Readable} from 'svelte/store';
 import type {Context} from '$lib/context/types';
 import {onchainIdentity, type ActiveIdentityStore} from '$lib/game/identity';
 import type {PlacementConfig} from './config';
@@ -31,17 +35,14 @@ export type ReserveStore = Readable<ReserveState> & {
 };
 
 /**
- * What the reserve needs.
+ * What the stake needs.
  *
- * `accountExecutor`, NOT `signerExecutor`: taking money back out is the
- * player's own, so it is sent from the wallet they control, with a prompt,
- * deliberately. The reserve is filed under the IDENTITY, and withdrawing from
- * it is the ACCOUNT's own act - the same address here, and not the same
- * sentence in a game whose identity is a token. The signer neither pays nor
- * owns; it acts for the account, and only once `registerDelegate` has
- * authorised it onchain.
- * `withdrawFromReserve` is the one account-facing call a delegate may NOT make,
- * which is what makes a disposable browser key safe to hold.
+ * `accountExecutor`, NOT `signerExecutor`: taking the avatar back out is the
+ * player's own act, so it is sent from the wallet they control, with a prompt,
+ * deliberately. `withdrawAvatar` checks `msg.sender` against the recorded
+ * owner instead of going through `_playerOf`, which is the same line `main`
+ * draws at `withdrawFromReserve`: a delegate may PLAY the stake and may never
+ * take it out, which is what makes a disposable browser key safe to hold.
  */
 export type ReserveDeps = Pick<
 	Context,
@@ -51,8 +52,6 @@ export type ReserveDeps = Pick<
 	| 'balanceCheck'
 	| 'publicClient'
 	| 'account'
-	// The payer's gas, so the balance check measures the account that actually
-	// pays. See EnsureCanAffordOptions.
 	| 'accountBalance'
 >;
 
@@ -60,74 +59,34 @@ export function createReserve(params: {
 	deps: ReserveDeps;
 	config: PlacementConfig;
 	/**
-	 * WHO PLAYS, and so whose reserve this is. Passed in rather than read off
-	 * the context: what a game plays AS is the game's own decision, not
-	 * something the core knows about.
+	 * WHO PLAYS, which on this branch is also WHAT IS AT STAKE.
 	 *
-	 * The identity and not the account, deliberately. They hold the same value
-	 * in this game; the stake belongs to whoever is at risk of forfeiting it,
-	 * which is the thing that commits.
+	 * The one store, rather than a second reader of the same chain state. Its
+	 * `loaded` is what keeps the setup gate honest: an unfinished read must not
+	 * look like an account with no avatar, or the gate covers a playable board
+	 * on every load.
 	 */
 	identity: ActiveIdentityStore;
 }): ReserveStore {
 	const {deps} = params;
-	const state = writable<ReserveState>({step: 'Unloaded'});
 
-	async function update() {
-		// The reserve is filed under WHO PLAYS; the tokens sit with the address
-		// that PAYS. Both are the account here, since that is what this game plays
-		// as and what it stakes from. They keep separate names because
-		// `addToReserve` lets a payer credit someone else, and a game that takes
-		// that up should not have to untangle one name doing two jobs.
-		const player = get(params.identity);
-		const payer = get(deps.account);
-		// `=== undefined` for the identity, not falsy: it can be a token id of `0n`.
-		// The payer is an account and so is genuinely an address or nothing.
-		if (player === undefined || !payer) {
-			state.set({step: 'Unloaded'});
-			return;
-		}
-		const $deployments = get(deps.deployments);
-
-		const [amount, tokenBalance] = await Promise.all([
-			deps.publicClient.readContract({
-				address: $deployments.contracts.Game.address,
-				abi: $deployments.contracts.Game.abi,
-				functionName: 'getReserve',
-				args: [onchainIdentity(player)],
-			}) as Promise<bigint>,
-			deps.publicClient.readContract({
-				address: $deployments.contracts.GameToken.address,
-				abi: $deployments.contracts.GameToken.abi,
-				functionName: 'balanceOf',
-				args: [payer],
-			}) as Promise<bigint>,
-		]);
-
-		state.set({step: 'Loaded', amount, tokenBalance});
-	}
-
-	/**
-	 * Send and wait for inclusion.
-	 *
-	 * Not merely cosmetic: `writeContract` resolves on BROADCAST, so the read
-	 * that follows would race the transaction it is meant to reflect, and the
-	 * HUD would report the reserve the player just changed as unchanged. A local
-	 * node with automine hides this; anything else does not.
-	 */
-	async function sendAndWait(
-		executor: {
-			client: {writeContract: (request: never) => Promise<`0x${string}`>};
+	const state = derived(
+		[params.identity, params.identity.loaded],
+		([$identity, $loaded]): ReserveState => {
+			if (!$loaded) return {step: 'Unloaded'};
+			return {
+				step: 'Loaded',
+				// ONE OR NONE, counted rather than valued. The gate asks whether this
+				// is zero and nothing else does arithmetic on it; several avatars per
+				// account is D6, and when it lands this becomes the count.
+				amount: $identity === undefined ? 0n : 1n,
+				// No token stands behind an avatar, and reporting a balance of zero
+				// is more honest than reporting the account's ERC20 holdings, which
+				// this game cannot stake and does not read.
+				tokenBalance: 0n,
+			};
 		},
-		request: unknown,
-		what: string,
-	) {
-		const hash = await executor.client.writeContract(request as never);
-		const receipt = await deps.publicClient.waitForTransactionReceipt({hash});
-		if (receipt.status === 'reverted') {
-			throw new Error(`${what} failed`);
-		}
-	}
+	);
 
 	async function ready() {
 		await deps.connection.ensureConnected();
@@ -141,27 +100,47 @@ export function createReserve(params: {
 		return {executor: $executor, deployments: get(deps.deployments)};
 	}
 
-	async function withdraw(amount: bigint) {
+	/**
+	 * Take the avatar out of the game, ending its time at stake.
+	 *
+	 * The signature is `main`'s and the argument is ignored, which is a real
+	 * cost recorded rather than hidden: there is nothing partial to withdraw
+	 * here, an avatar is in or out. Keeping the shape is what lets the store be
+	 * wired identically; the day something calls this with a number that means
+	 * anything, the type has to change on both sides.
+	 */
+	async function withdraw(_amount: bigint) {
 		const {executor, deployments} = await ready();
-		const payer = executor.address;
-		await sendAndWait(
-			executor,
-			await deps.balanceCheck.ensureCanAfford(
-				{
-					contract: {
-						address: deployments.contracts.Game.address,
-						abi: deployments.contracts.Game.abi,
-						functionName: 'withdrawFromReserve',
-						args: [amount],
-						account: executor.account,
-					},
-				},
-				{balance: deps.accountBalance, sender: payer},
-			),
-			'Withdrawing from your reserve',
-		);
-		await update();
+		// `=== undefined`, not falsy: an avatar id can be zero in general, even
+		// though this game's sale never mints one.
+		const identity = get(params.identity);
+		if (identity === undefined) {
+			throw new Error('There is no avatar to take out.');
+		}
+
+		const hash = await executor.client.writeContract({
+			address: deployments.contracts.Game.address,
+			abi: deployments.contracts.Game.abi,
+			functionName: 'withdrawAvatar',
+			args: [onchainIdentity(identity), executor.address],
+			account: executor.account,
+			chain: null,
+		} as never);
+		const receipt = await deps.publicClient.waitForTransactionReceipt({hash});
+		if (receipt.status === 'reverted') {
+			// The commonest reason by far, and the one worth naming: an open
+			// commitment pins the avatar, which is what stops "commit, then walk
+			// away with the stake" from being a move.
+			throw new Error(
+				'Taking the avatar out was rejected. A commitment that has not been revealed or settled keeps it in the game.',
+			);
+		}
+		await params.identity.update();
 	}
 
-	return {subscribe: state.subscribe, update, withdraw};
+	return {
+		subscribe: state.subscribe,
+		update: () => params.identity.update(),
+		withdraw,
+	};
 }

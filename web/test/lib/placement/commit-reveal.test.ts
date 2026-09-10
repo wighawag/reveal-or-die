@@ -218,7 +218,12 @@ describe('the game move boundary', () => {
  * widens to one perfectly happily.
  */
 describe('the identity that reaches the contract', () => {
-	const PLAYER = '0x00000000000000000000000000000000000000ff' as const;
+	// THE ONE LINE THIS BRANCH CHANGES IN THIS FILE. An identity is a token id
+	// here, so a fixture that spelled an address would not compile - which is the
+	// boundary doing its job rather than a nuisance. Everything below is
+	// upstream's, and still says something true: what reaches the contract is a
+	// `uint256` that came through `onchainIdentity`.
+	const PLAYER = 255n;
 
 	/** An adapter whose every write is captured instead of sent. */
 	function adapterRecording() {

@@ -1,122 +1,126 @@
 import {describe, expect, it} from 'vitest';
-import {get, writable} from 'svelte/store';
+import {get, writable, type Readable} from 'svelte/store';
 import {createReserve, type ReserveDeps} from '$lib/placement/reserve';
 import type {PlacementConfig} from '$lib/placement/config';
+import type {ActiveIdentityStore} from '$lib/game/identity';
 
 /**
- * WHAT IS AT STAKE, read correctly.
+ * WHAT IS AT STAKE, read correctly - which on this branch is custody.
  *
- * This store had no suite at all until the contract stopped keying players by
- * address, and the gap was not visible from the outside: every test in this
- * directory fakes the chain, so an argument that the node would reject is
- * indistinguishable from one it would accept. Two failures live here and both
- * are silent.
+ * Upstream this suite pins two silent failures in a chain read. Here the store
+ * makes no chain read at all: custody IS identity on a game whose players are
+ * avatars, so it derives from the identity provider rather than asking the
+ * same question twice and being able to disagree with itself for a frame.
  *
- * The identity has to arrive as the thing the contract keys by, which is a
- * `uint256` and not an address (`IGame.sol`, and `onchainIdentity` in
- * `$lib/game/identity`). And an identity of ZERO is a real identity: `0n` is a
- * legitimate token id and it is falsy, so an emptiness test written as
- * `if (!player)` reports "no stake" for one player in every game whose
- * identity is a number, forever, with nothing logged.
- *
- * The second one cannot happen on `main`, where the identity is an address -
- * which is exactly why it is worth pinning HERE rather than in the branch that
- * meets it: the check is in shared code, so it belongs to every game already,
- * and the branch inherits either a correct one or a broken one.
+ * That moves what can go wrong, and this file follows it. The failure that
+ * matters now is the LOADING one, and it is invisible in a screenshot: an
+ * unfinished custody read must not look like an account with no avatar, or the
+ * BUY AN AVATAR gate covers a playable board on every load. Upstream has the
+ * same trap and says so at `setupNeeded`; here it is easier to fall into,
+ * because "no identity yet" and "no avatar" are the same value.
  */
 
 const config = {} as unknown as PlacementConfig;
 
-/** The chain, reduced to the two reads this store makes. */
-function fakeDeps(options?: {reserve?: bigint; balance?: bigint}) {
-	const reads: {functionName: string; args?: readonly unknown[]}[] = [];
-	const deps = {
-		connection: {ensureConnected: async () => {}},
-		accountExecutor: writable({status: 'ready'}),
-		account: writable('0x2222222222222222222222222222222222222222'),
-		accountBalance: writable({step: 'Loaded', value: 10n ** 18n}),
-		balanceCheck: {ensureCanAfford: async (o: unknown) => o},
-		deployments: writable({
-			contracts: {
-				Game: {address: '0xgame', abi: []},
-				GameToken: {address: '0xtoken', abi: []},
-			},
-		}),
-		publicClient: {
-			readContract: async ({
-				functionName,
-				args,
-			}: {
-				functionName: string;
-				args?: readonly unknown[];
-			}) => {
-				reads.push({functionName, args});
-				if (functionName === 'getReserve') return options?.reserve ?? 7n;
-				if (functionName === 'balanceOf') return options?.balance ?? 3n;
-				throw new Error(`unexpected read ${functionName}`);
-			},
+/** An identity provider, at whatever point in its life a test needs it. */
+function fakeIdentity(state: {
+	loaded: boolean;
+	identity?: bigint;
+}): ActiveIdentityStore & {updates: number} {
+	let updates = 0;
+	const store = writable<bigint | undefined>(state.identity);
+	const identity = {
+		subscribe: store.subscribe,
+		loaded: writable(state.loaded) as Readable<boolean>,
+		update: async () => {
+			updates++;
 		},
-	} as unknown as ReserveDeps;
-	return {deps, reads};
+		get updates() {
+			return updates;
+		},
+	};
+	return identity as ActiveIdentityStore & {updates: number};
 }
 
-describe('the reserve', () => {
-	it('reads it under an identity the contract can key by', async () => {
-		const {deps, reads} = fakeDeps();
+const deps = {
+	connection: {ensureConnected: async () => {}},
+	accountExecutor: writable({status: 'ready'}),
+	account: writable('0x2222222222222222222222222222222222222222'),
+	accountBalance: writable({step: 'Loaded', value: 10n ** 18n}),
+	balanceCheck: {ensureCanAfford: async (o: unknown) => o},
+	deployments: writable({contracts: {Game: {address: '0xgame', abi: []}}}),
+	publicClient: {},
+} as unknown as ReserveDeps;
+
+describe('what is at stake', () => {
+	it('says nothing until custody has been read', () => {
+		// `Unloaded` rather than "you have no avatar". The setup gate reads this
+		// store, and an unfinished read reported as an empty one puts the gate
+		// over a board the player can already use.
 		const reserve = createReserve({
 			deps,
 			config,
-			identity: writable('0x1111111111111111111111111111111111111111') as never,
+			identity: fakeIdentity({loaded: false}),
 		});
 
-		await reserve.update();
+		expect(get(reserve)).toEqual({step: 'Unloaded'});
+	});
 
-		const read = reads.find((r) => r.functionName === 'getReserve');
-		// A `typeof` and not a value, so this still says something true in a game
-		// whose identity is already a number and needs no widening at all.
-		expect(typeof read?.args?.[0]).toBe('bigint');
-		// The token balance is the PAYER's, and that one really is an address.
-		const balance = reads.find((r) => r.functionName === 'balanceOf');
-		expect(typeof balance?.args?.[0]).toBe('string');
+	it('is one avatar when one is in the game', () => {
+		const reserve = createReserve({
+			deps,
+			config,
+			identity: fakeIdentity({loaded: true, identity: 3n}),
+		});
 
 		expect(get(reserve)).toEqual({
 			step: 'Loaded',
-			amount: 7n,
-			tokenBalance: 3n,
+			amount: 1n,
+			tokenBalance: 0n,
 		});
 	});
 
-	it('treats an identity of zero as an identity', async () => {
-		// `if (!player)` is a correct emptiness test for an address and wrong for
-		// a token id. The player whose id is zero would simply never see their
-		// own stake, and every other player would be fine.
-		const {deps, reads} = fakeDeps();
+	it('is none when custody has been read and there is nothing', () => {
+		// The gate's actual trigger: `amount === 0n` on a LOADED read is what
+		// tells the player to go and get an avatar.
 		const reserve = createReserve({
 			deps,
 			config,
-			identity: writable(0n) as never,
+			identity: fakeIdentity({loaded: true}),
 		});
 
-		await reserve.update();
-
-		expect(reads.some((r) => r.functionName === 'getReserve')).toBe(true);
-		expect(get(reserve)).toMatchObject({step: 'Loaded'});
+		expect(get(reserve)).toEqual({
+			step: 'Loaded',
+			amount: 0n,
+			tokenBalance: 0n,
+		});
 	});
 
-	it('asks nothing at all before there is an identity', async () => {
-		// Undefined is a real state rather than a loading artefact: nobody is
-		// signed in, or the account holds nothing it can play with. Reading the
-		// chain about it would be a read with no subject.
-		const {deps, reads} = fakeDeps();
+	it('counts an avatar of id zero as an avatar', () => {
+		// `0n` is falsy, and an emptiness test written as `if (!identity)` would
+		// report the one player whose token id is zero as having nothing at
+		// stake - forever, silently, while every other player is fine. This
+		// game's sale never mints id zero, and a game that inherits this file
+		// might.
 		const reserve = createReserve({
 			deps,
 			config,
-			identity: writable(undefined) as never,
+			identity: fakeIdentity({loaded: true, identity: 0n}),
 		});
 
-		await reserve.update();
+		expect(get(reserve)).toMatchObject({step: 'Loaded', amount: 1n});
+	});
 
-		expect(reads).toEqual([]);
-		expect(get(reserve)).toEqual({step: 'Unloaded'});
+	it('re-reads custody rather than keeping a count of its own', () => {
+		// `update()` is called after a purchase and after a forfeit is settled.
+		// Both change custody on chain, and the identity provider is the only
+		// thing that reads it, so anything else here would be a second copy of
+		// the answer that can disagree with the board.
+		const identity = fakeIdentity({loaded: true, identity: 3n});
+		const reserve = createReserve({deps, config, identity});
+
+		void reserve.update();
+
+		expect(identity.updates).toBe(1);
 	});
 });

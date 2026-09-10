@@ -17,9 +17,16 @@ import {
 
 export type PlacementConfig = {
 	epoch: EpochConfig;
-	/** What one placement costs, taken from the player's reserve on reveal. */
+	/**
+	 * What one placement costs.
+	 *
+	 * ZERO ON THIS BRANCH, and read from the deployment rather than assumed, so
+	 * this file does not have to know that. What is at stake here is custody of
+	 * the avatar rather than a bond, and a bond of zero is what lets a
+	 * commitment be made against a reserve nothing ever funds.
+	 */
 	placementCost: bigint;
-	/** The ERC20 the reserve is denominated in. */
+	/** The ERC20 the reserve would be denominated in. Unused here. */
 	tokenAddress: `0x${string}`;
 	/**
 	 * Where a stake is acquired, and what it costs.
@@ -34,7 +41,7 @@ export type PlacementConfig = {
 		address: `0x${string}`;
 		/** In the chain's native currency, exact. Not a minimum. */
 		price: bigint;
-		/** How much reserve one purchase credits. */
+		/** How much one purchase yields, which here is one avatar. */
 		amount: bigint;
 		/**
 		 * What the purchase forwards to the local signer, in the same transaction.
@@ -108,7 +115,10 @@ export function resolvePlacementConfig(
 	deployments: TypedDeployments,
 ): PlacementConfig {
 	const linkedData = deployments.contracts.Game.linkedData as GameLinkedData;
-	const StakeSale = deployments.contracts.StakeSale;
+	// The AVATAR sale, which is the one difference between this file and
+	// `main`'s: what is sold differs, and what the client needs to know about a
+	// sale (where, how much, how much gas it forwards) does not.
+	const StakeSale = deployments.contracts.AvatarSale;
 	const saleData = StakeSale.linkedData as DeclaredValues;
 
 	// The chain's own statement of the worst gas price it expects, which is what

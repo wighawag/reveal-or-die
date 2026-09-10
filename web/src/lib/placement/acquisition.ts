@@ -1,18 +1,20 @@
 /**
  * What this game acquires, and how: the seam the acquisition rail plugs into.
  *
- * The template gates on a token reserve bonded at commit time and forfeited by
- * `acknowledgeMissedReveal`, so what a new player has to get is a stake. That
- * used to be three transactions they were never told about - mint, approve,
- * add to the reserve - each signed in the wallet, with nothing on screen saying
- * why there were three. `StakeSale.purchase` is one call that does all of it
- * AND funds the local signer's gas in the same transaction, which is what lets
- * the rail above this file be one transaction end to end.
+ * THIS BRANCH GATES ON CUSTODY OF AN AVATAR, so what a new player has to get is
+ * a token, minted straight into the game where it is at stake from the moment
+ * it exists. `AvatarSale.purchase` is one call that mints it AND funds the
+ * local signer's gas, which is what lets the rail above this file be one
+ * transaction end to end.
  *
- * A game that gates differently (custody of an item the player bought, a pass)
- * replaces this file and nothing else: the rail takes the address, the function
- * name, the price, the stipend and the arguments, and has no opinion about what
- * arrives.
+ * IT IS THE SAME FILE AS UPSTREAM WITH TWO WORDS CHANGED, and that is the
+ * measurement rather than a coincidence. `main`'s version says "a game that
+ * gates differently (custody of an item the player bought, a pass) replaces
+ * this file and nothing else: the rail takes the address, the function name,
+ * the price, the stipend and the arguments, and has no opinion about what
+ * arrives." This is that claim being cashed: the sale contract underneath is a
+ * different contract doing a different thing, and the client difference is the
+ * deployment it names and the gas it reserves.
  */
 import type {Abi} from 'viem';
 import type {TypedDeployments} from '$lib/core/connection/types';
@@ -22,12 +24,14 @@ import type {PlacementConfig} from './config';
 /**
  * Gas to keep back when asking whether a payer can afford the purchase.
  *
- * A contract call with a value transfer plus an ERC20 mint and a reserve
- * credit, generously rounded: being short here offers a payer who then fails in
- * the wallet, while being generous only sends someone to the other payment
- * method a little early.
+ * A contract call with a value transfer plus an ERC721 mint, the custody
+ * record the game writes when it receives it, and the index entry that goes
+ * with it - generously rounded. It is larger than the ERC20 figure upstream
+ * because a mint writes more, and being short here offers a payer who then
+ * fails in the wallet, while being generous only sends someone to the other
+ * payment method a little early.
  */
-const PURCHASE_GAS = 400_000n;
+const PURCHASE_GAS = 600_000n;
 
 export function createStakeAcquisition(params: {
 	config: PlacementConfig;
@@ -41,12 +45,12 @@ export function createStakeAcquisition(params: {
 		stipend: config.sale.stipend,
 		gas: PURCHASE_GAS,
 		request: ({owner, stipendTo, stipend}) => ({
-			abi: deployments.contracts.StakeSale.abi as Abi,
-			// `player` first, then where the gas goes and how much of the value it
-			// is. The player is an ARGUMENT rather than `msg.sender` on purpose:
+			abi: deployments.contracts.AvatarSale.abi as Abi,
+			// `owner` first, then where the gas goes and how much of the value it
+			// is. The owner is an ARGUMENT rather than `msg.sender` on purpose:
 			// that is what lets a wallet pay for an account that has none of its
-			// own, and topping up somebody else's reserve is a gift, because only
-			// its owner can ever withdraw it.
+			// own, and buying somebody else an avatar is a gift, because only its
+			// owner can ever play it or take it out.
 			args: [
 				owner,
 				// The contract refuses a stipend with nowhere to go rather than

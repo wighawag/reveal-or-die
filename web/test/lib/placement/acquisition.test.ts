@@ -7,12 +7,16 @@ import type {TypedDeployments} from '$lib/core/connection/types';
 /**
  * Three arguments, two of which are addresses that mean opposite things.
  *
- * `StakeSale.purchase(player, stipendTo, stipend)` credits the reserve to
- * `player` and forwards gas to `stipendTo`. Swapping them does not revert: it
- * stakes for the local signing key, which is exactly the address that must
- * never own anything (it lives in one browser's storage, and clearing site data
- * would take the stake with it). That failure is why this list is a pure
+ * `AvatarSale.purchase(owner, stipendTo, stipend)` mints the avatar for
+ * `owner` and forwards gas to `stipendTo`. Swapping them does not revert: it
+ * buys the avatar for the local signing key, which is exactly the address that
+ * must never own anything (it lives in one browser's storage, and clearing site
+ * data would take the stake with it). That failure is why this list is a pure
  * function with a test rather than an inline array.
+ *
+ * THE SUITE IS UPSTREAM'S WITH THE CONTRACT'S NAME CHANGED, which is the point
+ * being measured: what the rail needs from a sale is the same three arguments
+ * and the same value split whether it sells a bond or mints a token.
  */
 
 const SALE = '0x00000000000000000000000000000000000000fe' as const;
@@ -24,12 +28,12 @@ const config = {
 } as unknown as PlacementConfig;
 
 const deployments = {
-	contracts: {StakeSale: {address: SALE, abi: []}},
+	contracts: {AvatarSale: {address: SALE, abi: []}},
 } as unknown as TypedDeployments;
 
 const acquisition = createStakeAcquisition({config, deployments});
 
-describe('the arguments to StakeSale.purchase', () => {
+describe('the arguments to AvatarSale.purchase', () => {
 	it('credits the PLAYER and funds the signer, not the other way round', () => {
 		const {args} = acquisition.request({
 			owner: PLAYER,

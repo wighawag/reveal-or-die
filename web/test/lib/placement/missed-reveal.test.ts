@@ -9,6 +9,16 @@ import {describeMissedReveal} from '$lib/placement/ui/hud';
 import type {GameIdentity} from '$lib/game/identity';
 
 const PLAYER = '0x1111111111111111111111111111111111111111' as const;
+/**
+ * WHO PLAYS, which on this branch is an avatar and not the account.
+ *
+ * The two constants are the branch's whole change to this file. `PLAYER` is
+ * still an address because it is still the SENDER (the signer's address in the
+ * executor fixture); `AVATAR` is the identity the round is keyed by, and
+ * keeping them separate here is the same distinction the app draws everywhere
+ * else.
+ */
+const AVATAR = 7n;
 
 /**
  * The chain, reduced to the two reads this store makes.
@@ -86,7 +96,7 @@ function fakeDeps(options: {
 	// WHO PLAYS, which is the account in this game and is not the signer that
 	// sends the transaction.
 	const identity = writable(
-		'identity' in options ? options.identity : PLAYER,
+		'identity' in options ? options.identity : AVATAR,
 	) as unknown as never;
 	return {deps, identity, writes, reads, sends};
 }
@@ -238,7 +248,9 @@ describe('what the player is told', () => {
 			bond: 5n * 10n ** 18n,
 		});
 		expect(described?.headline).toContain('epoch 10');
-		expect(described?.detail).toContain('5 TOK');
+		// The bond is not the loss here: what a missed reveal costs is the avatar,
+		// so the sentence names that rather than a number that is always zero.
+		expect(described?.detail).toContain('avatar');
 		expect(described?.canAcknowledge).toBe(true);
 	});
 

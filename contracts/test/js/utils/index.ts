@@ -1,70 +1,88 @@
 import {Abi_GameToken} from '../../../generated/abis/GameToken.js';
 import {Abi_IGame} from '../../../generated/abis/IGame.js';
-import {Abi_StakeSale} from '../../../generated/abis/StakeSale.js';
+import {Abi_AvatarSale} from '../../../generated/abis/AvatarSale.js';
+import {Abi_GameAvatars} from '../../../generated/abis/GameAvatars.js';
 import {loadAndExecuteDeploymentsFromFiles} from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
-import {parseEther} from 'viem';
+import {zeroAddress} from 'viem';
 
 /**
- * The identity an ACCOUNT plays as, in a game whose identity is the account.
+ * The identity an ACCOUNT would play as, in a game whose identity IS the
+ * account.
  *
- * The contract keys every player by a `uint256` and never by an address, so
- * that a game keying by an avatar, a character or an empire puts its token id
- * in the same slot without changing a signature (see
- * `UsingGameInternal._playerOf`). This template is an address game, so the
- * widening happens here, and it happens in ONE function so that the suites read
- * as "this account's reserve" rather than as arithmetic.
- *
- * Deliberately not applied to `GameToken.mint` or `approve`: those really do
- * take an address, and a helper that got used on them would be hiding the
- * distinction it exists to draw.
+ * KEPT ON THIS BRANCH ALTHOUGH NO PLAYER HERE HAS ONE, and that is what it is
+ * for: the assertions that an account has NOTHING at stake still have to name
+ * the slot they are asserting about, and on a game keyed by avatars the only
+ * honest way to say "this address is not a player" is to look up the identity
+ * an address game would have given it and find it empty.
  */
 export function idOf(account: `0x${string}`): bigint {
 	return BigInt(account);
 }
 
 /**
+ * Whose avatar this is, lowercased.
+ *
+ * The case is the whole reason this is a function. Named accounts arrive from
+ * the environment lowercased and a contract read comes back CHECKSUMMED, so a
+ * direct comparison fails on a pair of addresses that are the same address -
+ * a failure that says nothing about the game and costs a minute every time.
+ */
+export async function avatarOwner(
+	env: any,
+	Game: any,
+	avatarID: bigint,
+): Promise<string> {
+	return String(
+		await env.read(Game, {functionName: 'getAvatarOwner', args: [avatarID]}),
+	).toLowerCase();
+}
+
+/**
  * GET AN ACCOUNT INTO THE GAME, and hand back the identity it plays as.
  *
- * Every suite here needs this and none of them is about it, which is why it is
- * one function rather than three calls repeated six times. It is also the ONE
- * place a game with a different identity model has to differ: on this template
- * a player is an account with a staked reserve, so entering is mint, approve
- * and `addToReserve`, and the identity is the account itself. On
- * `with/nft-identity` the same call buys an avatar into the game's custody and
- * returns its token id, and the suites that use it are unchanged.
+ * THIS IS THE BRANCH'S HALF OF THE SUITE. On `main` a player is an account
+ * with a staked reserve, so entering is mint, approve and `addToReserve` and
+ * the identity is the account widened. Here a player is an AVATAR: entering is
+ * one purchase that mints a token straight into the game's custody, and the
+ * identity is that token's id, which has nothing to do with the account that
+ * owns it.
  *
- * `payer` is separable because it genuinely is: the wallet holding the money
- * and the key playing the game are different addresses by design (see the
- * delegation suite), and topping up someone else's reserve is a gift rather
- * than an attack, since only its owner can withdraw it.
+ * Everything above this line in the suites is unchanged, which is the point.
+ * Order independence, the delegation rules, the router's selectors and the
+ * zone listing are properties of the ROUND, and they are proven here against a
+ * different identity model with the same words. That is stronger evidence that
+ * the seam is in the right place than either run is on its own.
+ *
+ * `payer` is separable for the same reason it is upstream, and it means
+ * something slightly different: whoever sends the purchase pays, and `account`
+ * is the avatar's owner. Buying a stranger an avatar is a gift, because only
+ * its owner can play it or take it out.
  */
 export async function enterGame(
-	fixtures: {env: any; Game: any; GameToken: any},
+	fixtures: {env: any; Game: any; AvatarSale: any},
 	account: `0x${string}`,
-	options?: {amount?: bigint; payer?: `0x${string}`},
+	options?: {payer?: `0x${string}`},
 ): Promise<bigint> {
-	const {env, Game, GameToken} = fixtures;
-	const amount = options?.amount ?? parseEther('10');
+	const {env, AvatarSale} = fixtures;
 	const payer = options?.payer ?? account;
+	const price = (AvatarSale.linkedData as {price: string}).price;
 
-	await env.execute(GameToken, {
+	// The id is read back rather than predicted: it is the sale's to allocate
+	// (sequential, from 1), and a test that computed it would be asserting
+	// against its own copy of that rule instead of against the contract's.
+	const avatarID = (await env.read(AvatarSale, {
+		functionName: 'lastAvatarID',
+	})) as bigint;
+
+	await env.execute(AvatarSale, {
 		account: payer,
-		functionName: 'mint',
-		args: [payer, amount],
-	});
-	await env.execute(GameToken, {
-		account: payer,
-		functionName: 'approve',
-		args: [Game.address, amount],
-	});
-	await env.execute(Game, {
-		account: payer,
-		functionName: 'addToReserve',
-		args: [idOf(account), amount],
+		functionName: 'purchase',
+		args: [account, zeroAddress, 0n],
+		value: BigInt(price),
 	});
 
-	return idOf(account);
+	return avatarID + 1n;
 }
 
 export function setupFixtures(provider: EthereumProvider) {
@@ -76,7 +94,8 @@ export function setupFixtures(provider: EthereumProvider) {
 
 			const Game = env.get<Abi_IGame>('Game');
 			const GameToken = env.get<Abi_GameToken>('GameToken');
-			const StakeSale = env.get<Abi_StakeSale>('StakeSale');
+			const AvatarSale = env.get<Abi_AvatarSale>('AvatarSale');
+			const GameAvatars = env.get<Abi_GameAvatars>('GameAvatars');
 
 			const linkedData = Game.linkedData as {
 				startTime: string;
@@ -157,7 +176,8 @@ export function setupFixtures(provider: EthereumProvider) {
 				env,
 				Game,
 				GameToken,
-				StakeSale,
+				AvatarSale,
+				GameAvatars,
 				linkedData,
 				getEpoch,
 				getTimestamp,

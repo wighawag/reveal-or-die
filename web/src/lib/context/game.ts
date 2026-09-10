@@ -375,7 +375,11 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * Built through a provider rather than assigned, because D6 requires
 	 * identity to be a SELECTION even where there is exactly one of them.
 	 */
-	const activeIdentity = createActiveIdentity({account});
+	// THE ONE SHARED LINE THIS BRANCH CHANGES. An avatar game has to LOOK UP who
+	// is playing (custody, on chain) where an address game already knows, so the
+	// provider is handed the two things a read needs. Everything downstream takes
+	// the same store type and is unchanged.
+	const activeIdentity = createActiveIdentity({account, deps: core});
 
 	// `.get()` rather than `get(store)`: deployments are fixed for the life of
 	// the app, and the game's readers need them synchronously at construction.

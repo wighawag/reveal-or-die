@@ -10,10 +10,10 @@
  *
  * So SOMETHING has to say which one this app chose, and this module is it.
  * It exists so that the choice is made in ONE file rather than spelled out at
- * every site that carries it, and the reason that matters is a merge:
- * `with/nft-identity` is a branch of this repo where the reference game becomes
- * token-keyed, and every shared file that names `0x${string}` as the identity
- * would be a file that branch has to edit and therefore conflict on forever.
+ * every site that carries it, and the reason that matters is a merge: this
+ * branch is where the reference game becomes token-keyed, and every shared
+ * file that named `0x${string}` as the identity would be a file this branch
+ * has to edit and therefore conflict on forever.
  * `core/connection/mode.ts` is the proven version of the same pattern, where
  * `TARGET_STEP` is one constant and one line of difference across three
  * branches. See rules N1 to N3 of Decision 3 in the plan on the `work` branch.
@@ -30,52 +30,38 @@
  *   it, and it is what changes shape between games.
  *
  * ON `main` THEY HOLD THE SAME VALUE, because the template is deliberately an
- * address game (decision 3 in HANDOFF). That is exactly why the names have to
- * be separated HERE and now: while the two are equal, nothing forces a caller
- * to say which one it meant, so the day they stop being equal every one of
- * those sites has to be re-read and judged. Separating the names while the
- * values agree is free; separating the values first is not.
+ * address game. ON THIS BRANCH THEY DO NOT, and that is the whole point: an
+ * account owns avatars, an avatar plays, and one account could hold several
+ * (D6, not built - but nothing here precludes it).
  */
-import type {Readable} from 'svelte/store';
+import {derived, get, writable, type Readable} from 'svelte/store';
+import type {Context} from '$lib/context/types';
 import type {PlayerIdentity} from './core/seams';
 
 /**
  * THE ONE LINE.
  *
  * This is the whole difference between an address game and a token game, and
- * `with/nft-identity` changes it to `bigint`. Nothing else in this file, and
- * nothing in `game/core/`, has to move for that.
- *
- * A descendant that keys by a token does the same thing in its own copy of
- * this file: reveal-or-die's is `bigint`, which is the entire identity
- * difference between that repo and this one.
+ * it is what this branch changes. Nothing in `game/core/` moves for it, which
+ * is the property the identity boundary test enforces from both sides.
  */
-export type GameIdentity = `0x${string}`;
+export type GameIdentity = bigint;
 
 /**
  * THE SAME LINE, ON THE OTHER SIDE OF THE ABI.
  *
- * The contract keys every player by a `uint256` and never by an address (see
- * `IGame.sol` and `UsingGameInternal._playerOf`), because twenty bytes holds
- * every account and does not hold every token id: reveal-or-die's are
- * `owner << 96 | subID` and conquest's are derived the same way, so a game
- * that truncated would alias two players onto one reserve with nothing raised
- * anywhere.
+ * The contract keys every player by a `uint256` and never by an address, so on
+ * a game whose identity IS a token id there is nothing to convert: the
+ * identity is already the number the contract wants. Upstream this widens an
+ * account, which is the only place that arithmetic is allowed to appear.
  *
- * So SOMETHING has to widen this game's identity into that argument, and it is
- * this function, for the same reason the alias above is one line: every call
- * site that spelled the conversion out would be a shared file the branch has
- * to edit. `with/nft-identity` changes it to the identity itself, because
- * there the identity already IS the number the contract wants.
- *
- * NOT A FORMATTER, and the distinction is what keeps it honest: it is the one
- * place that knows how THIS game's identity is spelled on chain, which is the
- * same job `_playerOf` does in Solidity. The two have to agree, and the e2e
- * round is what proves they do - a disagreement surfaces as a commitment
- * filed under an identity the reveal cannot find.
+ * Kept as a function rather than deleted at the call sites. It costs nothing,
+ * it keeps `placement/commit-reveal.ts`, `reserve.ts` and `missed-reveal.ts`
+ * byte-identical to `main`'s, and those three are files `main` keeps
+ * developing for reasons that have nothing to do with identity.
  */
 export function onchainIdentity(identity: GameIdentity): bigint {
-	return BigInt(identity);
+	return identity;
 }
 
 /**
@@ -94,48 +80,108 @@ void _identityIsCarryable;
  * Which identity this client is playing AS, right now.
  *
  * Undefined before there is one, which is a real state rather than a loading
- * artefact: nobody is signed in yet, or the account holds nothing it can play
- * with. The setup gate turns that into an instruction instead of a dead board.
+ * artefact: nobody is signed in yet, or the account holds no avatar in the
+ * game. The setup gate turns that into an instruction instead of a dead board.
  *
- * A plain `Readable` and nothing more, on purpose. reveal-or-die's equivalent
- * store also offers `select(avatarID)`, because there an account can own
- * several avatars and somebody has to pick; adding `select` here would ship a
- * capability upstream that no consumer on `main` can exercise, since there is
- * exactly one identity and it is not chosen. A richer store satisfies this
+ * RICHER THAN `main`'S, AND STRUCTURALLY COMPATIBLE, which is exactly the
+ * escape hatch the upstream version documents: "a richer store satisfies this
  * type structurally, so a game that needs selection supplies it without this
- * type growing a method that does nothing here.
+ * type growing a method that does nothing here". Two members are added and
+ * both are needed by something that only exists here:
+ *
+ * - `loaded` is the difference between "you own no avatar" and "custody has
+ *   not been read yet". Upstream the identity is the account, so there is no
+ *   such gap; here, treating an unfinished read as an empty one would put the
+ *   BUY AN AVATAR gate over a playable board on every load.
+ * - `update` exists because custody changes on chain: a purchase creates an
+ *   avatar, a seizure takes it away, and neither is something this store can
+ *   learn from the account it is watching.
  */
-export type ActiveIdentityStore = Readable<GameIdentity | undefined>;
+export type ActiveIdentityStore = Readable<GameIdentity | undefined> & {
+	/** Whether custody has been read for the current account. */
+	loaded: Readable<boolean>;
+	/** Re-read custody. Called when something is known to have changed it. */
+	update(): Promise<void>;
+};
 
 /**
  * The identity PROVIDER: where the active identity comes from.
  *
  * D6 requires that identity be a SELECTION rather than a derivation, even
- * where there is exactly one of them, so that several identities per account
- * stays cheap to add later. What that rule actually demands is that every
- * consumer take an `ActiveIdentityStore` and that nothing reconstruct the
- * identity from the account for itself - which is what the rest of this app
- * now does. This function is where the one construction lives.
+ * where there is exactly one of them. On `main` that rule costs nothing
+ * because the account IS the identity; here it is load-bearing, because the
+ * answer genuinely has to be looked up and can genuinely be "none".
  *
- * THIS GAME DOES NOT CHOOSE. It is an address game, so there is exactly one
- * identity per account and it is the account's own address; the honest
- * description is not "the identity is the account" but "this game has one
- * identity per account, and that is its address".
+ * THIS GAME DOES NOT YET CHOOSE, and the difference from `main` is that it
+ * COULD. An account can hold several avatars, and this picks the first one
+ * still in custody. Remembering a choice per owner across reloads is what
+ * reveal-or-die's `world/active-avatar.ts` does and what D6 will want; it is
+ * deliberately not built, because nothing on this branch can exercise it and
+ * an unexercised selection UI is the thing this project keeps deleting.
  *
- * A GAME THAT DOES CHOOSE REPLACES THIS FUNCTION, and that is the shape to
- * expect rather than a signature with a selection parameter bolted on. The
- * evidence is reveal-or-die, which was checked rather than guessed at: its
- * identity comes from `world/active-avatar.ts`, a store that reads what the
- * account has in custody, drops avatars with no life left, prefers one
- * already in the world and remembers the choice per owner across reloads.
- * None of that can be passed in as a list of candidates, and a `candidates`
- * parameter here would have been an unexercised guess at a shape the one real
- * consumer does not have. So a choosing game supplies its own store, and the
- * only thing this module insists on is the TYPE it has to satisfy.
+ * WHY IT FILTERS RATHER THAN TRUSTING THE LIST. `getAvatarsOf` is every avatar
+ * this account has ever put in, including ones it has taken back out and ones
+ * it has LOST by never revealing - the contract keeps the list append-only on
+ * purpose (see `UsingAvatarIdentity`). So custody is asked about each one, and
+ * an avatar that has been seized simply stops being an identity. That is the
+ * stake being real, arriving in the client as an empty board and a gate.
  */
 export function createActiveIdentity(params: {
-	/** Who is signed in, which is the only candidate this game has. */
+	/** Who is signed in, which is who avatars belong to. */
 	account: Readable<`0x${string}` | undefined>;
+	deps: Pick<Context, 'publicClient' | 'deployments'>;
 }): ActiveIdentityStore {
-	return params.account;
+	const {account, deps} = params;
+	const state = writable<{loaded: boolean; identity: GameIdentity | undefined}>(
+		{loaded: false, identity: undefined},
+	);
+
+	async function update() {
+		const owner = get(account);
+		if (!owner) {
+			// Not signed in. `loaded` stays FALSE rather than reporting an empty
+			// custody: "nobody is here" is the sign-in gate's answer, and claiming
+			// to have read the chain about an account that does not exist would let
+			// the stake gate answer a question nobody asked.
+			state.set({loaded: false, identity: undefined});
+			return;
+		}
+		const deployments = deps.deployments.get();
+		const game = {
+			address: deployments.contracts.Game.address,
+			abi: deployments.contracts.Game.abi,
+		};
+		const candidates = (await deps.publicClient.readContract({
+			...game,
+			functionName: 'getAvatarsOf',
+			args: [owner],
+		})) as readonly bigint[];
+
+		for (const avatarID of candidates) {
+			const holder = (await deps.publicClient.readContract({
+				...game,
+				functionName: 'getAvatarOwner',
+				args: [avatarID],
+			})) as `0x${string}`;
+			if (holder.toLowerCase() === owner.toLowerCase()) {
+				state.set({loaded: true, identity: avatarID});
+				return;
+			}
+		}
+		state.set({loaded: true, identity: undefined});
+	}
+
+	// Signing in, signing out and switching accounts all change the answer, and
+	// none of them is something a consumer should have to remember to announce.
+	account.subscribe(() => void update());
+
+	// `$custody` rather than the `$state` this repo's naming convention would
+	// suggest: `svelte-conventions-boundary.test.ts` matches rune names as
+	// words, so a callback parameter called `$state` reads as a rune in a `.ts`
+	// file and fails the build. Cheap to avoid, invisible until it happens.
+	return {
+		subscribe: derived(state, ($custody) => $custody.identity).subscribe,
+		loaded: derived(state, ($custody) => $custody.loaded),
+		update,
+	};
 }
