@@ -1,5 +1,17 @@
-import {describe, expect, it} from 'vitest';
-import {withServedPaths} from '../vite.assetpack';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {
+	ASSETS_FOLDER,
+	MANIFEST_PATH,
+	ensureManifest,
+	withServedPaths,
+} from '../vite.assetpack';
+
+vi.mock('node:fs', () => ({
+	existsSync: vi.fn(),
+	readFileSync: vi.fn(),
+	writeFileSync: vi.fn(),
+}));
+const fs = vi.mocked(await import('node:fs'));
 
 /**
  * The manifest path rewrite, which is the workaround that EARNED this branch.
@@ -23,6 +35,62 @@ const bundleWith = (src: unknown) => ({
 
 const srcOf = (manifest: ReturnType<typeof bundleWith>) =>
 	manifest.bundles[0].assets[0].src;
+
+/**
+ * The OTHER workaround that earned this branch, and the one its own suite had
+ * no test for until a mutation went looking.
+ *
+ * `ensureManifest`'s doc comment names the exact bug it was written the wrong
+ * way round as - writing the placeholder only when there is NO art - and says
+ * it was caught by running `check` against a fresh clone. Nothing pinned it, so
+ * reintroducing it passed all six tests of this file. It is the recorded rule
+ * firing again: **when a module justifies its existence by taking over a
+ * hazard, that hazard is the first thing its suite should assert about it.**
+ *
+ * The mutation is invisible to an ordinary run for a reason worth keeping: the
+ * manifest is on disk in any tree that has ever built, so the branch the bug
+ * lives in is only ever taken on a FRESH clone - which is the case no developer
+ * is in and CI is always in.
+ */
+describe('ensureManifest', () => {
+	afterEach(() => vi.resetAllMocks());
+
+	const present = (...paths: string[]) =>
+		fs.existsSync.mockImplementation((p) => paths.includes(String(p)));
+
+	/**
+	 * THE ONE THE BUG WAS. A clone WITH art still has no manifest until
+	 * `buildStart`, and neither `svelte-check` nor `vitest` ever gets there, so
+	 * this is the case that fails to type-check if the placeholder is made
+	 * conditional on there being nothing to build.
+	 */
+	it('writes the placeholder even when there IS art to build', () => {
+		present(ASSETS_FOLDER);
+		expect(ensureManifest()).toEqual({hasArt: true});
+		expect(fs.writeFileSync).toHaveBeenCalledOnce();
+		const [path, contents] = fs.writeFileSync.mock.calls[0];
+		expect(path).toBe(MANIFEST_PATH);
+		expect(JSON.parse(String(contents))).toEqual({
+			bundles: [{name: 'default', assets: []}],
+		});
+	});
+
+	it('writes the placeholder when there is no art either', () => {
+		present();
+		expect(ensureManifest()).toEqual({hasArt: false});
+		expect(fs.writeFileSync).toHaveBeenCalledOnce();
+	});
+
+	/**
+	 * The other direction, and it costs a real build: clobbering a manifest the
+	 * pipeline has just written would empty the bundle list and 404 every sprite.
+	 */
+	it('never overwrites a manifest that already exists', () => {
+		present(MANIFEST_PATH, ASSETS_FOLDER);
+		expect(ensureManifest()).toEqual({hasArt: true});
+		expect(fs.writeFileSync).not.toHaveBeenCalled();
+	});
+});
 
 describe('withServedPaths', () => {
 	/**
