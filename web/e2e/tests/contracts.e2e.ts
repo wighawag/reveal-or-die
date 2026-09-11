@@ -1,4 +1,10 @@
 import {test, expect, describe} from '../fixtures/test';
+import {
+	WRITE_CONTRACT,
+	executeButton,
+	selectContract,
+	writeForm,
+} from '../fixtures/contracts-page';
 
 describe('Contracts Page', () => {
 	test('should show contract selection dropdown', async ({page}) => {
@@ -11,11 +17,17 @@ describe('Contracts Page', () => {
 		await expect(selector).toBeVisible({timeout: 5000});
 	});
 
-	test('should display the Game contract by default', async ({page}) => {
+	test('opens on a contract, and can be put on the Game', async ({page}) => {
 		await page.goto('/contracts');
 
-		// Should show the Game contract (as button or heading)
-		await expect(page.getByText('Game').first()).toBeVisible({
+		// THIS USED TO ASSERT THE GAME WAS SHOWN BY DEFAULT, which was never a
+		// property of the page: it opens on `Object.keys(contracts)[0]`, so it was
+		// true only while `Game` happened to sort first. A branch that added a sale
+		// called `AvatarSale` moved the page and failed this and three others, none
+		// of which named the cause. What is actually worth asserting is that the
+		// selector can put the page where a suite needs it.
+		await selectContract(page, WRITE_CONTRACT);
+		await expect(page.getByText(WRITE_CONTRACT).first()).toBeVisible({
 			timeout: 5000,
 		});
 	});
@@ -40,6 +52,9 @@ describe('Contracts Page', () => {
 
 	test('should display view functions in Read tab', async ({page}) => {
 		await page.goto('/contracts');
+		// `getEpoch` is the GAME's, so the page has to be on the Game. It is not
+		// enough to be on whichever contract sorts first.
+		await selectContract(page);
 
 		// Wait for Read tab to be visible and click it
 		const readTab = page.getByRole('tab', {name: 'Read'});
@@ -60,6 +75,8 @@ describe('Contracts Page', () => {
 
 	test('should display write functions in Write tab', async ({page}) => {
 		await page.goto('/contracts');
+		// `addToReserve` is the GAME's; see above.
+		await selectContract(page);
 
 		// Wait for Write tab to be visible and click it
 		const writeTab = page.getByRole('tab', {name: 'Write'});
@@ -131,36 +148,26 @@ describe('Contracts Page - Write Functions', () => {
 		page,
 	}) => {
 		await page.goto('/contracts');
+		await selectContract(page);
 
 		// Wait for Write tab to be visible and click it
 		const writeTab = page.getByRole('tab', {name: 'Write'});
 		await expect(writeTab).toBeVisible({timeout: 10000});
 		await writeTab.click();
 
-		// Wait for the write function to appear
-		const writeFunctionText = page.getByText('addToReserve nonpayable');
-		await expect(writeFunctionText).toBeVisible({timeout: 10000});
+		// The form and its submit come from the fixture, so this suite cannot end
+		// up asserting on a different form than the one it filled.
+		const functionSection = writeForm(page);
+		await expect(functionSection).toBeVisible({timeout: 10000});
 
-		// Find the parent section containing the function
-		const functionSection = page
-			.locator('[class*="card"], [class*="function"]')
-			.filter({
-				has: writeFunctionText,
-			})
-			.first();
+		// BOTH inputs: `addToReserve(uint256 player, uint256 amount)`. Zero for
+		// both is deliberately harmless - this test is about the connect flow, and
+		// a real amount would need a token allowance first.
+		const numbers = functionSection.getByPlaceholder('Enter number or 0x...');
+		await numbers.first().fill('0');
+		await numbers.nth(1).fill('0');
 
-		// Zero is a deliberately harmless amount: this test is about the connect
-		// flow, and a real top-up would need a token allowance first.
-		const amountInput = functionSection
-			.getByPlaceholder('Enter number or 0x...')
-			.first();
-		await amountInput.fill('0');
-
-		// Click the Execute button (or Connect + Execute if wallet not connected)
-		const executeButton = functionSection.getByRole('button', {
-			name: /execute/i,
-		});
-		await executeButton.click();
+		await executeButton(page).click();
 
 		// If wallet is not connected, some step of the connect flow should appear:
 		// the connect entry (dev-mode or wallet button), or, when the single wallet
@@ -221,22 +228,20 @@ describe('Contracts Page - Write Functions', () => {
 			{timeout: 30000},
 		);
 
+		// ASK FOR THE GAME. The page opens on whichever contract sorts first, so
+		// the write below is only there because `Game` happens to win that sort
+		// today; see `selectContract`.
+		await selectContract(page);
+
 		// Wait for Write tab to be visible and click it
 		const writeTab = page.getByRole('tab', {name: 'Write'});
 		await expect(writeTab).toBeVisible({timeout: 10000});
 		await writeTab.click();
 
-		// Wait for the write function to appear
-		const writeFunctionText = page.getByText('addToReserve nonpayable');
-		await expect(writeFunctionText).toBeVisible({timeout: 10000});
-
-		// Find the parent section containing the function
-		const functionSection = page
-			.locator('[class*="card"], [class*="function"]')
-			.filter({
-				has: writeFunctionText,
-			})
-			.first();
+		// The form and its submit come from the fixture, so this suite cannot end
+		// up asserting on a different form than the one it filled.
+		const functionSection = writeForm(page);
+		await expect(functionSection).toBeVisible({timeout: 10000});
 
 		// BOTH inputs. `addToReserve(uint256 player, uint256 amount)` takes two,
 		// and this filled only the amount: the other stayed undefined, viem threw
@@ -255,10 +260,7 @@ describe('Contracts Page - Write Functions', () => {
 		await numbers.nth(1).fill('0');
 
 		// Click the Execute button (wallet already connected)
-		const executeButton = functionSection.getByRole('button', {
-			name: /execute/i,
-		});
-		await executeButton.click();
+		await executeButton(page).click();
 
 		// Under parallel load the connection may still be re-establishing after
 		// the navigation, in which case executing re-opens the connect flow (e.g.
