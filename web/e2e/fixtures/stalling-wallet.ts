@@ -1,4 +1,10 @@
 import {expect, type Page} from '@playwright/test';
+import {
+	WRITE_FUNCTION,
+	executeButton,
+	selectContract,
+	writeForm,
+} from './contracts-page';
 
 /**
  * A wallet that HOLDS a transaction request until the test lets it go.
@@ -296,9 +302,9 @@ export function walletWaitingOn(
  * `addToReserve`, and the inherited literal made a passing notice look like a
  * broken one.
  *
- * The same name as {@link WRITE_FUNCTION} below, minus the mutability the
- * contracts page prints beside it, because the sending notice shows the function
- * and the contracts page shows the signature.
+ * The same name as `WRITE_FUNCTION` in `./contracts-page`, minus the mutability
+ * the contracts page prints beside it, because the sending notice shows the
+ * function and the contracts page shows the signature.
  */
 export const STALLED_SEND_NAME = 'addToReserve';
 
@@ -403,6 +409,12 @@ export async function sendAndStall(
 		{timeout: 30_000},
 	);
 
+	// ASK FOR THE CONTRACT rather than trusting the page to open on it. It opens
+	// on whichever sorts first, which is `Game` here and is not a guarantee: a
+	// branch that adds a contract sorting before it moves the page, and the walk
+	// below would then look for a write on a contract nobody selected.
+	await selectContract(page);
+
 	const writeTab = page.getByRole('tab', {name: 'Write'});
 	await expect(writeTab).toBeVisible({timeout: 30_000});
 	await writeTab.click();
@@ -440,36 +452,6 @@ export async function sendAndStall(
 	// no request ever reaching the wallet.
 	await waitUntilHolding(page);
 }
-
-/**
- * The write this fixture drives, named once.
- *
- * `addToReserve`, this app's own, for the reasons in `sendAndStall` above. The
- * suites import it rather than restating it, because a suite that asserts on a
- * form has to be looking at the form that was actually filled.
- */
-export const WRITE_FUNCTION = 'addToReserve nonpayable';
-
-/**
- * The write form `sendAndStall` drives, and its submit control.
- *
- * Exported because a suite asserts on the very control this clicked (that it
- * says "Executing..." and stops saying it), and two definitions of the same
- * locator is one definition too many.
- *
- * The submit control is matched on the STEM, so it is the same locator whether
- * it reads "Execute" or "Executing...". `/execute/i` matches only the first of
- * those, since "executing" does not contain "execute", and a test then reads as
- * though the button had vanished at exactly the moment it was busy.
- */
-export const writeForm = (page: Page) =>
-	page
-		.locator('[class*="card"], [class*="function"]')
-		.filter({has: page.getByText(WRITE_FUNCTION)})
-		.first();
-
-export const executeButton = (page: Page) =>
-	writeForm(page).locator('button', {hasText: /execut/i});
 
 /**
  * Pick this wallet out of however the app is offering wallets today.
