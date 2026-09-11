@@ -7,7 +7,7 @@
  * a contract that names things differently, replaces this file and nothing
  * else.
  */
-import type {GameIdentity} from '$lib/game/identity';
+import {onchainIdentity, type GameIdentity} from '$lib/game/identity';
 import {get} from 'svelte/store';
 import {logs} from 'named-logs';
 import {zeroAddress} from 'viem';
@@ -225,7 +225,7 @@ export function createWorldCommitReveal(params: {
 						// owner and checks the sender may act for that ACCOUNT, so a
 						// signer that was never authorised (or has been revoked) reverts
 						// here rather than quietly committing.
-						args: [identity, hash, zeroAddress],
+						args: [onchainIdentity(identity), hash, zeroAddress],
 						account: executor.account,
 						chain: null,
 					},
@@ -245,7 +245,12 @@ export function createWorldCommitReveal(params: {
 						address: deployments.contracts.Game.address,
 						abi: deployments.contracts.Game.abi,
 						functionName: 'reveal',
-						args: [identity, actions as Action[], secret, zeroAddress],
+						args: [
+							onchainIdentity(identity),
+							actions as Action[],
+							secret,
+							zeroAddress,
+						],
 						account: executor.account,
 						chain: null,
 					},

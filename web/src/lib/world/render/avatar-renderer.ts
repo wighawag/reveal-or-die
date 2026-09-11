@@ -18,7 +18,7 @@ import type {Changed} from '$lib/game/render/reconcile';
 import type {ViewStateStore} from '$lib/view';
 import type {AvatarView, WorldView} from '../view';
 import {AvatarObject} from './AvatarObject';
-import {loadWorldAssets} from './assets';
+import {loadWorldAssets} from '$lib/game/render/pixi/assets';
 import {createTerrainLayer, type TerrainLayer} from './terrain';
 
 /**

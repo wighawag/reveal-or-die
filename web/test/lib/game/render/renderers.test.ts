@@ -239,6 +239,53 @@ describe('createImmediateRenderer', () => {
 		expect(drawn).toEqual([{step: 'Unloaded'}]);
 	});
 
+	/**
+	 * THE SUBSCRIPTION IS RELEASED, not merely ignored.
+	 *
+	 * `immediate.ts` exists so that every game does not write its own `let
+	 * latest` and its own subscription, and its own words say why: "one of them
+	 * would get it wrong by forgetting to unsubscribe". So the framework has to
+	 * be held to the thing it took over.
+	 *
+	 * Nothing else in this file can see it. Removing the `unsubscribe()` from
+	 * `onAppStopped` leaves every other test here passing, including the one
+	 * below, because after stopping there is no surface and `tick` returns early
+	 * anyway - so the renderer draws nothing either way and the only difference
+	 * is a listener that never goes away. The game canvas mounts and unmounts on
+	 * every navigation to and from `/play`, so that is one leaked subscription
+	 * per visit, each one holding a closure over a dead surface.
+	 *
+	 * Checked through the store's own subscriber count rather than a spy,
+	 * because that is the thing that actually leaks.
+	 */
+	it('releases its subscription when it stops', () => {
+		let subscribers = 0;
+		const store = writable<ViewStateValue<View>>({step: 'Unloaded'}, () => {
+			subscribers++;
+			return () => subscribers--;
+		});
+		const renderer = createImmediateRenderer<{name: string}, View>({
+			viewState: {
+				subscribe: store.subscribe,
+				status: writable({loading: false}),
+			},
+			draw: () => {},
+		});
+
+		expect(subscribers).toBe(0);
+		renderer.onAppStarted({name: 'surface'});
+		expect(subscribers).toBe(1);
+		renderer.onAppStopped();
+		expect(subscribers).toBe(0);
+
+		// And it can be started again afterwards, rather than being one-shot: the
+		// canvas really does remount.
+		renderer.onAppStarted({name: 'surface'});
+		expect(subscribers).toBe(1);
+		renderer.onAppStopped();
+		expect(subscribers).toBe(0);
+	});
+
 	it('does not draw before it starts or after it stops', () => {
 		const {store, drawn, surface, renderer} = setup();
 		renderer.tick(frame);

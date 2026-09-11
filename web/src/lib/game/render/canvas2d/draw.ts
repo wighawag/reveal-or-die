@@ -59,12 +59,19 @@ export function applyCamera(params: {
 }
 
 /**
- * The same infinite grid the pixi host draws, in the same place.
+ * The same infinite grid a scene-graph host draws, in the same place.
  *
- * Both hosts must agree to the pixel, or switching renderer silently moves the
+ * Every host must agree to the pixel, or switching renderer silently moves the
  * board half a cell. They agree by CONSTRUCTION rather than by coincidence:
- * both take their line positions from `grid.ts`, and a test pins that the tile
- * the pixi host slides around lands on the same lines this strokes.
+ * they all take their line positions from `grid.ts`, and `grid.test.ts` pins
+ * that the pre-built tile a retained host slides around (`gridTileOrigin`)
+ * lands on the same lines this strokes (`gridLines`).
+ *
+ * That test is the reason `gridTileOrigin` stays here with no caller on this
+ * branch: it is the half of the agreement that `with/pixi-js` consumes, and it
+ * is the same case as `stateful.ts` and `reconcile.ts`. Deleting it as unused
+ * would silently remove one side of the only thing that keeps two hosts drawing
+ * the same board.
  */
 export function drawGrid(params: {
 	context: CanvasRenderingContext2D;

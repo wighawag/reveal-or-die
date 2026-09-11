@@ -14,7 +14,7 @@ import {LoadingSprite} from './LoadingSprite';
 import {Blockie} from '$lib/core/utils/ethereum/blockie';
 import type {Position} from 'reveal-or-die-contracts';
 import type {AvatarView} from '../view';
-import {sprites, spritesReady} from './assets';
+import {sprites, spritesReady} from '$lib/game/render/pixi/assets';
 import {createWalk, type Walk} from './walk';
 
 /**

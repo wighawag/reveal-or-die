@@ -27,6 +27,7 @@
 import {get, writable, type Readable} from 'svelte/store';
 import type {LiveCommitment} from '$lib/game/core/recovery';
 import type {Context} from '$lib/context/types';
+import {onchainIdentity} from '$lib/game/identity';
 import {sendWorldTransaction} from './commit-reveal';
 import type {CommitRevealDeps} from './commit-reveal';
 
@@ -110,7 +111,7 @@ export function createMissedReveal(params: {
 				address: Game.address,
 				abi: Game.abi,
 				functionName: 'getCommitment',
-				args: [id],
+				args: [onchainIdentity(id)],
 			})) as {hash: `0x${string}`; epoch: bigint};
 
 			const epoch = Number(onChain.epoch);
@@ -168,7 +169,7 @@ export function createMissedReveal(params: {
 					address: Game.address,
 					abi: Game.abi,
 					functionName: 'acknowledgeMissedReveal',
-					args: [id],
+					args: [onchainIdentity(id)],
 					account: $executor.account,
 					chain: null,
 				},

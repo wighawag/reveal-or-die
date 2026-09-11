@@ -58,6 +58,29 @@ import type {PlayerIdentity} from './core/seams';
 export type GameIdentity = bigint;
 
 /**
+ * THE SAME LINE, ON THE OTHER SIDE OF THE ABI.
+ *
+ * The contract keys every player by a `uint256` and never by an address, so on
+ * a game whose identity IS a token id there is nothing to convert: the avatar
+ * id is already the number the contract wants. Upstream this widens an
+ * account, which is the only place that arithmetic is allowed to appear.
+ *
+ * WHY A GAME THAT CONVERTS NOTHING STILL CALLS IT, since the identity function
+ * looks like a candidate for deletion at every call site. Upstream it exists so
+ * that `placement/commit-reveal.ts`, `reserve.ts` and `missed-reveal.ts` stay
+ * byte-identical to `main`'s, and that reason does NOT transfer here: this game
+ * replaced all three. What transfers is the other half - there is exactly ONE
+ * name in the tree for "the identity, as the contract wants it", so the day a
+ * game appears whose identity needs real conversion, every site that has to
+ * change is already spelled the same way. A repo that passed the raw value
+ * instead would have the conversion spelled two ways across the tree, which is
+ * the divergence-by-copy this tree keeps paying for.
+ */
+export function onchainIdentity(identity: GameIdentity): bigint {
+	return identity;
+}
+
+/**
  * The framework has to be able to carry it.
  *
  * Compile-time only. `PlayerIdentity` is the union the seams accept, so an

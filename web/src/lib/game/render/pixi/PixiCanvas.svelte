@@ -26,6 +26,7 @@
 	import {connectSurfaceInput} from '../input';
 	import {createFrameLoop} from '../frame-loop';
 	import {applyTransform, buildGrid, positionGrid} from './world';
+	import LoadingGate from './LoadingGate.svelte';
 
 	interface Props {
 		cameraControl: CameraControl;
@@ -153,6 +154,12 @@
 </script>
 
 <canvas oncontextmenu={onCanvasContextMenu} bind:this={canvas}></canvas>
+
+<!--
+	Rendered by the HOST rather than by the page, which is what keeps this branch's
+	shared-file edit list to the renderer selector alone. See LoadingGate.svelte.
+-->
+<LoadingGate />
 
 <style>
 	canvas {

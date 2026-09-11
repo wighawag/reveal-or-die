@@ -1,5 +1,5 @@
 import {params} from '$lib';
-import {assetProgress} from '$lib/world/render/assets';
+import {assetProgress} from '$lib/game/render/pixi/assets';
 import {writable, type Readable} from 'svelte/store';
 
 const MAX_STAGE = 2;
@@ -123,13 +123,24 @@ export function createSplashStore(loadingStore?: Readable<number> | undefined) {
 }
 
 /**
- * The splash, fed by the GAME's asset loading.
+ * The splash, fed by the sprite bundle's progress.
  *
- * The bundle is not loaded here. It belongs to the renderer that needs it
- * (`lib/world/render/assets.ts`), which starts it at module scope and publishes
- * progress; this file only decides what the player looks at meanwhile. Keeping
- * it that way means the splash has no opinion about what is being loaded, and
- * the game has no opinion about how waiting is presented.
+ * The bundle is not loaded here. It belongs to the renderer that needs it, and
+ * as of the `with/all` re-point that loader is INHERITED
+ * (`$lib/game/render/pixi/assets.ts`, formerly this repo's own
+ * `lib/world/render/assets.ts`): it starts at module scope and publishes
+ * progress, and this file only decides what the player looks at meanwhile.
+ * Keeping it that way means the splash has no opinion about what is being
+ * loaded, and the loader has none about how waiting is presented - which is
+ * exactly what let the loader move up while this stayed.
+ *
+ * THIS FILE IS NOT A DUPLICATE OF THE INHERITED `LoadingGate.svelte`, which is
+ * the thing to check before anyone deletes it as one. That gate is 55 lines
+ * that put a progress bar over the CANVAS; this is a branded, staged,
+ * full-screen splash with a logo and a first-visit memory. Decision 2 puts
+ * brand with the game, and the gate's own doc comment says so. Both are driven
+ * by the same store and the splash outlasts the gate by construction (it also
+ * waits on its own stage machine), so the gate is never visible from here.
  *
  * Note this is an OVERLAY and not a gate: the app mounts underneath it, so
  * scene objects can still be built before the bundle lands. They just cannot be
