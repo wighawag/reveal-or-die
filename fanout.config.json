@@ -1,6 +1,6 @@
 {
   "branches": {
-    "main": {}
+    "main": {"stemBranch": "with/all"}
   },
   "verify": "pnpm install && pnpm --filter ./web check && pnpm --filter ./web run test:unit"
 }
