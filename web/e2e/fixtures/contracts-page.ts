@@ -40,6 +40,9 @@ export const WRITE_FUNCTION = 'revokeDelegate nonpayable';
 /** The contract the writes live on, which is NOT always the one the page opens on. */
 export const WRITE_CONTRACT = 'Game';
 
+/** What the trigger says before `$deployments` has loaded. */
+const PLACEHOLDER = 'Select a contract';
+
 /**
  * Put the contracts page on a named contract.
  *
@@ -63,6 +66,13 @@ export async function selectContract(
 	// `getByRole('combobox')` matches nothing here.
 	const trigger = page.locator('[data-slot="select-trigger"]');
 	await expect(trigger).toBeVisible({timeout: 30_000});
+	// WAIT FOR THE CONTRACTS TO LOAD before reading which one is showing. Until
+	// `$deployments` arrives the trigger says "Select a contract" and the dropdown
+	// has NO items - so an early click opens an empty list and waits out its whole
+	// timeout on an item that was never going to be there. That is what this looked
+	// like when it was first moved up here: four tests failing at the click, on a
+	// page that was about to be perfectly fine.
+	await expect(trigger).not.toHaveText(PLACEHOLDER, {timeout: 30_000});
 	const selected = () => trigger.textContent().then((t) => (t ?? '').trim());
 	// Already there: the page opens on one of them, and re-picking it is a no-op
 	// that still costs a dropdown round trip.
