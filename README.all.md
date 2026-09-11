@@ -82,24 +82,42 @@ having. The first is the ritual; the other two are what a plain
 parent's change looks identical to one that carried it:
 
 ```sh
-ALL_ALLOWED="web/src/lib/placement/render/index.ts web/src/lib/game/identity.ts \
-web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts \
-web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts \
-web/src/lib/placement/config.ts web/test/lib/placement/commit-reveal.test.ts \
-web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts \
-web/test/lib/placement/reserve.test.ts web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts"
+PIXI="web/src/lib/placement/render/index.ts"
+NFT="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts \
+web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts \
+web/src/lib/context/game.ts web/src/lib/placement/config.ts \
+web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts \
+web/test/lib/placement/acquisition.test.ts web/test/lib/placement/reserve.test.ts \
+web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts"
 
-for BASE in main with/pixi-js with/nft-identity; do
-  BASE=$BASE FEATURES=with/all EXT="ts svelte" WATCH="web/src web/test web/e2e" \
-    ALLOWED="$ALL_ALLOWED" bash <(git show tooling:check-shared-divergence.sh)
-done
+check() { BASE="$1" FEATURES=with/all EXT="ts svelte" WATCH="web/src web/test web/e2e" \
+  ALLOWED="$2" bash <(git show tooling:check-shared-divergence.sh); }
+
+check main             "$PIXI $NFT"   # the union: thirteen, and nothing else
+check with/pixi-js     "$NFT"         # exactly what the identity axis contributes
+check with/nft-identity "$PIXI"       # exactly what the renderer axis contributes
 ```
+
+**EACH RUN TAKES ITS OWN LIST, and passing the union to all three is wrong in a
+way the script now says out loud.** `ALLOWED` is a two-sided contract: everything
+off it must be identical, and everything ON it must DIFFER. Against
+`with/pixi-js`, the renderer selector is identical - that is the whole point,
+since this branch inherits it - so listing it there is a claim that is false, and
+the run fails with `ALLOWED BUT IDENTICAL`. Measured when the two-sided check
+landed: the earlier version of this README prescribed the union for all three and
+the second run failed on exactly that entry.
+
+That is the check earning its keep rather than an inconvenience. Green on run two
+now means "`with/all` differs from `with/pixi-js` in exactly the identity axis's
+twelve files, ALL of them" - which is the claim this README makes - where before
+it only meant "nothing unexpected differs".
 
 Run the `BASE=main` one once more with `ALLOWED=` empty. That is the run that
 checks the checker, and on this branch it should name exactly thirteen files and
-no others. `tooling` is a local orphan branch adopted verbatim from
-jolly-roger's and deliberately not pushed; `README.pixi-js.md` explains why and
-how to rebuild it.
+no others. (That run also means what it says now: `ALLOWED=` used to fall back to
+the script's default rather than allowing nothing.) `tooling` is a local orphan
+branch adopted verbatim from jolly-roger's and deliberately not pushed;
+`README.pixi-js.md` explains why and how to rebuild it.
 
 **What none of it will tell you is a DELETION**, which is the shape that has
 already bitten this tree once: a file removed on one side and still imported on
