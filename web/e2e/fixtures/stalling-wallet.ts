@@ -1,20 +1,9 @@
 import {expect, type Page} from '@playwright/test';
 import {
-	executeButton,
-	selectContract,
 	WRITE_FUNCTION,
-	writeForm,
-} from './contracts-page';
-
-// Re-exported because the suites that drive the stalling wallet also assert on
-// the form it filled, and one import line beats two for them. The page's own
-// definitions live in ./contracts-page.ts; see the note there for why.
-export {
 	executeButton,
 	selectContract,
 	writeForm,
-	WRITE_CONTRACT,
-	WRITE_FUNCTION,
 } from './contracts-page';
 
 /**
@@ -315,9 +304,9 @@ export function walletWaitingOn(
  * one. Both times the suites failed here, at a form that was never going to
  * appear, rather than at anything they are about.
  *
- * The same name as {@link WRITE_FUNCTION} below, minus the mutability the
- * contracts page prints beside it, because the sending notice shows the function
- * and the contracts page shows the signature.
+ * The same name as `WRITE_FUNCTION` in `./contracts-page`, minus the mutability
+ * the contracts page prints beside it, because the sending notice shows the
+ * function and the contracts page shows the signature.
  */
 export const STALLED_SEND_NAME = 'revokeDelegate';
 
@@ -429,8 +418,11 @@ export async function sendAndStall(
 		{timeout: 30_000},
 	);
 
-	// THE CONTRACT, before the tab: this app deploys three and the page opens on
-	// the first of them (Avatars), so the Game has to be asked for.
+	// ASK FOR THE CONTRACT rather than trusting the page to open on it. It opens
+	// on whichever sorts first, which is not a guarantee anywhere and is plainly
+	// false here: this app deploys three and the page opens on `Avatars`, so the
+	// Game has to be asked for or the walk below looks for a write on a contract
+	// nobody selected.
 	await selectContract(page);
 
 	const writeTab = page.getByRole('tab', {name: 'Write'});

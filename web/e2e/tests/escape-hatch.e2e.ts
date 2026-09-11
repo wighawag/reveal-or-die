@@ -2,15 +2,17 @@ import type {Page} from '@playwright/test';
 import {test, expect, describe} from '../fixtures/test';
 import {
 	approveHeldTransaction,
-	executeButton,
 	installStallingWallet,
 	isHoldingTransaction,
 	lockStallingWallet,
 	sendAndStall as stallARequest,
 	sentHashes,
 	STALLING_WALLET_NAME,
-	writeForm,
 } from '../fixtures/stalling-wallet';
+// The PAGE's locators, which moved out of the stalling wallet so that wanting a
+// form locator no longer counts as claiming a stalling account. This suite does
+// claim one, through the import above.
+import {executeButton, writeForm} from '../fixtures/contracts-page';
 
 /**
  * The escape hatch, driven through the window it exists for (ADR-0004, `work`).

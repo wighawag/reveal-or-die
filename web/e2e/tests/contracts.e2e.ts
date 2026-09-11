@@ -1,8 +1,10 @@
 import {test, expect, describe} from '../fixtures/test';
 import {
-	selectContract,
 	WRITE_CONTRACT,
 	WRITE_FUNCTION,
+	executeButton,
+	selectContract,
+	writeForm,
 } from '../fixtures/contracts-page';
 
 describe('Contracts Page', () => {
@@ -60,7 +62,6 @@ describe('Contracts Page', () => {
 
 	test('should display view functions in Read tab', async ({page}) => {
 		await page.goto('/contracts');
-
 		// The game's own view functions are on the GAME, which is not the contract
 		// the page opens on.
 		await selectContract(page);
@@ -84,7 +85,6 @@ describe('Contracts Page', () => {
 
 	test('should display write functions in Write tab', async ({page}) => {
 		await page.goto('/contracts');
-
 		// The write under test is on the GAME, which is not the contract the page
 		// opens on.
 		await selectContract(page);
@@ -169,17 +169,17 @@ describe('Contracts Page - Write Functions', () => {
 		await expect(writeTab).toBeVisible({timeout: 10000});
 		await writeTab.click();
 
-		// Wait for the write function to appear
-		const writeFunctionText = page.getByText(WRITE_FUNCTION);
-		await expect(writeFunctionText).toBeVisible({timeout: 10000});
+		// The form and its submit come from the fixture, so this suite cannot end
+		// up asserting on a different form than the one it filled.
+		const functionSection = writeForm(page);
+		await expect(functionSection).toBeVisible({timeout: 10000});
 
-		// Find the parent section containing the function
-		const functionSection = page
-			.locator('[class*="card"], [class*="function"]')
-			.filter({
-				has: writeFunctionText,
-			})
-			.first();
+		// BOTH inputs: `addToReserve(uint256 player, uint256 amount)`. Zero for
+		// both is deliberately harmless - this test is about the connect flow, and
+		// a real amount would need a token allowance first.
+		const numbers = functionSection.getByPlaceholder('Enter number or 0x...');
+		await numbers.first().fill('0');
+		await numbers.nth(1).fill('0');
 
 		// Any non-zero address: this test is about the CONNECT flow, and the call
 		// withdraws an authority that was never granted, so it is harmless whoever
@@ -189,11 +189,7 @@ describe('Contracts Page - Write Functions', () => {
 			.first()
 			.fill('0x0000000000000000000000000000000000000031');
 
-		// Click the Execute button (or Connect + Execute if wallet not connected)
-		const executeButton = functionSection.getByRole('button', {
-			name: /execute/i,
-		});
-		await executeButton.click();
+		await executeButton(page).click();
 
 		// If wallet is not connected, some step of the connect flow should appear:
 		// the connect entry (dev-mode or wallet button), or, when the single wallet
@@ -263,17 +259,10 @@ describe('Contracts Page - Write Functions', () => {
 		await expect(writeTab).toBeVisible({timeout: 10000});
 		await writeTab.click();
 
-		// Wait for the write function to appear
-		const writeFunctionText = page.getByText(WRITE_FUNCTION);
-		await expect(writeFunctionText).toBeVisible({timeout: 10000});
-
-		// Find the parent section containing the function
-		const functionSection = page
-			.locator('[class*="card"], [class*="function"]')
-			.filter({
-				has: writeFunctionText,
-			})
-			.first();
+		// The form and its submit come from the fixture, so this suite cannot end
+		// up asserting on a different form than the one it filled.
+		const functionSection = writeForm(page);
+		await expect(functionSection).toBeVisible({timeout: 10000});
 
 		// FILL THE ARGUMENT. When this drove `addToReserve(address, uint256)` it
 		// filled only the amount, so the address stayed undefined, viem threw
@@ -290,10 +279,7 @@ describe('Contracts Page - Write Functions', () => {
 			.fill('0x0000000000000000000000000000000000000032');
 
 		// Click the Execute button (wallet already connected)
-		const executeButton = functionSection.getByRole('button', {
-			name: /execute/i,
-		});
-		await executeButton.click();
+		await executeButton(page).click();
 
 		// Under parallel load the connection may still be re-establishing after
 		// the navigation, in which case executing re-opens the connect flow (e.g.
