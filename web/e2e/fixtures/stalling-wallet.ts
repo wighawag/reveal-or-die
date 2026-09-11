@@ -357,9 +357,9 @@ export async function sendAndStall(
 		 * a convenience.
 		 *
 		 * WHAT IT IS HAS TO BE THE APP'S BUSINESS, not the caller's. This app fills
-		 * `addToReserve`'s ADDRESS argument, so a caller that passes one must pass
-		 * an address; a descendant's write takes an ADDRESS,
-		 * and a suite that hardcoded 'sending indicator' there filled an invalid
+		 * `revokeDelegate`'s ADDRESS argument, so a caller that passes one must
+		 * pass an address; the parent template's write takes two NUMBERS, and a
+		 * suite that hardcoded 'sending indicator' there filled an invalid
 		 * field, so the form never submitted and nothing ever reached the wallet -
 		 * the same failure this whole helper exists to stop, one layer in. A suite
 		 * that does not care omits it and gets whatever this app can send; a suite

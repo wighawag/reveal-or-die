@@ -174,13 +174,6 @@ describe('Contracts Page - Write Functions', () => {
 		const functionSection = writeForm(page);
 		await expect(functionSection).toBeVisible({timeout: 10000});
 
-		// BOTH inputs: `addToReserve(uint256 player, uint256 amount)`. Zero for
-		// both is deliberately harmless - this test is about the connect flow, and
-		// a real amount would need a token allowance first.
-		const numbers = functionSection.getByPlaceholder('Enter number or 0x...');
-		await numbers.first().fill('0');
-		await numbers.nth(1).fill('0');
-
 		// Any non-zero address: this test is about the CONNECT flow, and the call
 		// withdraws an authority that was never granted, so it is harmless whoever
 		// it names. Zero is the one value the call rejects.

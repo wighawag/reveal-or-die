@@ -84,22 +84,27 @@ describe('Stopping waiting for the wallet', () => {
 		page.locator('#--layer-system [role="dialog"]', {hasText});
 
 	/**
-	 * One distinctive PLAYER per test, so each proves its OWN input survived.
+	 * One distinctive address per test, so each proves its OWN input survived.
 	 * They are never sent anywhere: every call here is held by a wallet that does
-	 * not answer, so these are only ever digits in a form.
+	 * not answer, so these are only ever bytes in a form.
 	 *
-	 * Numbers rather than addresses, because that is what the field is: this app
-	 * sends `addToReserve(uint256 player, uint256 amount)`, the identity being a
-	 * number in every game and an account only in this one.
+	 * ADDRESSES, NOT NUMBERS, and the difference is the whole reason this suite
+	 * exists downstream of a template that uses numbers. Upstream drives
+	 * `addToReserve(uint256 player, uint256 amount)`; THIS app drives
+	 * `revokeDelegate(address delegate)`. A cascade once rewrote these to digits
+	 * along with upstream's, cleanly and with no conflict, and the symptom was not
+	 * a failed assertion about a number - it was `sendAndStall` reporting that the
+	 * wallet was never handed a transaction at all, because an invalid address
+	 * leaves the form unsubmittable and nothing is ever sent.
 	 */
 	const ADDRESSES = {
-		copy: '11',
-		reconnect: '15',
-		noWallet: '16',
-		locked: '17',
-		staysConnected: '12',
-		released: '13',
-		approvedLater: '14',
+		copy: '0x0000000000000000000000000000000000000011',
+		reconnect: '0x0000000000000000000000000000000000000015',
+		noWallet: '0x0000000000000000000000000000000000000016',
+		locked: '0x0000000000000000000000000000000000000017',
+		staysConnected: '0x0000000000000000000000000000000000000012',
+		released: '0x0000000000000000000000000000000000000013',
+		approvedLater: '0x0000000000000000000000000000000000000014',
 	} as const;
 
 	/**
@@ -163,7 +168,7 @@ describe('Stopping waiting for the wallet', () => {
 	 * Send, leave the wallet holding it, and check the app says so.
 	 *
 	 * The walk itself is `sendAndStall` in the fixture, shared with the sending
-	 * indicator's suite. In THIS app it drives `/contracts` and `addToReserve`
+	 * indicator's suite. In THIS app it drives `/contracts` and `revokeDelegate`
 	 * rather than the demo page and `setMessage`: sends go through a local signer,
 	 * so the demo page's Send never reaches the user's wallet and a stalling wallet
 	 * cannot stand in a window that is not there, and the template's
@@ -271,9 +276,9 @@ describe('Stopping waiting for the wallet', () => {
 		await expect(execute).toHaveText(/^execute$/i, {timeout: 15_000});
 		// And what they typed is still there. They have not been told anything
 		// happened, so taking their text away would be the app deciding it did.
-		await expect(
-			writeForm(page).getByPlaceholder('Enter number or 0x...').first(),
-		).toHaveValue(player);
+		await expect(writeForm(page).getByPlaceholder('0x...').first()).toHaveValue(
+			player,
+		);
 		// Released without withdrawing anything: the wallet still has the request.
 		expect(await isHoldingTransaction(page)).toBe(true);
 	});
