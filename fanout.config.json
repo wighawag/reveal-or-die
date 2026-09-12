@@ -1,6 +1,9 @@
 {
+  "stem": "github:wighawag/template-commit-reveal",
   "branches": {
-    "main": {"stemBranch": "with/all"}
+    "main": {
+      "stemBranch": "with/all"
+    }
   },
   "verify": "pnpm install && pnpm --filter ./web check && pnpm --filter ./web run test:unit"
 }
