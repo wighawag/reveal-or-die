@@ -142,6 +142,12 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
         address owner = _avatarOwner[player];
         if (owner != address(0)) {
             _avatarOwner[player] = address(0);
+            // A seized avatar cannot commit again, so the epoch must stop
+            // waiting for it - otherwise settling a missed reveal would leave
+            // a denominator nobody can ever answer, and a game with no clock
+            // would be frozen by the very act of punishing the player who
+            // froze it.
+            _stopWaitingFor(player);
             emit AvatarSeized(player, owner);
         }
         // Nothing is settled in tokens. Keeping the bond arithmetic would be
@@ -168,6 +174,12 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
         }
         _avatarOwner[avatarID] = owner;
         _avatarsOf[owner].push(avatarID);
+        // CUSTODY IS MEMBERSHIP HERE, which is this branch's answer to the
+        // question `main` answers with a funded reserve: what lets you play is
+        // what the epoch waits for. An avatar in the game is a player who can
+        // commit, so the round blocks on it under a policy that advances on
+        // unanimity, and stops blocking the moment it leaves.
+        _startWaitingFor(avatarID);
         emit AvatarDeposited(avatarID, owner);
     }
 
@@ -196,6 +208,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
             revert AvatarIsCommitted(avatarID, commitment.epoch);
         }
         _avatarOwner[avatarID] = address(0);
+        _stopWaitingFor(avatarID);
         emit AvatarWithdrawn(avatarID, owner);
         AVATARS.transferFrom(address(this), to, avatarID);
     }

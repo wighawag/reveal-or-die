@@ -2,9 +2,153 @@ import {Abi_GameToken} from '../../../generated/abis/GameToken.js';
 import {Abi_IGame} from '../../../generated/abis/IGame.js';
 import {Abi_GameAvatarSale} from '../../../generated/abis/GameAvatarSale.js';
 import {Abi_GameAvatars} from '../../../generated/abis/GameAvatars.js';
-import {loadAndExecuteDeploymentsFromFiles} from '../../../rocketh/environment.js';
+import {
+	artifacts,
+	loadAndExecuteDeploymentsFromFiles,
+} from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
-import {zeroAddress} from 'viem';
+import {parseEther, zeroAddress} from 'viem';
+
+/**
+ * How the round advances. The contract's enum, by value.
+ *
+ * Mirrors `rocketh/config.ts`'s copy rather than importing it, because that one
+ * is bigints for the deploy and these are the numbers a test asserts against.
+ * Both mirror `UsingGameTypes.EpochPolicy`, whose ORDER is the only thing that
+ * decides what a number means.
+ */
+export const EPOCH_POLICY = {
+	Timed: 0,
+	Manual: 1,
+	TimedWithEarlyAdvance: 2,
+} as const;
+
+export type EpochPolicy = (typeof EPOCH_POLICY)[keyof typeof EPOCH_POLICY];
+
+/**
+ * The epoch arithmetic, in the client's terms, for a game whose anchor has not
+ * moved.
+ *
+ * It exists twice on purpose: the contract computes it and so does this, so a
+ * test that agreed with the contract by asking it would be asserting nothing.
+ */
+export function epochClock(config: {
+	startTime: number;
+	commitPhaseDuration: number;
+	revealPhaseDuration: number;
+}) {
+	const epochDuration = config.commitPhaseDuration + config.revealPhaseDuration;
+	return {
+		epochDuration,
+		getEpoch(time: number): {epoch: number; commiting: boolean} {
+			if (time < config.startTime) {
+				throw new Error('Game not started');
+			}
+			const timePassed = time - config.startTime;
+			const epoch = Math.floor(timePassed / epochDuration) + 2;
+			return {
+				epoch,
+				commiting:
+					timePassed - (epoch - 2) * epochDuration < config.commitPhaseDuration,
+			};
+		},
+		epochStartTime(epoch: number): number {
+			return config.startTime + (epoch - 2) * epochDuration;
+		},
+		revealStartTime(epoch: number): number {
+			return (
+				config.startTime +
+				(epoch - 2) * epochDuration +
+				config.commitPhaseDuration
+			);
+		},
+	};
+}
+
+/**
+ * A SECOND GAME, ON A DIFFERENT EPOCH POLICY, beside the deployed one.
+ *
+ * The deployment this repo ships is timed, because that is what a real game
+ * wants; the other two policies still have to be played, and the cheapest
+ * honest way to play one is to deploy it. Everything else - entering,
+ * committing, revealing, the board - is the same code and the same suites,
+ * which is the point being asserted: the policy is a policy and not a mode.
+ *
+ * EVERY DEPLOYMENT GETS A NAME OF ITS OWN, and that is not tidiness. The
+ * fixture is memoised by `loadFixture`, so every test shares ONE environment
+ * while the chain underneath it is rolled back between them: a repeated name
+ * would find a record of a proxy that no longer exists on chain and try to
+ * upgrade it, which fails in a way that says nothing about the test.
+ */
+let deploymentSequence = 0;
+
+export async function deployGameWith(
+	fixtures: {env: any; GameToken: any; GameAvatars: any},
+	options: {
+		name: string;
+		epochPolicy: EpochPolicy;
+		commitPhaseDuration: bigint;
+		revealPhaseDuration: bigint;
+		startTime?: bigint;
+		placementCost?: bigint;
+	},
+) {
+	const {env} = fixtures;
+	const config = {
+		startTime: options.startTime ?? 0n,
+		commitPhaseDuration: options.commitPhaseDuration,
+		revealPhaseDuration: options.revealPhaseDuration,
+		time: zeroAddress,
+		// WHAT THE GAME IS MADE OF COMES OUT OF THE FIXTURES, not out of the
+		// caller's hand. A suite about the epoch should not have to know what
+		// this game puts at stake, because that is the thing each branch of
+		// this repo changes - and a caller that spelled it out would be the
+		// line every branch has to rewrite. This is that branch: the ERC20 is
+		// still named because the Config struct is shared, and nothing here
+		// ever funds a reserve.
+		tokens: fixtures.GameToken.address,
+		// Zero, as the deployment's is. What is at stake here is custody of the
+		// avatar, so a bond is exactly what a commitment does not need.
+		placementCost: options.placementCost ?? 0n,
+		epochPolicy: BigInt(options.epochPolicy),
+	};
+
+	// THE BRANCH'S ROUTES, which is the whole difference. Two of them are
+	// `main`'s plus one override each and the third is new, exactly as the
+	// deploy script builds them - so a game deployed here to try a different
+	// epoch policy is THIS game, keyed by avatars, rather than upstream's.
+	const routes = [
+		{name: 'Getters', artifact: artifacts.GameGetters, args: [config]},
+		{
+			name: 'Commit',
+			artifact: artifacts.AvatarGameCommit,
+			args: [config, fixtures.GameAvatars.address],
+		},
+		{
+			name: 'Reveal',
+			artifact: artifacts.AvatarGameReveal,
+			args: [config, fixtures.GameAvatars.address],
+		},
+		{
+			name: 'Custody',
+			artifact: artifacts.AvatarGameCustody,
+			args: [config, fixtures.GameAvatars.address],
+		},
+		{name: 'Delegation', artifact: artifacts.GameDelegation, args: []},
+	];
+
+	deploymentSequence++;
+	return await env.deployViaProxy<Abi_IGame>(
+		`${options.name}_${deploymentSequence}`,
+		{
+			account: env.namedAccounts.deployer,
+			artifact: (name: string, params: any) =>
+				env.deployViaRouter<Abi_IGame>(name, params, routes),
+			args: [config],
+		},
+		{owner: env.namedAccounts.admin, linkedData: config},
+	);
+}
 
 /**
  * The identity an ACCOUNT would play as, in a game whose identity IS the
@@ -59,12 +203,45 @@ export async function avatarOwner(
  * is the avatar's owner. Buying a stranger an avatar is a gift, because only
  * its owner can play it or take it out.
  */
+/**
+ * WHAT ONE TURN BONDS, in a game that bonds anything.
+ *
+ * NOTHING, on this branch, and that is what "custody instead of a bond" means
+ * where a suite can see it: a placement costs zero here because what is at
+ * stake is the avatar, so a commitment sets nothing aside. Upstream this is
+ * five ether out of the reserve. It is a constant rather than a number in each
+ * suite so that a suite about the ROUND never has to name what is at stake.
+ */
+export const TURN_BOND = 0n;
+
+/**
+ * STOP BEING A MEMBER, by whatever leaving means here.
+ *
+ * The epoch waits for members, so something has to be able to stop being one:
+ * that is what keeps a game with no clock from being frozen by somebody who
+ * walked away. Here membership is CUSTODY, so leaving is taking the avatar
+ * back out - which the contract refuses while a commitment of theirs is open,
+ * because leaving must never be a way to not-reveal for free.
+ */
+export async function leaveGame(
+	fixtures: {env: any; Game: any},
+	account: `0x${string}`,
+	identity: bigint,
+): Promise<void> {
+	const {env, Game} = fixtures;
+	await env.execute(Game, {
+		account,
+		functionName: 'withdrawAvatar',
+		args: [identity, account],
+	});
+}
+
 export async function enterGame(
 	fixtures: {env: any; Game: any; GameAvatarSale: any},
 	account: `0x${string}`,
 	options?: {payer?: `0x${string}`},
 ): Promise<bigint> {
-	const {env, GameAvatarSale} = fixtures;
+	const {env, Game, GameAvatarSale} = fixtures;
 	const payer = options?.payer ?? account;
 	const price = (GameAvatarSale.linkedData as {price: string}).price;
 
@@ -81,6 +258,27 @@ export async function enterGame(
 		args: [account, zeroAddress, 0n],
 		value: BigInt(price),
 	});
+
+	// THE SALE MINTS INTO THE DEPLOYED GAME, so a suite that deployed a game of
+	// its own - to run a different epoch policy against it - has to move the
+	// avatar across. Taking it out and sending it back in is the players' own
+	// route rather than a test-only one, so what this exercises is something a
+	// player could do. A second SALE is not available at all: `GameAvatars` has
+	// one minter on purpose, so two live sales cannot coexist.
+	const deployed = env.get('Game');
+	if (Game.address.toLowerCase() !== deployed.address.toLowerCase()) {
+		const GameAvatars = env.get<Abi_GameAvatars>('GameAvatars');
+		await env.execute(deployed, {
+			account,
+			functionName: 'withdrawAvatar',
+			args: [avatarID + 1n, account],
+		});
+		await env.execute(GameAvatars, {
+			account,
+			functionName: 'safeTransferFrom',
+			args: [account, Game.address, avatarID + 1n],
+		});
+	}
 
 	return avatarID + 1n;
 }
@@ -181,6 +379,11 @@ export function setupFixtures(provider: EthereumProvider) {
 				linkedData,
 				getEpoch,
 				getTimestamp,
+				// Exposed because a game deployed INSIDE a test has a schedule of
+				// its own: the two helpers above answer for the deployment's
+				// durations, and an epoch policy suite is the one thing that
+				// deploys a game with different ones.
+				advanceToTime,
 				advanceToRevealPhase,
 				advanceToEpoch,
 				namedAccounts: env.namedAccounts,

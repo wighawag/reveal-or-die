@@ -87,7 +87,52 @@ describe('the epoch config, read off the deployment', () => {
 			revealPhaseDuration: 10,
 			startTime: 100,
 			commitTimeAllowance: 10.1,
+			policy: 'timed',
 		});
+	});
+
+	it('takes the epoch policy the deployment declared', () => {
+		const declared = (epochPolicy: number) =>
+			resolveEpochConfig({
+				commitPhaseDuration: '30',
+				revealPhaseDuration: '10',
+				epochPolicy,
+			}).policy;
+
+		// The numbers are the contract's enum, so the ORDER is the thing being
+		// asserted: a client that read 2 as "manual" would poll a chain that is
+		// running a clock, and one that read 1 as "timed" would draw a countdown
+		// against an epoch nobody is counting down.
+		expect(declared(0)).toBe('timed');
+		expect(declared(1)).toBe('manual');
+		expect(declared(2)).toBe('hybrid');
+	});
+
+	it('refuses a policy it does not know, instead of picking one', () => {
+		// A deployment newer than the build. Guessing would put the client on the
+		// wrong clock silently, which costs a stake rather than a page.
+		expect(() =>
+			resolveEpochConfig({
+				commitPhaseDuration: '30',
+				revealPhaseDuration: '10',
+				epochPolicy: 7,
+			}),
+		).toThrow(/epochPolicy of 7/);
+	});
+
+	it('reads a deployment older than the parameter the way it actually ran', () => {
+		// Not a default: before the policy was declared there was one rule, and
+		// it read the policy off the durations. Reproducing it is what keeps a
+		// game deployed before this change playable; assuming `timed` instead
+		// would divide by a zero-length epoch on the manual ones.
+		expect(
+			resolveEpochConfig({commitPhaseDuration: '30', revealPhaseDuration: '10'})
+				.policy,
+		).toBe('timed');
+		expect(
+			resolveEpochConfig({commitPhaseDuration: '0', revealPhaseDuration: '0'})
+				.policy,
+		).toBe('manual');
 	});
 
 	it('starts at zero when no start time was declared', () => {
