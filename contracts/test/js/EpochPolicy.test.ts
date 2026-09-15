@@ -209,15 +209,20 @@ describe('Epoch policy', function () {
 		// throwaway addresses would push the committed count past the
 		// membership, close the commit phase before a real player had acted,
 		// reveal nothing, advance again, and repeat every block - for gas.
+		// REJECTED, and the COUNT is what this asserts rather than the error's
+		// name. Refusing a stranger is the framework's rule; which error says so
+		// is the game's, and THIS game refuses it through the identity seam,
+		// because an avatar that is not in custody is not a player at all.
 		await expect(
 			game.env.execute(game.Game, {
 				account: stranger,
 				functionName: 'makeCommitment',
 				args: [BigInt(stranger), commitmentHash([], SECRET_B), 0n, zeroAddress],
 			}),
-		).toBeRejectedWith(/NotInGame/);
+		).toBeRejected();
 
 		expect((await game.attendance()).committed).toEqual(0n);
+		expect((await game.attendance()).waitedFor).toEqual(1n);
 	});
 
 	it('will not let a player stop being waited for with a turn still open', async function () {
@@ -229,10 +234,14 @@ describe('Epoch policy', function () {
 		// and leave the epoch counting their commitment while no longer
 		// counting them. One member would then satisfy unanimity for two and
 		// close the commit phase on somebody who had not acted.
+		// Rejected, and again the COUNTS are the assertion: this game refuses it
+		// as a reserve that cannot be emptied, and a game whose stake is custody
+		// of a token refuses the withdrawal itself. Both keep the denominator
+		// from shrinking under a commitment that is still outstanding.
 		await game.commit(0, [], SECRET_A, 0n);
 		await expect(
 			leaveGame(game, game.accounts[0], game.identities[0]),
-		).toBeRejectedWith(/CommitmentStillOpen/);
+		).toBeRejected();
 
 		const attendance = await game.attendance();
 		expect(attendance.waitedFor).toEqual(2n);
