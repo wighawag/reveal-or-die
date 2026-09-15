@@ -84,7 +84,12 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 	const accounts = unnamedAccounts.slice(0, players) as `0x${string}`[];
 	const identities: bigint[] = [];
 	for (const account of accounts) {
-		identities.push(await enterGame({env, Game, GameToken}, account));
+		// THE WHOLE FIXTURE BAG, with the game to enter overriding the deployed
+		// one. What entering costs and what an identity IS are the game's, and
+		// they are the one thing `utils` exists to differ about between this
+		// repo's branches: a suite that named the way in would be the file that
+		// has to be rewritten on every branch instead of the one that already is.
+		identities.push(await enterGame({...fixtures, Game}, account));
 	}
 
 	// START AT THE TOP OF A COMMIT PHASE, and do it AFTER the setup rather than
@@ -240,10 +245,7 @@ describe('Epoch policy', function () {
 		// who can ever answer it: unanimity becomes unreachable, so a manual
 		// game stops advancing for good and the revert names a member who does
 		// not exist. Nothing else in this suite noticed.
-		await enterGame(
-			{env: game.env, Game: game.Game, GameToken: game.GameToken},
-			game.accounts[0],
-		);
+		await enterGame(game, game.accounts[0]);
 		expect((await game.attendance()).waitedFor).toEqual(1n);
 
 		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);

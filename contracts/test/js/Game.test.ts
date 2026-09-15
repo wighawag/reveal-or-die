@@ -143,6 +143,7 @@ describe('Game', function () {
 			contested: {totalStake: bigint; numClaimants: number};
 			listed: string[];
 		}> {
+			const fixtures = await networkHelpers.loadFixture(deployAll);
 			const {
 				env,
 				Game: TimedGame,
@@ -152,7 +153,7 @@ describe('Game', function () {
 				advanceToRevealPhase,
 				getEpoch,
 				getTimestamp,
-			} = await networkHelpers.loadFixture(deployAll);
+			} = fixtures;
 
 			const playerA = unnamedAccounts[0];
 			const playerB = unnamedAccounts[1];
@@ -190,8 +191,11 @@ describe('Game', function () {
 				});
 			}
 
-			const identityA = await enterGame({env, Game, GameToken}, playerA);
-			const identityB = await enterGame({env, Game, GameToken}, playerB);
+			// The whole fixture bag with the game to enter overriding the
+			// deployed one: how a player gets IN is the game's, and it is what
+			// `utils` exists to differ about between branches.
+			const identityA = await enterGame({...fixtures, Game}, playerA);
+			const identityB = await enterGame({...fixtures, Game}, playerB);
 
 			// Both players commit to the SAME cell, blind to each other, and each
 			// also takes a cell of their own. The private cells are what make the
