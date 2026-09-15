@@ -167,12 +167,11 @@ describe('Game', function () {
 			const Game =
 				policy === EPOCH_POLICY.Timed
 					? TimedGame
-					: await deployGameWith(env, {
+					: await deployGameWith(fixtures, {
 							name: `Game_replay_${policy}`,
 							epochPolicy: policy,
 							commitPhaseDuration: manual ? 0n : 30n,
 							revealPhaseDuration: manual ? 0n : 10n,
-							tokens: GameToken.address,
 						});
 
 			/** Get to the reveal phase the way this policy allows. */
@@ -305,6 +304,27 @@ describe('Game', function () {
 			expect(aFirst.listed).toEqual(bFirst.listed);
 			expect(aFirst.listed.length).toEqual(3);
 		}
+	});
+
+	it('counts one member however many times they top up', async function () {
+		const fixtures = await networkHelpers.loadFixture(deployAll);
+		const {env, Game, GameToken, unnamedAccounts} = fixtures;
+		const player = unnamedAccounts[0];
+
+		// FOUND BY MUTATION, and it is here rather than beside the epoch
+		// policies because it is about THIS game's way in: a funded reserve is
+		// what makes an account a member, and topping one up is an ordinary
+		// thing to do twice. Counting the same member again raises the
+		// denominator above the number of people who can ever answer it, so
+		// unanimity becomes unreachable, a game with no clock stops advancing
+		// for good, and the revert names a member who does not exist.
+		await enterGame({env, Game, GameToken}, player);
+		await enterGame({env, Game, GameToken}, player);
+
+		const attendance = (await env.read(Game, {
+			functionName: 'getAttendance',
+		})) as {waitedFor: bigint};
+		expect(attendance.waitedFor).toEqual(1n);
 	});
 
 	it('forfeits the bond of a player who never reveals', async function () {
