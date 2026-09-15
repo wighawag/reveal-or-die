@@ -118,14 +118,21 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 		return (await env.read(Game, {functionName: 'getAttendance'})) as any;
 	}
 
-	function commit(i: number, placements: Placement[], secret: `0x${string}`) {
+	function commit(
+		i: number,
+		placements: Placement[],
+		secret: `0x${string}`,
+		// An EMPTY turn bonds nothing, which is what an idle player's automatic
+		// commit sends, and it is the case where a bond locks no reserve.
+		bond: bigint = TURN_BOND,
+	) {
 		return env.execute(Game, {
 			account: accounts[i],
 			functionName: 'makeCommitment',
 			args: [
 				identities[i],
 				commitmentHash(placements, secret),
-				TURN_BOND,
+				bond,
 				zeroAddress,
 			],
 		});
@@ -190,6 +197,70 @@ describe('Epoch policy', function () {
 		expect((await game.attendance()).waitedFor).toEqual(0n);
 
 		await expect(game.advance()).toBeRejectedWith(/NoOneToWaitFor/);
+	});
+
+	it('refuses a turn from someone who never entered the game', async function () {
+		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 1);
+		const stranger = game.unnamedAccounts[5] as `0x${string}`;
+
+		// THE NUMERATOR AND THE DENOMINATOR MUST COUNT THE SAME SET. Nothing
+		// else here stops a stranger committing: a bond of zero against a
+		// reserve of zero passes every other check. If it were allowed, enough
+		// throwaway addresses would push the committed count past the
+		// membership, close the commit phase before a real player had acted,
+		// reveal nothing, advance again, and repeat every block - for gas.
+		await expect(
+			game.env.execute(game.Game, {
+				account: stranger,
+				functionName: 'makeCommitment',
+				args: [BigInt(stranger), commitmentHash([], SECRET_B), 0n, zeroAddress],
+			}),
+		).toBeRejectedWith(/NotInGame/);
+
+		expect((await game.attendance()).committed).toEqual(0n);
+	});
+
+	it('will not let a player stop being waited for with a turn still open', async function () {
+		const game = await gameOn(EPOCH_POLICY.Manual, 2);
+
+		// An EMPTY turn, which bonds nothing - what an idle player's automatic
+		// commit sends. A zero bond locks no reserve, so without a rule of its
+		// own this player could empty their reserve, cease to be waited for,
+		// and leave the epoch counting their commitment while no longer
+		// counting them. One member would then satisfy unanimity for two and
+		// close the commit phase on somebody who had not acted.
+		// Rejected, and again the COUNTS are the assertion: this game refuses it
+		// as a reserve that cannot be emptied, and a game whose stake is custody
+		// of a token refuses the withdrawal itself. Both keep the denominator
+		// from shrinking under a commitment that is still outstanding.
+		await game.commit(0, [], SECRET_A, 0n);
+		await expect(
+			leaveGame(game, game.accounts[0], game.identities[0]),
+		).toBeRejected();
+
+		const attendance = await game.attendance();
+		expect(attendance.waitedFor).toEqual(2n);
+		expect(attendance.committed).toEqual(1n);
+		await expect(game.advance()).toBeRejectedWith(/StillWaitingToCommit/);
+	});
+
+	it('forgets the tally when the cycle turns over', async function () {
+		const game = await gameOn(EPOCH_POLICY.Manual, 1);
+
+		await game.commit(0, [{cellID: cellAt(2, 2)}], SECRET_A);
+		await game.advance();
+		await game.reveal(0, [{cellID: cellAt(2, 2)}], SECRET_A);
+		await game.advance();
+
+		// A tally that survived the boundary would report last cycle's
+		// commitment as this cycle's, so an advance would be allowed with
+		// nobody having acted at all. Nothing else in this suite notices:
+		// deleting the guard that scopes the tally to its own cycle used to
+		// pass every test here.
+		const attendance = await game.attendance();
+		expect(attendance.committed).toEqual(0n);
+		expect(attendance.revealed).toEqual(0n);
+		await expect(game.advance()).toBeRejectedWith(/StillWaitingToCommit/);
 	});
 
 	it('moves on unanimity and never on a majority', async function () {
@@ -322,6 +393,16 @@ describe('Epoch policy', function () {
 		// deadline forward instead would lose exactly those reveals, silently,
 		// at the cost of the stake.
 		expect(after.phaseEnd).toEqual(before.phaseEnd + REVEAL_PHASE);
+
+		// The window opened WHEN THE ADVANCE LANDED, inside the commit phase it
+		// cut short. The load-bearing half is that it is NOT ZERO: asserting
+		// only `phaseStart < before.phaseEnd` passes when nothing is written at
+		// all, and zero is the value this type reserves for a game with no
+		// clock - so a reveal window would report as unbounded rather than as
+		// opened early. Not `>` the epoch's start, because several
+		// transactions can share one second of chain time and then it is `==`.
+		expect(after.phaseStart !== 0n).toEqual(true);
+		expect(after.phaseStart >= before.phaseStart).toEqual(true);
 		expect(after.phaseStart < before.phaseEnd).toEqual(true);
 	});
 
