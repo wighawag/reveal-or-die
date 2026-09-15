@@ -38,6 +38,21 @@ for tests: `pnpm test`
 
 - The two boundary tests and this section are INHERITED from `template-svelte`, the root of this template tree, where they are also enforced. A change to either that is meaningful for a sibling belongs there rather than here, or every sibling silently misses it.
 
+## The words
+
+**`CONTEXT.md` at the root is the glossary, and it is opinionated on purpose.**
+It says what a cycle is, what a submission is, and which words the framework
+deliberately does NOT take so that your game can have them: `round` and `turn`
+are yours, and the framework never uses either. Read it before naming anything
+new, and extend it when your game settles a word of its own.
+
+**Code in this tree still says `epoch` where the glossary says `cycle`.** The
+rename is staged rather than done: contracts are not inherited here, so each
+game is ported one at a time, and a descendant full of `epoch` means that game
+has not been ported yet rather than that the glossary is stale. The reasoning,
+the rejected alternatives and the migration order are in ADR-0001
+(template-commit-reveal `work`).
+
 ## Commit-reveal rules
 
 This template exists to build simultaneous-turn games. Two rules follow from
@@ -86,5 +101,7 @@ git worktree add ../<repo>-work work   # or check it out beside the repo
 If reality contradicts the plan, change the document in the same commit as the code that proved it wrong, and say which claim was wrong.
 
 The README's ADR section points at `work:docs/adr/`. That is **jolly-roger's** branch layout, and a repo further down this tree may hold nothing at that path; the listing command above is the reliable route. The README is byte-identical to the stem's in this repo and is deliberately left that way.
+
+**AN ADR NUMBER IS ONLY MEANINGFUL WITH A REPO ATTACHED, now that this one has ADRs of its own.** Every bare citation in the code (`ADR-0002`, `ADR-0004`) means **jolly-roger's**, which holds 0001 to 0008 and will keep adding to them; this repo's own sequence starts again at 0001 and is unrelated. Read a bare number as jolly-roger's, and write new citations as "ADR-0001 (template-commit-reveal `work`)". The existing bare ones are left alone deliberately: most are in files byte-identical to the stem's, where editing them would be the divergence-by-copy this tree keeps paying for.
 
 Two environment facts worth having before the first command, because both have cost real time: **check how `pnpm` is reached before assuming** (`pnpm --version`; on some hosts here it is not on PATH and lives at `~/.volta/bin/pnpm`, on others it is on PATH and volta is not installed at all - an absolute path written down as a project fact has already cost a session its first command), and **`web/src/lib/deployments.ts` is generated and gitignored**, so a `check` failure inside `$lib/core` that the stem does not have means regenerate it before touching anything shared. The rest are in the handoff.
