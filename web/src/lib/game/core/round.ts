@@ -389,12 +389,14 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 				actions,
 				secret,
 				epoch,
-				// A manually advanced chain has no clock, so there is no moment to
-				// predict and nothing an outside scheduler could be told.
-				revealDueAt:
-					info.type === 'timed'
-						? revealPhaseStartTime(info.config, epoch)
-						: undefined,
+				// TAKEN FROM THE ROUND, not recomputed from the deployment. A
+				// manually advanced chain has no clock, so there is no moment to
+				// predict and nothing a scheduler could be told; and under a policy
+				// that allows early advance the epoch's origin moves, so the same
+				// arithmetic run against the deployment's start time would answer
+				// for a grid the chain has left behind - and a scheduled reveal is
+				// the one thing that cannot be re-asked later.
+				revealDueAt: info.type === 'manual' ? undefined : info.revealOpensAt,
 			});
 			storage.save({epoch, actions, secret, committed: true});
 			set({step: 'Committed', epoch, actions});

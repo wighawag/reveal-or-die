@@ -16,8 +16,8 @@ import type {CoreServices} from './core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
 import {
+	createEpochTrackers,
 	createThreePhase,
-	createTimedEpochTrackers,
 	staticEpochConfig,
 	type EpochInfoStore,
 	type ThreePhase,
@@ -81,6 +81,7 @@ import {
 	roundStorageKey,
 } from '$lib/placement/storage';
 import {createPlanning, type PlanningStore} from '$lib/placement/planning';
+import {createRoundReader} from '$lib/placement/epoch';
 import {holdResolvingRound, type HeldBoardState} from '$lib/placement/hold';
 import {holdPlanUntilBoardReleases} from '$lib/placement/display-plan';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
@@ -389,9 +390,17 @@ export function createGameContext(core: CoreServices): GameContext {
 		publicClient: core.publicClient,
 		minPollingInterval: 100,
 	});
-	const {epochInfo, twoPhase} = createTimedEpochTrackers({
+	// WHICH CLOCK THE DEPLOYMENT IS RUNNING, rather than the one this app would
+	// prefer. A timed game is pure arithmetic and asks the chain nothing; the
+	// other two policies can be moved by a transaction, so for them the chain is
+	// the authority and `chainTime` only predicts between reads.
+	const {epochInfo, twoPhase} = createEpochTrackers({
 		chainTime,
 		config: staticEpochConfig(config.epoch),
+		readRound: createRoundReader({
+			publicClient: core.publicClient,
+			deployments,
+		}),
 	});
 	const threePhase = createThreePhase(epochInfo);
 

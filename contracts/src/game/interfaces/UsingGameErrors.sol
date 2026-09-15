@@ -42,9 +42,29 @@ interface UsingGameErrors {
     /// @notice the revealed placements cost more than the bond set aside
     error BondTooLow(uint256 bond, uint256 required);
 
-    /// @notice manual epoch control is not available on a timed game
+    /// @notice this game's round is advanced by the clock and by nothing else
+    /// @dev A purely timed epoch needs no transaction at all - it simply is
+    ///      what the clock says - so there is nothing for a caller to do here
+    ///      and pretending otherwise would let one look like it had.
     error NextPhaseNotAllowed();
 
-    /// @notice the commit phase is skipped in this configuration
-    error CommitPhaseIsSkipped();
+    /// @notice the phase durations do not describe a round this game can run
+    /// @dev Both phases must be non-zero on a timed policy, and both must be
+    ///      zero on a manual one. See {UsingGameInternal} for why a zero phase
+    ///      is not a configuration but a hole: it makes a commitment either
+    ///      impossible to make or impossible to open.
+    error InvalidEpochConfiguration();
+
+    /// @notice nobody is being waited for, so unanimity has no denominator
+    /// @dev Early advance needs a closed set of members. "Everyone has
+    ///      committed" is not a question that can be answered under open
+    ///      entry, and answering it against an empty set would let one caller
+    ///      spin the round forward on their own.
+    error NoOneToWaitFor();
+
+    /// @notice some of the members the epoch waits for have not committed yet
+    error StillWaitingToCommit(uint64 committed, uint64 waitedFor);
+
+    /// @notice some of this epoch's commitments have not been revealed yet
+    error StillWaitingToReveal(uint64 revealed, uint64 committed);
 }

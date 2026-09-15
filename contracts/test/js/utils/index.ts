@@ -1,9 +1,127 @@
 import {Abi_GameToken} from '../../../generated/abis/GameToken.js';
 import {Abi_IGame} from '../../../generated/abis/IGame.js';
 import {Abi_StakeSale} from '../../../generated/abis/StakeSale.js';
-import {loadAndExecuteDeploymentsFromFiles} from '../../../rocketh/environment.js';
+import {
+	artifacts,
+	loadAndExecuteDeploymentsFromFiles,
+} from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
-import {parseEther} from 'viem';
+import {parseEther, zeroAddress} from 'viem';
+
+/**
+ * How the round advances. The contract's enum, by value.
+ *
+ * Mirrors `rocketh/config.ts`'s copy rather than importing it, because that one
+ * is bigints for the deploy and these are the numbers a test asserts against.
+ * Both mirror `UsingGameTypes.EpochPolicy`, whose ORDER is the only thing that
+ * decides what a number means.
+ */
+export const EPOCH_POLICY = {
+	Timed: 0,
+	Manual: 1,
+	TimedWithEarlyAdvance: 2,
+} as const;
+
+export type EpochPolicy = (typeof EPOCH_POLICY)[keyof typeof EPOCH_POLICY];
+
+/**
+ * The epoch arithmetic, in the client's terms, for a game whose anchor has not
+ * moved.
+ *
+ * It exists twice on purpose: the contract computes it and so does this, so a
+ * test that agreed with the contract by asking it would be asserting nothing.
+ */
+export function epochClock(config: {
+	startTime: number;
+	commitPhaseDuration: number;
+	revealPhaseDuration: number;
+}) {
+	const epochDuration = config.commitPhaseDuration + config.revealPhaseDuration;
+	return {
+		epochDuration,
+		getEpoch(time: number): {epoch: number; commiting: boolean} {
+			if (time < config.startTime) {
+				throw new Error('Game not started');
+			}
+			const timePassed = time - config.startTime;
+			const epoch = Math.floor(timePassed / epochDuration) + 2;
+			return {
+				epoch,
+				commiting:
+					timePassed - (epoch - 2) * epochDuration < config.commitPhaseDuration,
+			};
+		},
+		epochStartTime(epoch: number): number {
+			return config.startTime + (epoch - 2) * epochDuration;
+		},
+		revealStartTime(epoch: number): number {
+			return (
+				config.startTime +
+				(epoch - 2) * epochDuration +
+				config.commitPhaseDuration
+			);
+		},
+	};
+}
+
+/**
+ * A SECOND GAME, ON A DIFFERENT EPOCH POLICY, beside the deployed one.
+ *
+ * The deployment this repo ships is timed, because that is what a real game
+ * wants; the other two policies still have to be played, and the cheapest
+ * honest way to play one is to deploy it. Everything else - entering,
+ * committing, revealing, the board - is the same code and the same suites,
+ * which is the point being asserted: the policy is a policy and not a mode.
+ *
+ * EVERY DEPLOYMENT GETS A NAME OF ITS OWN, and that is not tidiness. The
+ * fixture is memoised by `loadFixture`, so every test shares ONE environment
+ * while the chain underneath it is rolled back between them: a repeated name
+ * would find a record of a proxy that no longer exists on chain and try to
+ * upgrade it, which fails in a way that says nothing about the test.
+ */
+let deploymentSequence = 0;
+
+export async function deployGameWith(
+	env: any,
+	options: {
+		name: string;
+		epochPolicy: EpochPolicy;
+		commitPhaseDuration: bigint;
+		revealPhaseDuration: bigint;
+		startTime?: bigint;
+		tokens: `0x${string}`;
+		placementCost?: bigint;
+	},
+) {
+	const config = {
+		startTime: options.startTime ?? 0n,
+		commitPhaseDuration: options.commitPhaseDuration,
+		revealPhaseDuration: options.revealPhaseDuration,
+		time: zeroAddress,
+		tokens: options.tokens,
+		placementCost: options.placementCost ?? parseEther('1'),
+		epochPolicy: BigInt(options.epochPolicy),
+	};
+
+	const routes = [
+		{name: 'Getters', artifact: artifacts.GameGetters, args: [config]},
+		{name: 'Commit', artifact: artifacts.GameCommit, args: [config]},
+		{name: 'Reveal', artifact: artifacts.GameReveal, args: [config]},
+		{name: 'Delegation', artifact: artifacts.GameDelegation, args: []},
+	];
+
+	deploymentSequence++;
+	return await env.deployViaProxy<Abi_IGame>(
+		`${options.name}_${deploymentSequence}`,
+		{
+			account: env.namedAccounts.deployer,
+			artifact: (name: string, params: any) =>
+				env.deployViaRouter<Abi_IGame>(name, params, routes),
+			args: [config],
+		},
+		{owner: env.namedAccounts.admin, linkedData: config},
+	);
+}
 
 /**
  * The identity an ACCOUNT plays as, in a game whose identity is the account.
@@ -161,6 +279,11 @@ export function setupFixtures(provider: EthereumProvider) {
 				linkedData,
 				getEpoch,
 				getTimestamp,
+				// Exposed because a game deployed INSIDE a test has a schedule of
+				// its own: the two helpers above answer for the deployment's
+				// durations, and an epoch policy suite is the one thing that
+				// deploys a game with different ones.
+				advanceToTime,
 				advanceToRevealPhase,
 				advanceToEpoch,
 				namedAccounts: env.namedAccounts,

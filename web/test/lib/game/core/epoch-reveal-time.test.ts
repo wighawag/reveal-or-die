@@ -18,6 +18,7 @@ describe('revealPhaseStartTime', () => {
 		revealPhaseDuration: 10,
 		startTime: 1_000,
 		commitTimeAllowance: 10.1,
+		policy: 'timed',
 	};
 
 	it('lands exactly on the first instant of the reveal phase', () => {

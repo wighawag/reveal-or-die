@@ -58,4 +58,22 @@ interface UsingGameEvents is UsingGameTypes {
     /// @notice A player took a share of a cell. Cells are shared, so this does
     ///         not imply anyone lost it.
     event Placed(uint256 indexed player, uint64 indexed cellID, uint256 stake);
+
+    /// @notice The round moved because somebody pushed it, rather than because
+    ///         the clock said so.
+    /// @dev Emitted ONLY by {IGameReveal-advanceRound}, which is its own
+    ///      transaction and never a rider on the last reveal. A clock-driven
+    ///      turnover emits nothing, because nothing happened on chain: that is
+    ///      the difference this event exists to make visible.
+    event RoundAdvanced(uint64 indexed epoch, bool commiting, address pushedBy);
+
+    /// @notice The epoch started, or stopped, waiting for this player.
+    /// @param waitedFor Whether it now waits for them.
+    /// @param waitedForCount How many members it waits for in total, which is
+    ///        the denominator unanimity is measured against.
+    event WaitedForChanged(
+        uint256 indexed player,
+        bool waitedFor,
+        uint64 waitedForCount
+    );
 }
