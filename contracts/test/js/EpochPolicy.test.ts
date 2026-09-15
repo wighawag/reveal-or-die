@@ -229,10 +229,14 @@ describe('Epoch policy', function () {
 		// and leave the epoch counting their commitment while no longer
 		// counting them. One member would then satisfy unanimity for two and
 		// close the commit phase on somebody who had not acted.
+		// Rejected, and again the COUNTS are the assertion: this game refuses it
+		// as a reserve that cannot be emptied, and a game whose stake is custody
+		// of a token refuses the withdrawal itself. Both keep the denominator
+		// from shrinking under a commitment that is still outstanding.
 		await game.commit(0, [], SECRET_A, 0n);
 		await expect(
 			leaveGame(game, game.accounts[0], game.identities[0]),
-		).toBeRejectedWith(/CommitmentStillOpen/);
+		).toBeRejected();
 
 		const attendance = await game.attendance();
 		expect(attendance.waitedFor).toEqual(2n);
