@@ -28,12 +28,10 @@ contract GameReveal is IGameReveal, UsingGameInternal {
     }
 
     /// @inheritdoc IGameReveal
-    function moveToNextEpoch() external returns (ManualEpoch memory) {
-        return _moveToNextEpoch();
-    }
-
-    /// @inheritdoc IGameReveal
-    function moveToNextPhase() external returns (ManualEpoch memory) {
-        return _moveToNextPhase();
+    /// @dev Its own entry point, deliberately, and it is the reason `reveal`
+    ///      above is unchanged by this whole axis: a reveal never advances
+    ///      anything, whoever sends it and whenever it lands.
+    function advanceRound() external returns (uint64 epoch, bool commiting) {
+        return _advanceRound();
     }
 }

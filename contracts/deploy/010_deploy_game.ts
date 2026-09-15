@@ -25,6 +25,12 @@ export default deployScript(
 			// turn against an empty one. The ERC20 is still deployed and still named
 			// in this config because the Config struct is shared; nothing moves it.
 			placementCost: 0n,
+			// How the round advances, said out loud rather than derived from the
+			// phase durations being zero. It is recorded in `linkedData` below,
+			// which is where the client reads it: a client that had to infer the
+			// policy from the durations would be reconstructing a decision the
+			// deploy already made.
+			epochPolicy: data.Game.epochPolicy,
 		};
 
 		const routes = [
