@@ -16,8 +16,8 @@ import type {CoreServices} from './core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
 import {
-	createThreePhase,
 	createTimedEpochTrackers,
+	createThreePhase,
 	staticEpochConfig,
 	type EpochInfoStore,
 	type ThreePhase,
@@ -520,6 +520,13 @@ export function createGameContext(core: CoreServices): GameContext {
 		publicClient: core.publicClient,
 		minPollingInterval: 100,
 	});
+	// THE TIMED TRACKER, DELIBERATELY, AND NOT THE POLICY DISPATCHER THE
+	// TEMPLATE WIRES. Contracts are not inherited in this tree, and this game's
+	// have not adopted the epoch policy: there is no `advanceRound` and no
+	// `getRound` to ask, so the epoch here IS what the clock says and asking
+	// would be calling a function that does not exist. The framework half is
+	// inherited and ready; switching to `createEpochTrackers` belongs in the
+	// same change as the contract that gives it something to read.
 	const {epochInfo, twoPhase} = createTimedEpochTrackers({
 		chainTime,
 		config: staticEpochConfig(config.epoch),
