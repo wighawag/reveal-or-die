@@ -17,18 +17,31 @@ const config: EpochConfig = {
 	policy: 'timed',
 };
 
-/** An epoch store driven by a clock the test moves by hand. */
-function fakeEpochs(initialTime: number) {
+/**
+ * An epoch store driven by a clock the test moves by hand.
+ *
+ * `policy` is a parameter because the round must behave the same under every
+ * policy that HAS a clock. It used to be assumed: two of the round's automatic
+ * behaviours tested `type === 'timed'` rather than asking whether there was a
+ * clock, so a deployment on the hybrid policy silently lost both - including
+ * the fallback reveal, which exists to protect the stake.
+ */
+function fakeEpochs(initialTime: number, policy: 'timed' | 'hybrid' = 'timed') {
 	const time = writable(initialTime);
 	let $time = initialTime;
 	time.subscribe((t) => ($time = t));
 
+	const infoAt = (t: number): EpochInfo => {
+		const timed = calculateEpochInfo(t, config);
+		return policy === 'timed' ? timed : {...timed, type: 'hybrid'};
+	};
+
 	const store: EpochInfoStore = {
 		subscribe(run) {
-			return time.subscribe((t) => run(calculateEpochInfo(t, config)));
+			return time.subscribe((t) => run(infoAt(t)));
 		},
-		now: () => calculateEpochInfo($time, config),
-		fromTime: (t: number) => calculateEpochInfo(t, config),
+		now: () => infoAt($time),
+		fromTime: (t: number) => infoAt(t),
 	};
 	return {epochInfo: store, setTime: (t: number) => time.set(t)};
 }
@@ -270,6 +283,33 @@ describe('the commit-reveal round', () => {
 		// Nothing was at stake, so this is an expiry rather than a loss.
 		expect(round.value.step).toBe('Idle');
 		expect(calls.commit).toHaveLength(0);
+		stop();
+	});
+
+	it('commits and reveals automatically under EVERY clocked policy', async () => {
+		// FOUND BY REVIEW, and it is the shape of defect a type system does not
+		// see: adding a third member to the policy union left two behaviours
+		// asking `type === 'timed'`, which narrows perfectly well and is the
+		// wrong question. On a hybrid deployment auto-commit never fired and
+		// the fallback reveal never fired, so a game whose stake decays with
+		// silence forfeited it while the app sat there looking correct.
+		const {epochInfo, setTime} = fakeEpochs(0, 'hybrid');
+		const {adapter, calls} = fakeAdapter();
+		const round = createRound({
+			epochInfo,
+			adapter,
+			storage: fakeStorage<Action>(),
+			identity,
+			autoReveal: 'fallback',
+		});
+		const stop = round.start();
+
+		round.plan([{cellID: 9n}]);
+		setTime(37); // inside the commit-time allowance
+		await vi.waitFor(() => expect(calls.commit).toHaveLength(1));
+
+		setTime(43); // most of the reveal phase gone, so the fallback owes one
+		await vi.waitFor(() => expect(calls.reveal).toHaveLength(1));
 		stop();
 	});
 

@@ -559,7 +559,13 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 			if (!$info.isCommitPhase && $state.step === 'Committed') {
 				if (autoReveal === 'immediately') {
 					void reveal();
-				} else if (autoReveal === 'fallback' && $info.type === 'timed') {
+					// `!== 'manual'`, NOT `=== 'timed'`: every policy with a clock
+					// behind it can answer "how much of the reveal window is left",
+					// and the hybrid one carries exactly the same timings. Testing
+					// for one named policy instead of for the PROPERTY being used
+					// is how a third policy silently turned this off - and what it
+					// turns off is the reveal that protects the stake.
+				} else if (autoReveal === 'fallback' && $info.type !== 'manual') {
 					// Whoever was supposed to do this has had most of the phase. The
 					// round is still open, so try: a duplicate reveal costs one
 					// reverted transaction, a missed one costs the stake.
@@ -571,7 +577,9 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 
 			if (
 				autoCommit &&
-				$info.type === 'timed' &&
+				// See the note above: the question is whether there is a clock to
+				// read, not which of the clocked policies this is.
+				$info.type !== 'manual' &&
 				$info.isCommitPhase &&
 				($state.step === 'Planning' ||
 					// Nothing planned, but silence costs this game's player what they
