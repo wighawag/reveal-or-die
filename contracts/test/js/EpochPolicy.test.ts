@@ -209,15 +209,20 @@ describe('Epoch policy', function () {
 		// throwaway addresses would push the committed count past the
 		// membership, close the commit phase before a real player had acted,
 		// reveal nothing, advance again, and repeat every block - for gas.
+		// REJECTED, and the COUNT is what this asserts rather than the error's
+		// name. Refusing a stranger is the framework's rule; which error says so
+		// is the game's, and THIS game refuses it through the identity seam,
+		// because an avatar that is not in custody is not a player at all.
 		await expect(
 			game.env.execute(game.Game, {
 				account: stranger,
 				functionName: 'makeCommitment',
 				args: [BigInt(stranger), commitmentHash([], SECRET_B), 0n, zeroAddress],
 			}),
-		).toBeRejectedWith(/NotInGame/);
+		).toBeRejected();
 
 		expect((await game.attendance()).committed).toEqual(0n);
+		expect((await game.attendance()).waitedFor).toEqual(1n);
 	});
 
 	it('will not let a player stop being waited for with a turn still open', async function () {
