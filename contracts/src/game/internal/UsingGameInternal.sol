@@ -12,7 +12,34 @@ abstract contract UsingGameInternal is
     UsingGameEvents,
     UsingGameErrors
 {
-    constructor(Config memory config) UsingGameStore(config) {}
+    constructor(Config memory config) UsingGameStore(config) {
+        // THE ARITHMETIC THE WHOLE ROUND RESTS ON, checked once here rather
+        // than trusted forever. An epoch is a commit phase followed by a reveal
+        // phase and nothing else, with no trailing segment, so a commitment
+        // made in the CURRENT epoch is always still openable: you are either in
+        // the phase that takes it or in the phase that opens it. A zero phase
+        // punches a hole straight through that - a zero reveal phase makes
+        // every commitment unopenable and a zero commit phase makes every
+        // commitment impossible - and the hole is silent, because it costs the
+        // first player their stake rather than reverting anything.
+        //
+        // A manual game has no clock, so durations there would describe a
+        // schedule that does not exist, and a client reads them back to draw a
+        // countdown with. Refused too, for the same reason: it is a deployment
+        // mistake either way, and this is the cheapest place it can be caught.
+        if (config.epochPolicy == EpochPolicy.Manual) {
+            if (
+                config.commitPhaseDuration != 0 ||
+                config.revealPhaseDuration != 0
+            ) {
+                revert InvalidEpochConfiguration();
+            }
+        } else if (
+            config.commitPhaseDuration == 0 || config.revealPhaseDuration == 0
+        ) {
+            revert InvalidEpochConfiguration();
+        }
+    }
 
     //-------------------------------------------------------------------------
     // RESERVE
@@ -29,6 +56,15 @@ abstract contract UsingGameInternal is
         uint256 newAmount = _reserve[player] + amount;
         _reserve[player] = newAmount;
         emit ReserveDeposited(player, amount, newAmount);
+
+        // WHAT MAKES SOMEONE A MEMBER IS THE GAME'S ANSWER, and this game's is
+        // a funded reserve: holding one is exactly what lets an account play
+        // here, so it is what the epoch waits for. A game whose entry is
+        // custody of a token calls the same pair from wherever custody is
+        // taken and given back.
+        if (newAmount != 0) {
+            _startWaitingFor(player);
+        }
     }
 
     function _withdrawFromReserve(uint256 player, uint256 amount) internal {
@@ -47,6 +83,15 @@ abstract contract UsingGameInternal is
         uint256 newAmount = current - amount;
         _reserve[player] = newAmount;
         emit ReserveWithdrawn(player, amount, newAmount);
+
+        // Taking everything back out is leaving, so the epoch stops waiting.
+        // Note what this does NOT do: it settles nothing and it costs nothing
+        // beyond the departure itself. Leaving the set the epoch waits for and
+        // being punished for going silent are different questions, and only
+        // the first one is the round's.
+        if (newAmount == 0) {
+            _stopWaitingFor(player);
+        }
     }
 
     //-------------------------------------------------------------------------
@@ -74,6 +119,14 @@ abstract contract UsingGameInternal is
             revert PreviousCommitmentNotRevealed();
         }
 
+        // Counted once per player per epoch, not once per call: replacing a
+        // commitment you already made this epoch is allowed, and counting it
+        // again would let one player alone satisfy unanimity for the whole
+        // set.
+        if (commitment.epoch != epoch) {
+            _recordCommitment(epoch);
+        }
+
         commitment.hash = commitmentHash;
         commitment.epoch = epoch;
         commitment.bond = bond;
@@ -99,6 +152,7 @@ abstract contract UsingGameInternal is
         // Note that we do not reset the hash
         // This ensure the slot do not get reset and keep the gas cost consistent across execution
         commitment.epoch = 0;
+        _recordCancellation(epoch);
 
         emit CommitmentCancelled(player, epoch);
     }
@@ -150,6 +204,7 @@ abstract contract UsingGameInternal is
         _reserve[player] -= cost;
         commitment.epoch = 0; // used
         commitment.bond = 0;
+        _recordReveal(epoch);
 
         emit CommitmentRevealed(player, epoch, hashRevealed, placements, cost);
     }
@@ -217,47 +272,194 @@ abstract contract UsingGameInternal is
     }
 
     //-------------------------------------------------------------------------
-    // MANUAL EPOCHS
+    // WHO THE EPOCH WAITS FOR
     //-------------------------------------------------------------------------
 
-    function _getManualEpoch() internal view returns (ManualEpoch memory) {
-        if (_manualEpoch.epoch == 0) {
-            // we start at 2 like the automatic epoch to make the hypothetical previous epoch be 1
-            return ManualEpoch({epoch: 2, commiting: !SKIP_COMMIT});
+    /// @notice Start blocking the round on this player.
+    /// @dev Idempotent on purpose: the caller is a game rule ("a funded
+    ///      reserve means you are in") and rules fire more than once. A count
+    ///      that could be incremented twice for one member would make
+    ///      unanimity unreachable, which is a deadlock rather than an error
+    ///      message.
+    function _startWaitingFor(uint256 player) internal {
+        if (_isWaitedFor[player]) {
+            return;
         }
-        return _manualEpoch;
+        _isWaitedFor[player] = true;
+        uint64 count = _waitedFor + 1;
+        _waitedFor = count;
+        emit WaitedForChanged(player, true, count);
     }
 
-    function _moveToNextEpoch() internal returns (ManualEpoch memory) {
-        if (!(COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0)) {
-            revert NextPhaseNotAllowed();
+    /// @notice Stop blocking the round on this player.
+    /// @dev The whole of what leaving means. It settles nothing, returns
+    ///      nothing and burns nothing, because those are the GAME's questions
+    ///      and answering them here would make "stop waiting for me" into a
+    ///      costless exit from a commitment - which is the one thing this
+    ///      template may never offer.
+    ///
+    ///      It takes effect from the current epoch forward and is never
+    ///      retroactive: an epoch that has already advanced cannot be
+    ///      re-decided, or the outcome would depend on when the removal landed
+    ///      relative to other reveals, which is the order-independence rule one
+    ///      level up.
+    ///
+    ///      ITS GUARD IS NOT REACHABLE FROM OUTSIDE TODAY, and is here for the
+    ///      second caller rather than for this one: `withdrawFromReserve`
+    ///      refuses a zero amount and an empty reserve, so nobody can leave
+    ///      twice. Removing it passes the whole suite, which is recorded here
+    ///      rather than pinned by a test that would have to reach through a
+    ///      route that does not exist. A game that also drops a member on
+    ///      forfeit has two callers and needs it: without it the count would
+    ///      fall below the number of members who can actually answer, and a
+    ///      subset would then satisfy "unanimity".
+    function _stopWaitingFor(uint256 player) internal {
+        if (!_isWaitedFor[player]) {
+            return;
         }
-
-        ManualEpoch memory currentManualEpoch = _getManualEpoch();
-        _manualEpoch.epoch = currentManualEpoch.epoch + 1;
-        _manualEpoch.commiting = !SKIP_COMMIT;
-
-        return _manualEpoch;
+        _isWaitedFor[player] = false;
+        uint64 count = _waitedFor - 1;
+        _waitedFor = count;
+        emit WaitedForChanged(player, false, count);
     }
 
-    function _moveToNextPhase() internal returns (ManualEpoch memory) {
-        if (SKIP_COMMIT) {
-            revert CommitPhaseIsSkipped();
+    /// @notice The denominator, and how much of it has acted this epoch.
+    function _attendance(
+        uint64 epoch
+    ) internal view returns (Attendance memory attendance) {
+        attendance.waitedFor = _waitedFor;
+        if (_tally.epoch == epoch) {
+            attendance.committed = _tally.committed;
+            attendance.revealed = _tally.revealed;
         }
+    }
 
-        if (!(COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0)) {
-            revert NextPhaseNotAllowed();
-        }
-
-        ManualEpoch memory currentManualEpoch = _getManualEpoch();
-        if (currentManualEpoch.commiting) {
-            _manualEpoch.epoch = currentManualEpoch.epoch;
-            _manualEpoch.commiting = false;
+    function _recordCommitment(uint64 epoch) internal {
+        if (_tally.epoch != epoch) {
+            _tally = EpochTally({epoch: epoch, committed: 1, revealed: 0});
         } else {
-            _manualEpoch.commiting = true;
-            _manualEpoch.epoch = currentManualEpoch.epoch + 1;
+            _tally.committed += 1;
         }
-        return _manualEpoch;
+    }
+
+    function _recordCancellation(uint64 epoch) internal {
+        if (_tally.epoch == epoch && _tally.committed != 0) {
+            _tally.committed -= 1;
+        }
+    }
+
+    function _recordReveal(uint64 epoch) internal {
+        if (_tally.epoch == epoch) {
+            _tally.revealed += 1;
+        }
+    }
+
+    //-------------------------------------------------------------------------
+    // ADVANCING THE ROUND
+    //-------------------------------------------------------------------------
+
+    /// @notice Move the round on, if the rules already permit it.
+    /// @return epoch The epoch after the move.
+    /// @return commiting Which phase it is now in.
+    /// @dev ITS OWN TRANSACTION, NEVER A RIDER ON THE LAST REVEAL, and the
+    ///      three reasons are worth keeping next to the code. Advancing inside
+    ///      `reveal` would make that call mean something different depending on
+    ///      whether you happened to be last, so the policy would leak into the
+    ///      one call every policy shares. It would make that reveal's gas
+    ///      depend on winning a race, which is the worst possible input to the
+    ///      out-of-gas remedy this app already has. And it would not be
+    ///      retriable: an advance stranded by an unrelated revert would leave
+    ///      the round stuck, where a separate call can simply be made again, by
+    ///      anyone.
+    ///
+    ///      PERMISSIONLESS BUT STRICTLY CONDITIONAL. Anyone may call it and it
+    ///      may only do what the rules already permit, so allowing anyone to
+    ///      call it grants nothing. The liveness it assumes is bounded, because
+    ///      it only exists in the policies where somebody is present anyway.
+    ///
+    ///      UNANIMITY, NEVER A MAJORITY OR A QUORUM. If a subset could close a
+    ///      phase, fast players would time out slow ones and the round would
+    ///      become a race - the order-independence failure one level up, where
+    ///      whoever is quickest decides the outcome and committing bought
+    ///      nothing.
+    ///
+    ///      IT ONLY EVER WIDENS A WINDOW. Opening the reveal phase early does
+    ///      not move the epoch's deadline (see {_round}), so a reveal scheduled
+    ///      against the nominal time still lands inside the window, and a
+    ///      player who has not acted still has their full clock. Closing the
+    ///      epoch early is only permitted once every commitment in it has been
+    ///      revealed, so there is no window left to shorten - which is also why
+    ///      a scheduled reveal that fires afterwards can only ever be a
+    ///      duplicate, costing one reverted transaction, and never a missed
+    ///      one, costing the stake.
+    ///
+    ///      The one thing it does take away is the chance to CANCEL a
+    ///      commitment you have already made, since cancelling is a commit
+    ///      phase action. That is not a window being shortened; it is what
+    ///      committing means.
+    function _advanceRound() internal returns (uint64 epoch, bool commiting) {
+        if (EPOCH_POLICY == EpochPolicy.Timed) {
+            // The epoch simply IS what the clock says, so there is nothing
+            // here for anyone to do.
+            revert NextPhaseNotAllowed();
+        }
+
+        Round memory round = _round();
+        Attendance memory attendance = _attendance(round.epoch);
+
+        // C1: no closed set, no denominator. Without this, one caller could
+        // push an empty game forward as fast as they liked.
+        if (attendance.waitedFor == 0) {
+            revert NoOneToWaitFor();
+        }
+
+        if (round.commiting) {
+            if (attendance.committed < attendance.waitedFor) {
+                revert StillWaitingToCommit(
+                    attendance.committed,
+                    attendance.waitedFor
+                );
+            }
+            epoch = round.epoch;
+            commiting = false;
+
+            if (EPOCH_POLICY == EpochPolicy.Manual) {
+                _epochState.anchorEpoch = epoch;
+                _epochState.commiting = false;
+            } else {
+                // The reveal window opens NOW and closes when it always would
+                // have. Recording only that it opened early is what keeps the
+                // deadline where it was.
+                _epochState.earlyRevealEpoch = epoch;
+                _epochState.earlyRevealAt = uint64(_timestamp());
+            }
+        } else {
+            // Everything committed in this epoch has been opened, so nothing
+            // is left that the epoch could still be holding open for anyone.
+            // Evaluated at execution time, which is what makes it airtight: a
+            // reveal still in the mempool has not been counted, so an advance
+            // mined before it reverts rather than stranding it.
+            if (attendance.revealed < attendance.committed) {
+                revert StillWaitingToReveal(
+                    attendance.revealed,
+                    attendance.committed
+                );
+            }
+            epoch = round.epoch + 1;
+            commiting = true;
+
+            _epochState.anchorEpoch = epoch;
+            if (EPOCH_POLICY == EpochPolicy.Manual) {
+                _epochState.commiting = true;
+            } else {
+                // The new epoch runs its full length from here, which is the
+                // only way early advance makes a game with a clock finish a
+                // round sooner than the clock would.
+                _epochState.anchoredAt = uint64(_timestamp());
+            }
+        }
+
+        emit RoundAdvanced(epoch, commiting, msg.sender);
     }
 
     //-------------------------------------------------------------------------
@@ -341,29 +543,91 @@ abstract contract UsingGameInternal is
     // INTERNALS
     //-------------------------------------------------------------------------
 
-    function _epoch()
-        internal
-        view
-        virtual
-        returns (uint64 epoch, bool commiting)
-    {
-        if (COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0) {
-            ManualEpoch memory currentManualEpoch = _getManualEpoch();
-            epoch = currentManualEpoch.epoch;
-            commiting = currentManualEpoch.commiting;
-        } else {
-            uint256 epochDuration =
-                COMMIT_PHASE_DURATION + REVEAL_PHASE_DURATION;
-            uint256 time = _timestamp();
-            if (time < START_TIME) {
-                revert GameNotStarted();
-            }
-            uint256 timePassed = time - START_TIME;
-            epoch = uint64(timePassed / epochDuration + 2); // epoch start at 2, this make the hypothetical previous reveal phase's epoch to be 1
-            commiting =
-                timePassed - ((epoch - 2) * epochDuration) <
-                COMMIT_PHASE_DURATION;
+    /// @notice WHERE THE ROUND IS. The seam the epoch policy varies at.
+    /// @dev `virtual`, and it is the ONLY thing about the clock that is: a game
+    ///      with a fourth policy overrides this one function and touches no
+    ///      store, no route and no other internal. It replaced a virtual
+    ///      `_epoch()` returning only the pair, because a client has to know
+    ///      when the phase ENDS in order to draw a countdown, and two
+    ///      overridable views of one fact are two things to keep in step.
+    ///      {_epoch} is now derived from this rather than the other way round.
+    ///
+    ///      ONE PIECE OF ARITHMETIC SERVES ALL THREE TIMED READINGS, because
+    ///      they differ only in where the anchor is. The anchor is the start of
+    ///      an epoch's COMMIT phase: for `Timed` it never moves from (epoch 2,
+    ///      START_TIME), which is exactly the formula this template and four
+    ///      other games have always used; for `TimedWithEarlyAdvance` an early
+    ///      epoch advance moves it to the moment of the advance, and the clock
+    ///      carries on from there. `Manual` has no clock at all, so the stored
+    ///      state IS the answer.
+    ///
+    ///      Epochs start at 2 so that the hypothetical reveal phase before the
+    ///      first commit phase can be epoch 1, which is also why zero can mean
+    ///      "no commitment" in {Commitment}.
+    function _round() internal view virtual returns (Round memory round) {
+        EpochState memory state = _epochState;
+        bool anchored = state.anchorEpoch != 0;
+        uint64 anchorEpoch = anchored ? state.anchorEpoch : 2;
+
+        if (EPOCH_POLICY == EpochPolicy.Manual) {
+            // No clock, so no phase bounds: zero here means "there is nothing
+            // to count down to", which is a different statement from a
+            // deadline that happens to be zero.
+            return
+                Round({
+                    epoch: anchorEpoch,
+                    commiting: anchored ? state.commiting : true,
+                    phaseStart: 0,
+                    phaseEnd: 0
+                });
         }
+
+        uint256 anchoredAt = anchored ? state.anchoredAt : START_TIME;
+        uint256 time = _timestamp();
+        if (time < anchoredAt) {
+            revert GameNotStarted();
+        }
+
+        uint256 epochDuration = COMMIT_PHASE_DURATION + REVEAL_PHASE_DURATION;
+        uint256 elapsed = time - anchoredAt;
+        round.epoch = anchorEpoch + uint64(elapsed / epochDuration);
+        round.commiting = (elapsed % epochDuration) < COMMIT_PHASE_DURATION;
+
+        uint256 epochStart =
+            anchoredAt + uint256(round.epoch - anchorEpoch) * epochDuration;
+
+        // AN EARLY OPEN MOVES THE START AND NOT THE DEADLINE. The reveal window
+        // becomes "as soon as everyone has committed, until the nominal end",
+        // which is strictly wider than the window the clock alone would have
+        // given: a reveal scheduled against the nominal time still lands inside
+        // it. Shifting the deadline forward instead would lose exactly those
+        // reveals, and lose them silently, at the cost of the stake.
+        bool openedEarly =
+            EPOCH_POLICY == EpochPolicy.TimedWithEarlyAdvance &&
+                state.earlyRevealEpoch == round.epoch;
+        if (openedEarly) {
+            round.commiting = false;
+        }
+
+        if (round.commiting) {
+            round.phaseStart = uint64(epochStart);
+            round.phaseEnd = uint64(epochStart + COMMIT_PHASE_DURATION);
+        } else {
+            round.phaseStart =
+                openedEarly
+                    ? state.earlyRevealAt
+                    : uint64(epochStart + COMMIT_PHASE_DURATION);
+            round.phaseEnd = uint64(epochStart + epochDuration);
+        }
+    }
+
+    /// @notice The round as everything inside this contract asks about it.
+    /// @dev Deliberately NOT virtual: {_round} is the seam, and a second
+    ///      overridable answer to the same question is a second thing to keep
+    ///      in step with the first.
+    function _epoch() internal view returns (uint64 epoch, bool commiting) {
+        Round memory round = _round();
+        return (round.epoch, round.commiting);
     }
 
     function _checkHash(

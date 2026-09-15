@@ -14,6 +14,7 @@ const config: EpochConfig = {
 	revealPhaseDuration: 4,
 	startTime: 0,
 	commitTimeAllowance: 4.1,
+	policy: 'timed',
 };
 
 /** An epoch store driven by a clock the test moves by hand. */
@@ -114,6 +115,40 @@ describe('the commit-reveal round', () => {
 			identity: player,
 			actions: [{cellID: 42n}],
 		});
+		stop();
+	});
+
+	it('tells a scheduler when the reveal is due, off the ROUND', async () => {
+		// FOUND BY MUTATION. `revealDueAt` used to be recomputed here from the
+		// deployment's start time, which agrees with the round on a purely timed
+		// chain and is why nothing noticed. Under a policy where unanimity can
+		// bring a phase forward, an early advance re-origins the epoch, so the
+		// recomputed answer is for a grid the chain has left behind - and a
+		// scheduled reveal is the one thing that cannot be asked again later:
+		// what it costs to aim it at the wrong moment is the stake.
+		const reAnchored = {
+			...calculateEpochInfo(0, config),
+			// The epoch began later than the deployment's grid implies, so its
+			// reveal opens later too.
+			revealOpensAt: 1_234,
+		};
+		const epochInfo: EpochInfoStore = {
+			subscribe: writable<EpochInfo>(reAnchored).subscribe,
+			now: () => reAnchored,
+			fromTime: () => reAnchored,
+		};
+		const {adapter, calls} = fakeAdapter();
+		const round = createRound({
+			epochInfo,
+			adapter,
+			storage: fakeStorage<Action>(),
+			identity,
+		});
+		const stop = round.start();
+
+		round.plan([{cellID: 7n}]);
+		await round.commit();
+		expect(calls.commit[0]).toMatchObject({revealDueAt: 1_234});
 		stop();
 	});
 

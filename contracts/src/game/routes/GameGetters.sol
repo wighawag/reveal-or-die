@@ -13,6 +13,21 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     }
 
     /// @inheritdoc IGameGetters
+    function getRound() external view returns (Round memory round) {
+        return _round();
+    }
+
+    /// @inheritdoc IGameGetters
+    function getAttendance()
+        external
+        view
+        returns (Attendance memory attendance)
+    {
+        (uint64 epoch, ) = _epoch();
+        return _attendance(epoch);
+    }
+
+    /// @inheritdoc IGameGetters
     function getCommitment(
         uint256 player
     ) external view returns (Commitment memory commitment) {
@@ -32,7 +47,8 @@ contract GameGetters is IGameGetters, UsingGameInternal {
             revealPhaseDuration: REVEAL_PHASE_DURATION,
             time: TIME,
             tokens: TOKENS,
-            placementCost: PLACEMENT_COST
+            placementCost: PLACEMENT_COST,
+            epochPolicy: EPOCH_POLICY
         });
     }
 

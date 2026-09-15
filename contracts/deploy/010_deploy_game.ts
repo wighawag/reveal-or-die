@@ -16,6 +16,12 @@ export default deployScript(
 			time: zeroAddress,
 			tokens: GameToken.address,
 			placementCost: parseEther('1'),
+			// How the round advances, said out loud rather than derived from the
+			// phase durations being zero. It is recorded in `linkedData` below,
+			// which is where the client reads it: a client that had to infer the
+			// policy from the durations would be reconstructing a decision the
+			// deploy already made.
+			epochPolicy: data.Game.epochPolicy,
 		};
 
 		const routes = [

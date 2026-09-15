@@ -1,7 +1,14 @@
 import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
-import {setupFixtures, idOf, enterGame} from './utils/index.js';
+import {
+	setupFixtures,
+	idOf,
+	enterGame,
+	deployGameWith,
+	EPOCH_POLICY,
+	type EpochPolicy,
+} from './utils/index.js';
 import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
 import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts';
 import {delegationMessage} from '@etherplay/delegation';
@@ -120,15 +127,25 @@ describe('Game', function () {
 	 * This is easy to break by accident: "the first to reveal takes the cell"
 	 * and "reject a cell that is already taken" both look like reasonable rules
 	 * and both violate it. So it is asserted directly rather than trusted.
+	 *
+	 * IT IS REPLAYED UNDER EVERY EPOCH POLICY, because the policy is the place
+	 * the same failure can reappear one level up: a round that could be pushed
+	 * forward by a subset would let whoever is quickest decide what everyone
+	 * else got, which is the reveal race wearing a clock. The board must come
+	 * out identical whether the phase turned over on a timer or because the
+	 * players were all present and said so.
 	 */
 	it('reaches the same board whichever order the reveals arrive in', async function () {
-		async function boardAfterRevealsInOrder(revealFirst: 'A' | 'B'): Promise<{
+		async function boardAfterRevealsInOrder(
+			revealFirst: 'A' | 'B',
+			policy: EpochPolicy,
+		): Promise<{
 			contested: {totalStake: bigint; numClaimants: number};
 			listed: string[];
 		}> {
 			const {
 				env,
-				Game,
+				Game: TimedGame,
 				GameToken,
 				unnamedAccounts,
 				advanceToEpoch,
@@ -142,6 +159,36 @@ describe('Game', function () {
 
 			const {epoch: startEpoch} = getEpoch(await getTimestamp());
 			await advanceToEpoch(startEpoch + 2, true);
+
+			// The shipped deployment is the timed one, so that policy is played
+			// on the real thing rather than on a copy of it.
+			const manual = policy === EPOCH_POLICY.Manual;
+			const Game =
+				policy === EPOCH_POLICY.Timed
+					? TimedGame
+					: await deployGameWith(env, {
+							name: `Game_replay_${policy}`,
+							epochPolicy: policy,
+							commitPhaseDuration: manual ? 0n : 30n,
+							revealPhaseDuration: manual ? 0n : 10n,
+							tokens: GameToken.address,
+						});
+
+			/** Get to the reveal phase the way this policy allows. */
+			async function openRevealPhase() {
+				if (policy === EPOCH_POLICY.Timed) {
+					const {epoch} = getEpoch(await getTimestamp());
+					await advanceToRevealPhase(epoch, true);
+					return;
+				}
+				// Both players have committed, so the phase may be brought
+				// forward. Anyone may do it; it is nobody's move.
+				await env.execute(Game, {
+					account: playerA,
+					functionName: 'advanceRound',
+					args: [],
+				});
+			}
 
 			const identityA = await enterGame({env, Game, GameToken}, playerA);
 			const identityB = await enterGame({env, Game, GameToken}, playerB);
@@ -178,8 +225,7 @@ describe('Game', function () {
 				],
 			});
 
-			const {epoch} = getEpoch(await getTimestamp());
-			await advanceToRevealPhase(epoch, true);
+			await openRevealPhase();
 
 			const revealA = () =>
 				env.execute(Game, {
@@ -229,26 +275,32 @@ describe('Game', function () {
 			};
 		}
 
-		const aFirst = await boardAfterRevealsInOrder('A');
-		const bFirst = await boardAfterRevealsInOrder('B');
+		for (const policy of [
+			EPOCH_POLICY.Timed,
+			EPOCH_POLICY.Manual,
+			EPOCH_POLICY.TimedWithEarlyAdvance,
+		] as EpochPolicy[]) {
+			const aFirst = await boardAfterRevealsInOrder('A', policy);
+			const bFirst = await boardAfterRevealsInOrder('B', policy);
 
-		// Same final board either way: the cell is shared, not won.
-		expect(aFirst.contested.totalStake).toEqual(bFirst.contested.totalStake);
-		expect(aFirst.contested.numClaimants).toEqual(
-			bFirst.contested.numClaimants,
-		);
+			// Same final board either way: the cell is shared, not won.
+			expect(aFirst.contested.totalStake).toEqual(bFirst.contested.totalStake);
+			expect(aFirst.contested.numClaimants).toEqual(
+				bFirst.contested.numClaimants,
+			);
 
-		// And it really is shared, rather than both reveals failing.
-		expect(aFirst.contested.numClaimants).toEqual(2);
-		expect(aFirst.contested.totalStake).toEqual(parseEther('2'));
+			// And it really is shared, rather than both reveals failing.
+			expect(aFirst.contested.numClaimants).toEqual(2);
+			expect(aFirst.contested.totalStake).toEqual(parseEther('2'));
 
-		// The board a client READS is the same board too. This is a separate
-		// claim from the one above: the cells are listed out of a per-zone index
-		// that reveals append to, so an index that indexed only what the first
-		// reveal saw, or that indexed a cell twice, would leave the stakes
-		// identical and still show two different boards.
-		expect(aFirst.listed).toEqual(bFirst.listed);
-		expect(aFirst.listed.length).toEqual(3);
+			// The board a client READS is the same board too. This is a separate
+			// claim from the one above: the cells are listed out of a per-zone
+			// index that reveals append to, so an index that indexed only what
+			// the first reveal saw, or that indexed a cell twice, would leave
+			// the stakes identical and still show two different boards.
+			expect(aFirst.listed).toEqual(bFirst.listed);
+			expect(aFirst.listed.length).toEqual(3);
+		}
 	});
 
 	it('forfeits the bond of a player who never reveals', async function () {

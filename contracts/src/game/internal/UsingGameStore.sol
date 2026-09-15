@@ -15,8 +15,8 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     IERC20 internal immutable TOKENS;
     /// @notice how much one placement costs
     uint256 internal immutable PLACEMENT_COST;
-    /// @notice whether to skip commit phase and let player make their move in the reveal phase (trusted setup)
-    bool internal immutable SKIP_COMMIT;
+    /// @notice how the round advances: see {UsingGameTypes-EpochPolicy}
+    EpochPolicy internal immutable EPOCH_POLICY;
 
     /// @notice the number of placements a hash represents
     uint8 internal constant MAX_NUM_PLACEMENTS_PER_HASH = 32;
@@ -52,7 +52,26 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     ///      by _place on a cell's first ever placement; read by _cellsInZones.
     mapping(uint64 => uint64[]) internal _occupiedCellsInZone;
 
-    ManualEpoch internal _manualEpoch;
+    /// @notice What the last advance wrote down. See {UsingGameTypes-EpochState}.
+    EpochState internal _epochState;
+
+    /// @notice How many members the epoch waits for.
+    /// @dev THE DENOMINATOR OF UNANIMITY, and the reason early advance cannot
+    ///      be offered as a switch independent of membership: "everyone has
+    ///      committed" has no meaning under open entry, because there is no
+    ///      denominator. A count is enough and a roster is not needed, so the
+    ///      roster is not stored until something else wants one.
+    uint64 internal _waitedFor;
+
+    /// @notice Whether this player is one of them, so the count cannot be
+    ///         incremented twice for the same member.
+    mapping(uint256 => bool) internal _isWaitedFor;
+
+    /// @notice How many of them have acted in the epoch it names.
+    /// @dev One slot rather than a mapping per epoch: it is only ever read for
+    ///      the CURRENT epoch, so a stale epoch number means both counts are
+    ///      zero and the slot is reset in place by whoever acts first.
+    EpochTally internal _tally;
 
     /// @notice Create an instance of a game
     /// @param config configuration options for the game
@@ -62,7 +81,8 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
         REVEAL_PHASE_DURATION = config.revealPhaseDuration;
         TOKENS = config.tokens;
         PLACEMENT_COST = config.placementCost;
-        // TODO allow to specify it separately
-        SKIP_COMMIT = COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0;
+        EPOCH_POLICY = config.epochPolicy;
+        // What makes a configuration VALID is checked one level up, in
+        // {UsingGameInternal}, which is where the errors are declared.
     }
 }

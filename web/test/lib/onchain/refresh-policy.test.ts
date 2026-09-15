@@ -43,11 +43,13 @@ function timed(currentEpoch: number, isCommitPhase: boolean): EpochInfo {
 		timeLeftForCommitEnd: 10,
 		timeLeftForRevealEnd: 10,
 		currentPhaseDuration: 20,
+		revealOpensAt: 10,
 		config: {
 			commitPhaseDuration: 10,
 			revealPhaseDuration: 10,
 			startTime: 0,
 			commitTimeAllowance: 1,
+			policy: 'timed',
 		},
 	};
 }
