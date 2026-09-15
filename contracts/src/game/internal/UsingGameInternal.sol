@@ -80,6 +80,20 @@ abstract contract UsingGameInternal is
             revert ReserveTooLow(current, amount + locked);
         }
 
+        // AND YOU CANNOT LEAVE WITH A TURN STILL OPEN, which is the same rule
+        // as the line above applied to the thing that is really at stake. The
+        // bond is not the only thing an open commitment holds: being a member
+        // is, because the round is WAITING for this player. A turn bonding
+        // ZERO locks nothing, so without this a player could commit, empty
+        // their reserve, cease to be waited for, and leave the epoch counting
+        // their commitment while no longer counting them - at which point a
+        // SUBSET satisfies unanimity and closes the phase on somebody who has
+        // not acted. That is not a corner case: an idle player's automatic
+        // empty turn bonds exactly zero.
+        if (amount == current && commitment.epoch != 0) {
+            revert CommitmentStillOpen(commitment.epoch);
+        }
+
         uint256 newAmount = current - amount;
         _reserve[player] = newAmount;
         emit ReserveWithdrawn(player, amount, newAmount);
@@ -109,6 +123,21 @@ abstract contract UsingGameInternal is
             revert InRevealPhase(epoch);
         }
 
+        // ONLY A MEMBER MAY TAKE A TURN, and the reason is arithmetic rather
+        // than etiquette: unanimity compares how many have committed against
+        // how many the epoch waits for, and those two have to count the SAME
+        // SET or the comparison means nothing. Without this, any address at
+        // all could commit - a bond of zero against a reserve of zero passes
+        // every other check here - and enough throwaway addresses could push
+        // the count past the membership, close the commit phase before a real
+        // player had acted, and do it again every block.
+        //
+        // It costs an honest player nothing: entering is what gives them
+        // something to bond in the first place.
+        if (!_isWaitedFor[player]) {
+            revert NotInGame(player);
+        }
+
         if (bond > _reserve[player]) {
             revert ReserveTooLow(_reserve[player], bond);
         }
@@ -122,7 +151,8 @@ abstract contract UsingGameInternal is
         // Counted once per player per epoch, not once per call: replacing a
         // commitment you already made this epoch is allowed, and counting it
         // again would let one player alone satisfy unanimity for the whole
-        // set.
+        // set. Every commitment reaching here is a member's, per the check
+        // above, which is what makes this count comparable to {_waitedFor}.
         if (commitment.epoch != epoch) {
             _recordCommitment(epoch);
         }

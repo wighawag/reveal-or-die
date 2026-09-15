@@ -62,6 +62,16 @@ interface UsingGameErrors {
     ///      spin the round forward on their own.
     error NoOneToWaitFor();
 
+    /// @notice this identity has not entered the game, so it cannot take a turn
+    /// @dev What entering MEANS is the game's: a funded reserve here, custody of
+    ///      a token elsewhere. What the round needs is only that the set of
+    ///      players who may commit is the same set unanimity is measured
+    ///      against - see {UsingGameInternal-_makeCommitment}.
+    error NotInGame(uint256 player);
+
+    /// @notice cannot stop being a member while a turn of yours is still open
+    error CommitmentStillOpen(uint64 epoch);
+
     /// @notice some of the members the epoch waits for have not committed yet
     error StillWaitingToCommit(uint64 committed, uint64 waitedFor);
 
