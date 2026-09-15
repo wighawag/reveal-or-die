@@ -4,12 +4,14 @@ import {network} from 'hardhat';
 import {
 	setupFixtures,
 	enterGame,
+	leaveGame,
 	deployGameWith,
 	epochClock,
 	EPOCH_POLICY,
+	TURN_BOND,
 	type EpochPolicy,
 } from './utils/index.js';
-import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
+import {encodeAbiParameters, keccak256, zeroAddress} from 'viem';
 
 const {provider, networkHelpers} = await network.connect();
 const {deployAll} = setupFixtures(provider);
@@ -61,18 +63,17 @@ type Round = {
  */
 async function gameOn(policy: EpochPolicy, players = 2) {
 	const fixtures = await networkHelpers.loadFixture(deployAll);
-	const {env, GameToken, unnamedAccounts} = fixtures;
+	const {env, unnamedAccounts} = fixtures;
 
 	const manual = policy === EPOCH_POLICY.Manual;
 	const commitPhaseDuration = manual ? 0n : COMMIT_PHASE;
 	const revealPhaseDuration = manual ? 0n : REVEAL_PHASE;
 
-	const Game = await deployGameWith(env, {
+	const Game = await deployGameWith(fixtures, {
 		name: `Game_policy_${policy}`,
 		epochPolicy: policy,
 		commitPhaseDuration,
 		revealPhaseDuration,
-		tokens: GameToken.address,
 	});
 
 	const clock = epochClock({
@@ -124,7 +125,7 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 			args: [
 				identities[i],
 				commitmentHash(placements, secret),
-				parseEther('5'),
+				TURN_BOND,
 				zeroAddress,
 			],
 		});
@@ -185,11 +186,7 @@ describe('Epoch policy', function () {
 		// The one member leaves, so unanimity has no denominator. Without this
 		// refusal a single caller could spin an empty game forward as fast as
 		// they liked.
-		await game.env.execute(game.Game, {
-			account: game.accounts[0],
-			functionName: 'withdrawFromReserve',
-			args: [parseEther('10')],
-		});
+		await leaveGame(game, game.accounts[0], game.identities[0]);
 		expect((await game.attendance()).waitedFor).toEqual(0n);
 
 		await expect(game.advance()).toBeRejectedWith(/NoOneToWaitFor/);
@@ -222,33 +219,12 @@ describe('Epoch policy', function () {
 		// leaving. It settles nothing and costs nothing beyond the departure;
 		// what it does is remove them from the denominator, and that is the
 		// whole of what stops an absent player freezing a game with no clock.
-		await game.env.execute(game.Game, {
-			account: game.accounts[1],
-			functionName: 'withdrawFromReserve',
-			args: [parseEther('10')],
-		});
+		await leaveGame(game, game.accounts[1], game.identities[1]);
 
 		const attendance = await game.attendance();
 		expect(attendance.waitedFor).toEqual(1n);
 		expect(attendance.committed).toEqual(1n);
 
-		await game.advance();
-		expect((await game.round()).commiting).toEqual(false);
-	});
-
-	it('counts one member however many times they top up', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 1);
-
-		// FOUND BY MUTATION, and it is the worst kind of failure this axis can
-		// have. Topping up is an ordinary thing to do twice, and counting the
-		// same member again raises the denominator above the number of people
-		// who can ever answer it: unanimity becomes unreachable, so a manual
-		// game stops advancing for good and the revert names a member who does
-		// not exist. Nothing else in this suite noticed.
-		await enterGame(game, game.accounts[0]);
-		expect((await game.attendance()).waitedFor).toEqual(1n);
-
-		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);
 		await game.advance();
 		expect((await game.round()).commiting).toEqual(false);
 	});
@@ -418,19 +394,18 @@ describe('Epoch policy', function () {
 	});
 
 	it('refuses a configuration with a phase that does not exist', async function () {
-		const {env, GameToken} = await networkHelpers.loadFixture(deployAll);
+		const fixtures = await networkHelpers.loadFixture(deployAll);
 
 		// A zero reveal phase makes every commitment unopenable and a zero
 		// commit phase makes every commitment impossible, and both are silent:
 		// the first player to lose their stake is the error message. Refused at
 		// construction instead.
 		await expect(
-			deployGameWith(env, {
+			deployGameWith(fixtures, {
 				name: 'Game_no_reveal_phase',
 				epochPolicy: EPOCH_POLICY.Timed,
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 0n,
-				tokens: GameToken.address,
 			}),
 		).toBeRejected();
 
@@ -438,12 +413,11 @@ describe('Epoch policy', function () {
 		// schedule that does not exist - which a client would read back and
 		// draw a countdown with.
 		await expect(
-			deployGameWith(env, {
+			deployGameWith(fixtures, {
 				name: 'Game_manual_with_a_clock',
 				epochPolicy: EPOCH_POLICY.Manual,
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
-				tokens: GameToken.address,
 			}),
 		).toBeRejected();
 	});

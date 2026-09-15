@@ -82,23 +82,28 @@ export function epochClock(config: {
 let deploymentSequence = 0;
 
 export async function deployGameWith(
-	env: any,
+	fixtures: {env: any; GameToken: any},
 	options: {
 		name: string;
 		epochPolicy: EpochPolicy;
 		commitPhaseDuration: bigint;
 		revealPhaseDuration: bigint;
 		startTime?: bigint;
-		tokens: `0x${string}`;
 		placementCost?: bigint;
 	},
 ) {
+	const {env} = fixtures;
 	const config = {
 		startTime: options.startTime ?? 0n,
 		commitPhaseDuration: options.commitPhaseDuration,
 		revealPhaseDuration: options.revealPhaseDuration,
 		time: zeroAddress,
-		tokens: options.tokens,
+		// WHAT THE GAME IS MADE OF COMES OUT OF THE FIXTURES, not out of the
+		// caller's hand. A suite about the epoch should not have to know what
+		// this game puts at stake, because that is the thing each branch of
+		// this repo changes - and a caller that spelled it out would be the
+		// line every branch has to rewrite.
+		tokens: fixtures.GameToken.address,
 		placementCost: options.placementCost ?? parseEther('1'),
 		epochPolicy: BigInt(options.epochPolicy),
 	};
@@ -157,6 +162,44 @@ export function idOf(account: `0x${string}`): bigint {
  * delegation suite), and topping up someone else's reserve is a gift rather
  * than an attack, since only its owner can withdraw it.
  */
+/**
+ * WHAT ONE TURN BONDS, in a game that bonds anything.
+ *
+ * Here a placement is paid for out of the reserve, so a commitment has to set
+ * some of it aside; on a branch whose stake is custody of a token there is
+ * nothing to bond and this is zero. It is a constant rather than a number in
+ * each suite so that a suite about the ROUND never has to name what is at
+ * stake.
+ */
+export const TURN_BOND = parseEther('5');
+
+/**
+ * STOP BEING A MEMBER, by whatever leaving means here.
+ *
+ * The epoch waits for members, so something has to be able to stop being one:
+ * that is what keeps a game with no clock from being frozen by somebody who
+ * walked away. On this game membership is a funded reserve, so leaving is
+ * taking all of it back out. It settles nothing and costs nothing beyond the
+ * departure, which is the point - leaving the set the epoch waits for and
+ * being punished for going silent are different questions.
+ */
+export async function leaveGame(
+	fixtures: {env: any; Game: any},
+	account: `0x${string}`,
+	_identity: bigint,
+): Promise<void> {
+	const {env, Game} = fixtures;
+	const reserve = (await env.read(Game, {
+		functionName: 'getReserve',
+		args: [idOf(account)],
+	})) as bigint;
+	await env.execute(Game, {
+		account,
+		functionName: 'withdrawFromReserve',
+		args: [reserve],
+	});
+}
+
 export async function enterGame(
 	fixtures: {env: any; Game: any; GameToken: any},
 	account: `0x${string}`,
