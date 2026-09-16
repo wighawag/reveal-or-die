@@ -485,8 +485,8 @@ describe('Game', function () {
 				(await env.read(Game, {
 					functionName: 'getCommitment',
 					args: [idOf(payer)],
-				})) as {epoch: bigint}
-			).epoch,
+				})) as {cycleNumber: bigint}
+			).cycleNumber,
 		).toEqual(0n);
 
 		// And the player, who never held a token, can now play on it.
@@ -629,16 +629,16 @@ describe('Game delegation', function () {
 		const commitment = (await env.read(Game, {
 			functionName: 'getCommitment',
 			args: [identity],
-		})) as {hash: `0x${string}`; epoch: bigint};
-		expect(commitment.epoch > 0n).toEqual(true);
+		})) as {hash: `0x${string}`; cycleNumber: bigint};
+		expect(commitment.cycleNumber > 0n).toEqual(true);
 
 		// And the signer is not a player at all: `idOf` is the identity an
 		// address game would have given it, and nothing here answers to it.
 		const signerCommitment = (await env.read(Game, {
 			functionName: 'getCommitment',
 			args: [idOf(signer)],
-		})) as {hash: `0x${string}`; epoch: bigint};
-		expect(signerCommitment.epoch).toEqual(0n);
+		})) as {hash: `0x${string}`; cycleNumber: bigint};
+		expect(signerCommitment.cycleNumber).toEqual(0n);
 	});
 
 	it('refuses a key the account never authorised', async function () {
@@ -727,8 +727,8 @@ describe('Game delegation', function () {
 		const commitment = (await env.read(Game, {
 			functionName: 'getCommitment',
 			args: [identity],
-		})) as {epoch: bigint};
-		expect(commitment.epoch).toEqual(0n);
+		})) as {cycleNumber: bigint};
+		expect(commitment.cycleNumber).toEqual(0n);
 	});
 
 	it('refuses an identity nobody has put at stake', async function () {

@@ -8,7 +8,11 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     constructor(Config memory config) UsingGameInternal(config) {}
 
     /// @inheritdoc IGameGetters
-    function getEpoch() external view returns (uint64 epoch, bool commiting) {
+    function getCycleNumber()
+        external
+        view
+        returns (uint64 cycleNumber, bool commiting)
+    {
         return _epoch();
     }
 
@@ -48,7 +52,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
             time: TIME,
             tokens: TOKENS,
             placementCost: PLACEMENT_COST,
-            epochPolicy: EPOCH_POLICY
+            cyclePolicy: EPOCH_POLICY
         });
     }
 
@@ -68,7 +72,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     /// @inheritdoc IGameGetters
     function getCellsInZone(
         uint64 zone
-    ) external view returns (CellAt[] memory cells, uint64 epoch) {
+    ) external view returns (CellAt[] memory cells, uint64 cycleNumber) {
         uint64[] memory zones = new uint64[](1);
         zones[0] = zone;
         return _cellsInZones(zones);
@@ -77,7 +81,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     /// @inheritdoc IGameGetters
     function getCellsInZones(
         uint64[] calldata zones
-    ) external view returns (CellAt[] memory cells, uint64 epoch) {
+    ) external view returns (CellAt[] memory cells, uint64 cycleNumber) {
         return _cellsInZones(zones);
     }
 

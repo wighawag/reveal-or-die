@@ -30,7 +30,7 @@ export default deployScript(
 			// which is where the client reads it: a client that had to infer the
 			// policy from the durations would be reconstructing a decision the
 			// deploy already made.
-			epochPolicy: data.Game.epochPolicy,
+			cyclePolicy: data.Game.epochPolicy,
 		};
 
 		const routes = [

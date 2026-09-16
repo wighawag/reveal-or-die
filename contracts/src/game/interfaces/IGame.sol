@@ -78,7 +78,7 @@ interface IGameReveal is UsingGameTypes {
     function acknowledgeMissedReveal(uint256 player) external;
 
     /// @notice Move the round on, if the rules already permit it.
-    /// @return epoch The epoch after the move.
+    /// @return cycleNumber The epoch after the move.
     /// @return commiting Which phase it is now in.
     /// @dev PERMISSIONLESS AND STRICTLY CONDITIONAL. Anyone may call it, and it
     ///      can only do what would already have been allowed: the phase moves
@@ -93,11 +93,16 @@ interface IGameReveal is UsingGameTypes {
     ///
     ///      On a purely timed game it always reverts, because the epoch is
     ///      whatever the clock says and no transaction can change that.
-    function advanceRound() external returns (uint64 epoch, bool commiting);
+    function advanceRound()
+        external
+        returns (uint64 cycleNumber, bool commiting);
 }
 
 interface IGameGetters is UsingGameTypes {
-    function getEpoch() external view returns (uint64 epoch, bool commiting);
+    function getCycleNumber()
+        external
+        view
+        returns (uint64 cycleNumber, bool commiting);
 
     /// @notice Where the round is, and until when.
     /// @dev THE ONE A CLIENT SHOULD READ. A client can compute the epoch from
@@ -136,12 +141,12 @@ interface IGameGetters is UsingGameTypes {
     ///      stale one without a second call.
     function getCellsInZone(
         uint64 zone
-    ) external view returns (CellAt[] memory cells, uint64 epoch);
+    ) external view returns (CellAt[] memory cells, uint64 cycleNumber);
 
     /// @notice The same across several zones, for a viewport spanning them.
     function getCellsInZones(
         uint64[] calldata zones
-    ) external view returns (CellAt[] memory cells, uint64 epoch);
+    ) external view returns (CellAt[] memory cells, uint64 cycleNumber);
 }
 
 interface IGame is IGameCommit, IGameReveal, IGameGetters, IDelegation {}

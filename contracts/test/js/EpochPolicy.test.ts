@@ -47,7 +47,7 @@ const COMMIT_PHASE = 30n;
 const REVEAL_PHASE = 10n;
 
 type Round = {
-	epoch: bigint;
+	cycleNumber: bigint;
 	commiting: boolean;
 	phaseStart: bigint;
 	phaseEnd: bigint;
@@ -353,7 +353,7 @@ describe('Epoch policy', function () {
 		const before = await game.round();
 		await game.advance();
 		const after = await game.round();
-		expect(after.epoch).toEqual(before.epoch + 1n);
+		expect(after.cycleNumber).toEqual(before.cycleNumber + 1n);
 		expect(after.commiting).toEqual(true);
 	});
 
@@ -372,7 +372,7 @@ describe('Epoch policy', function () {
 		// nothing else. An advance out of a commit phase that skipped to the
 		// next epoch would stran the commitment just made: unrevealable, and
 		// forfeit, with nothing raised anywhere.
-		expect(after.epoch).toEqual(before.epoch);
+		expect(after.cycleNumber).toEqual(before.cycleNumber);
 		expect(after.commiting).toEqual(false);
 
 		await game.reveal(0, placements, SECRET_A);
@@ -389,7 +389,7 @@ describe('Epoch policy', function () {
 		await game.advance();
 
 		const after = await game.round();
-		expect(after.epoch).toEqual(before.epoch);
+		expect(after.cycleNumber).toEqual(before.cycleNumber);
 		expect(after.commiting).toEqual(false);
 
 		// AN ADVANCE MAY ONLY WIDEN A WINDOW. The reveal window now runs from
@@ -436,7 +436,7 @@ describe('Epoch policy', function () {
 		await game.advance();
 
 		const after = await game.round();
-		expect(after.epoch).toEqual(before.epoch + 1n);
+		expect(after.cycleNumber).toEqual(before.cycleNumber + 1n);
 		expect(after.commiting).toEqual(true);
 
 		// The new commit phase is a FULL one starting now, rather than what was
@@ -475,7 +475,7 @@ describe('Epoch policy', function () {
 		// it were, a reveal's gas would depend on winning a race, an advance
 		// stranded by an unrelated revert would leave the round stuck, and the
 		// policy would have leaked into the one call every policy shares.
-		expect(after.epoch).toEqual(before.epoch);
+		expect(after.cycleNumber).toEqual(before.cycleNumber);
 		expect(after.commiting).toEqual(false);
 	});
 
