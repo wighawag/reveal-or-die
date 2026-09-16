@@ -18,10 +18,10 @@ import {parseEther} from 'viem';
  * would silently deploy a different policy from the one named.
  *
  * `Timed` is what a deployed game wants, and it is the only one that needs no
- * transaction to move: the epoch simply is what the clock says.
+ * transaction to move: the cycle simply is what the clock says.
  *
  * `Manual` has no clock at all. Every phase moves because someone pushed it,
- * and only once every member the epoch waits for has acted - so a member who
+ * and only once every member the cycle waits for has acted - so a member who
  * goes silent freezes it, and the way out is to stop waiting for them rather
  * than to add a timer.
  *
@@ -33,7 +33,7 @@ import {parseEther} from 'viem';
  * the Game's `linkedData` and read back. The e2e suite plays a TIMED game and
  * its waits are sized against the durations below.
  */
-export const EPOCH_POLICY = {
+export const CYCLE_POLICY = {
 	Timed: 0n,
 	Manual: 1n,
 	TimedWithEarlyAdvance: 2n,
@@ -150,13 +150,13 @@ export const config = {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
 				numMoves: 10n,
-				epochPolicy: EPOCH_POLICY.Timed,
+				cyclePolicy: CYCLE_POLICY.Timed,
 			},
 			default: {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
 				numMoves: 10n,
-				epochPolicy: EPOCH_POLICY.Timed,
+				cyclePolicy: CYCLE_POLICY.Timed,
 			},
 		},
 	},

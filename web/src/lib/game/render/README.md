@@ -20,7 +20,7 @@ type GameRenderer<TSurface> = {
 | ------------------------------- | --------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | **Reactive** (Svelte)           | a component                 | nothing extra: `viewState` is a store                           | HUDs, card games, board games with few entities, anything that is really a UI                      |
 | **Immediate** (twgl, canvas 2d) | a `draw` function           | the current view snapshot, per frame, with the camera transform | GPU rendering, thousands of entities, tile maps, anything where you would rather rebuild than diff |
-| **Stateful** (pixi, three.js)   | `add` / `update` / `remove` | the diff, epoch changes, teardown                               | sprite scenes, retained scene graphs, anything with per-object animation                           |
+| **Stateful** (pixi, three.js)   | `add` / `update` / `remove` | the diff, cycle changes, teardown                               | sprite scenes, retained scene graphs, anything with per-object animation                           |
 
 If you are unsure, the answer is reactive until it is slow, then immediate. Stateful is the right answer when the library you want is retained-mode, which pixi and three.js are.
 
@@ -94,7 +94,7 @@ Four things it does that a hand-written loop usually does not, all of which are 
 
 - **`changed` is a typed comparison, not a key string.** Stateful renderers grow a dirty check like `` `${stake}:${claimants}:${planned}` ``. When a field is left out of one, the object simply never updates on screen and nothing fails.
 - **An `Unloaded` view empties the scene.** State can go backwards (an account switch, a chain reset), and a loop that returns early on `Unloaded` leaves a board that belongs to nobody on screen forever.
-- **Epoch changes are announced**, before that epoch's entities are applied. A commit-reveal game draws local intent that is scoped to exactly one epoch; without a signal, a renderer can only infer the boundary from entities changing, which is the inference that fails when nothing changed.
+- **Cycle changes are announced**, before that cycle's entities are applied. A commit-reveal game draws local intent that is scoped to exactly one cycle; without a signal, a renderer can only infer the boundary from entities changing, which is the inference that fails when nothing changed.
 - **Teardown drops objects without running `remove`.** The surface has already taken them. Use `onStopped` for anything the surface does not own.
 - **`tick` can enumerate the live objects.** It is handed `objects` (and `entries`, keyed) alongside the frame, which is what makes the per-object animation this style is recommended for actually writable. Without it a renderer has to keep its own parallel collection, filled in `add` and emptied in `remove`: a second source of truth that is wrong exactly when a handler throws or a key is re-added, and silent when it is wrong.
 
@@ -119,7 +119,7 @@ Three layers, none of which know about any rendering library:
 
 ## Keyboard and gamepad, as intent recognisers
 
-Same shape as `gestures.ts`, twice more: a pure recogniser that turns raw input into a `ControlIntent`, and a small DOM half that feeds it. Nothing here knows what a piece, a round or an epoch is.
+Same shape as `gestures.ts`, twice more: a pure recogniser that turns raw input into a `ControlIntent`, and a small DOM half that feeds it. Nothing here knows what a piece, a round or a cycle is.
 
 | file         | pure half                                                     | DOM half                       |
 | ------------ | ------------------------------------------------------------- | ------------------------------ |

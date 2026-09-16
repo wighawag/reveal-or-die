@@ -23,7 +23,7 @@ interface UsingGameEvents is UsingGameTypes {
         uint256 newAmount
     );
 
-    /// @notice A player committed to a set of placements for this epoch.
+    /// @notice A player committed to a set of placements for this cycle.
     event CommitmentMade(
         uint256 indexed player,
         uint64 indexed cycleNumber,
@@ -74,7 +74,7 @@ interface UsingGameEvents is UsingGameTypes {
         address pushedBy
     );
 
-    /// @notice The epoch started, or stopped, waiting for this player.
+    /// @notice The cycle started, or stopped, waiting for this player.
     /// @param waitedFor Whether it now waits for them.
     /// @param waitedForCount How many members it waits for in total, which is
     ///        the denominator unanimity is measured against.

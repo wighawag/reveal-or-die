@@ -218,7 +218,7 @@ export type AppContext = {
 	 * Returns its teardown, like every other `start` here.
 	 *
 	 * Optional upstream, because a greeting demo has none: its chain reads are
-	 * driven by core's refresh wiring. A game HAS one (it steps epochs), which is
+	 * driven by core's refresh wiring. A game HAS one (it steps cycles), which is
 	 * why this slot exists at all, and it is what keeps that loop out of core.
 	 */
 	start?: () => () => void;

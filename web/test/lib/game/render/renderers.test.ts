@@ -47,8 +47,8 @@ describe('createStatefulRenderer', () => {
 			},
 			update: ({key}) => log.push(`update ${key}`),
 			remove: ({key}) => log.push(`remove ${key}`),
-			onEpochChanged: ({epoch, previousEpoch}) =>
-				log.push(`epoch ${previousEpoch} -> ${epoch}`),
+			onCycleChanged: ({cycleNumber, previousCycleNumber}) =>
+				log.push(`cycle ${previousCycleNumber} -> ${cycleNumber}`),
 			onStopped: () => log.push('stopped'),
 		});
 
@@ -86,7 +86,7 @@ describe('createStatefulRenderer', () => {
 		withTick.onAppStarted(surface);
 		store.set({
 			step: 'Loaded',
-			epoch: 1,
+			cycleNumber: 1,
 			cells: new Map([
 				['a', {stake: 1}],
 				['b', {stake: 1}],
@@ -97,7 +97,11 @@ describe('createStatefulRenderer', () => {
 
 		// And it follows the scene rather than a snapshot taken once: an entity
 		// the state dropped stops being animated.
-		store.set({step: 'Loaded', epoch: 1, cells: new Map([['b', {stake: 1}]])});
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 1,
+			cells: new Map([['b', {stake: 1}]]),
+		});
 		withTick.tick(frame);
 		expect(seen[1]).toEqual(['b']);
 
@@ -111,31 +115,43 @@ describe('createStatefulRenderer', () => {
 		const {store, log, surface, renderer} = setup();
 		renderer.onAppStarted(surface);
 
-		store.set({step: 'Loaded', epoch: 1, cells: new Map([['a', {stake: 1}]])});
-		expect(log).toEqual(['epoch undefined -> 1', 'add a']);
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 1,
+			cells: new Map([['a', {stake: 1}]]),
+		});
+		expect(log).toEqual(['cycle undefined -> 1', 'add a']);
 
 		log.length = 0;
-		store.set({step: 'Loaded', epoch: 1, cells: new Map([['a', {stake: 2}]])});
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 1,
+			cells: new Map([['a', {stake: 2}]]),
+		});
 		expect(log).toEqual(['update a']);
 
 		log.length = 0;
-		store.set({step: 'Loaded', epoch: 1, cells: new Map()});
+		store.set({step: 'Loaded', cycleNumber: 1, cells: new Map()});
 		expect(log).toEqual(['remove a']);
 	});
 
 	/**
 	 * The signal a commit-reveal game needs and an ordinary one does not:
-	 * everything drawn from local intent is scoped to one epoch. Fired BEFORE the
-	 * new epoch's entities are applied, so a renderer can drop the old overlay
+	 * everything drawn from local intent is scoped to one cycle. Fired BEFORE the
+	 * new cycle's entities are applied, so a renderer can drop the old overlay
 	 * without racing what replaces it.
 	 */
-	it('announces an epoch change before applying that epoch', () => {
+	it('announces a cycle change before applying that cycle', () => {
 		const {store, log, surface, renderer} = setup();
 		renderer.onAppStarted(surface);
-		store.set({step: 'Loaded', epoch: 1, cells: new Map()});
+		store.set({step: 'Loaded', cycleNumber: 1, cells: new Map()});
 		log.length = 0;
-		store.set({step: 'Loaded', epoch: 2, cells: new Map([['a', {stake: 1}]])});
-		expect(log).toEqual(['epoch 1 -> 2', 'add a']);
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 2,
+			cells: new Map([['a', {stake: 1}]]),
+		});
+		expect(log).toEqual(['cycle 1 -> 2', 'add a']);
 	});
 
 	/**
@@ -147,17 +163,25 @@ describe('createStatefulRenderer', () => {
 	it('empties the scene when the state goes back to Unloaded', () => {
 		const {store, log, surface, renderer} = setup();
 		renderer.onAppStarted(surface);
-		store.set({step: 'Loaded', epoch: 1, cells: new Map([['a', {stake: 1}]])});
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 1,
+			cells: new Map([['a', {stake: 1}]]),
+		});
 		log.length = 0;
 
 		store.set({step: 'Unloaded'});
 		expect(log).toEqual(['remove a']);
 
-		// And the epoch is forgotten with it, so reloading the same epoch is
+		// And the cycle is forgotten with it, so reloading the same cycle is
 		// announced again rather than being mistaken for "no change".
 		log.length = 0;
-		store.set({step: 'Loaded', epoch: 1, cells: new Map([['a', {stake: 1}]])});
-		expect(log).toEqual(['epoch undefined -> 1', 'add a']);
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 1,
+			cells: new Map([['a', {stake: 1}]]),
+		});
+		expect(log).toEqual(['cycle undefined -> 1', 'add a']);
 	});
 
 	/**
@@ -168,7 +192,11 @@ describe('createStatefulRenderer', () => {
 	it('drops the scene on stop without running remove handlers', () => {
 		const {store, log, surface, renderer} = setup();
 		renderer.onAppStarted(surface);
-		store.set({step: 'Loaded', epoch: 1, cells: new Map([['a', {stake: 1}]])});
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 1,
+			cells: new Map([['a', {stake: 1}]]),
+		});
 		log.length = 0;
 
 		renderer.onAppStopped();
@@ -180,7 +208,11 @@ describe('createStatefulRenderer', () => {
 		renderer.onAppStarted(surface);
 		renderer.onAppStopped();
 		log.length = 0;
-		store.set({step: 'Loaded', epoch: 9, cells: new Map([['a', {stake: 1}]])});
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 9,
+			cells: new Map([['a', {stake: 1}]]),
+		});
 		expect(log).toEqual([]);
 	});
 
@@ -189,13 +221,17 @@ describe('createStatefulRenderer', () => {
 		renderer.onAppStarted(surface);
 		store.set({
 			step: 'Loaded',
-			epoch: 1,
+			cycleNumber: 1,
 			cells: new Map([
 				['a', {stake: 1}],
 				['b', {stake: 1}],
 			]),
 		});
-		store.set({step: 'Loaded', epoch: 1, cells: new Map([['a', {stake: 2}]])});
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 1,
+			cells: new Map([['a', {stake: 2}]]),
+		});
 		expect(renderer.lastDiff?.updated.map(([key]) => key)).toEqual(['a']);
 		expect(renderer.lastDiff?.removed.map(([key]) => key)).toEqual(['b']);
 	});
@@ -219,7 +255,11 @@ describe('createImmediateRenderer', () => {
 	it('draws the current view state on every tick', () => {
 		const {store, drawn, surface, renderer} = setup();
 		renderer.onAppStarted(surface);
-		store.set({step: 'Loaded', epoch: 1, cells: new Map([['a', {stake: 1}]])});
+		store.set({
+			step: 'Loaded',
+			cycleNumber: 1,
+			cells: new Map([['a', {stake: 1}]]),
+		});
 
 		renderer.tick(frame);
 		renderer.tick(frame);
@@ -293,7 +333,7 @@ describe('createImmediateRenderer', () => {
 
 		renderer.onAppStarted(surface);
 		renderer.onAppStopped();
-		store.set({step: 'Loaded', epoch: 1, cells: new Map()});
+		store.set({step: 'Loaded', cycleNumber: 1, cells: new Map()});
 		renderer.tick(frame);
 		expect(drawn).toEqual([]);
 	});

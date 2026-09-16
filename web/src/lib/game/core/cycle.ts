@@ -1,15 +1,22 @@
 /**
- * Epochs: the commit-reveal cycle clock.
+ * Cycles: the commit-reveal clock.
  *
  * This is framework, not a seam. Four independently written games (this one,
- * conquest, reveal-or-die, bomber-world and stratagems) compute the epoch the
+ * conquest, reveal-or-die, bomber-world and stratagems) compute the cycle the
  * same way, character for character:
  *
- *     epoch = floor(timePassed / epochDuration) + 2
- *     committing = timePassed - (epoch - 2) * epochDuration < commitPhaseDuration
+ *     cycleNumber = floor(timePassed / cycleDuration) + 2
+ *     committing =
+ *         timePassed - (cycleNumber - 2) * cycleDuration < commitPhaseDuration
  *
- * The `+ 2` is not arbitrary: the contract starts at epoch 2 so that the
- * hypothetical reveal phase before the first commit phase can be epoch 1.
+ * THE INDEX IS `cycleNumber` AND THE INTERVAL IS THE `cycle`, and this formula
+ * is why the distinction is worth a word: it puts an index and two durations in
+ * one expression, and calling the index by the interval's name is what used to
+ * make it readable as a timestamp. See ADR-0001 (template-commit-reveal
+ * `work`).
+ *
+ * The `+ 2` is not arbitrary: the contract starts at cycle 2 so that the
+ * hypothetical reveal phase before the first commit phase can be cycle 1.
  *
  * THREE POLICIES, AND ONLY THE FIRST IS PURE ARITHMETIC:
  *
@@ -22,7 +29,7 @@
  *   FLOOR rather than an answer, because an advance is a transaction and no
  *   amount of arithmetic predicts one.
  *
- * Which is why, under the last two, the epoch is READ FROM THE CHAIN and the
+ * Which is why, under the last two, the cycle is READ FROM THE CHAIN and the
  * local clock is only a predictor. Getting that the wrong way round is the
  * expensive mistake: a client that trusted its own arithmetic would let a
  * player plan into a window that had already closed, and the loss lands on the
@@ -41,9 +48,9 @@ import type {ChainTimeStore} from './chain-time';
  * two unrelated things. That is what made this look like a mode rather than a
  * policy.
  */
-export type EpochPolicy = 'timed' | 'manual' | 'hybrid';
+export type CyclePolicy = 'timed' | 'manual' | 'hybrid';
 
-export type EpochConfig = {
+export type CycleConfig = {
 	commitPhaseDuration: number;
 	revealPhaseDuration: number;
 	startTime: number;
@@ -52,40 +59,40 @@ export type EpochConfig = {
 	 * new moves, so a commit still has time to land before the phase closes.
 	 */
 	commitTimeAllowance: number;
-	/** How the cycle advances. See {@link EpochPolicy}. */
-	policy: EpochPolicy;
+	/** How the cycle advances. See {@link CyclePolicy}. */
+	policy: CyclePolicy;
 };
 
-export type EpochConfigStore = Readable<EpochConfig> & {
-	readonly current: EpochConfig;
+export type CycleConfigStore = Readable<CycleConfig> & {
+	readonly current: CycleConfig;
 };
 
-type BaseEpochInfo = {
-	currentEpoch: number;
+type BaseCycleInfo = {
+	currentCycleNumber: number;
 	isCommitPhase: boolean;
-	config: EpochConfig;
+	config: CycleConfig;
 };
 
 /** Everything a countdown needs, and what every clocked policy can answer. */
-type EpochTimings = {
-	timeLeftInEpoch: number;
-	timeInCurrentEpochCycle: number;
+type CycleTimings = {
+	timeLeftInCycle: number;
+	timeInCurrentCycle: number;
 	timeLeftInPhase: number;
 	timeLeftForCommitEnd: number;
 	timeLeftForRevealEnd: number;
 	currentPhaseDuration: number;
 	/**
-	 * Chain time at which THIS epoch's reveal phase opens, or opened.
+	 * Chain time at which THIS cycle's reveal phase opens, or opened.
 	 *
 	 * What an outside scheduler is told at commit time, and the reason it is a
 	 * value rather than something a caller recomputes: under `hybrid` an early
-	 * advance moves the epoch's origin, so the same arithmetic run against the
+	 * advance moves the cycle's origin, so the same arithmetic run against the
 	 * deployment's start time answers for a grid the chain has left behind.
 	 */
 	revealOpensAt: number;
 };
 
-export type TimedEpochInfo = BaseEpochInfo & {type: 'timed'} & EpochTimings;
+export type TimedCycleInfo = BaseCycleInfo & {type: 'timed'} & CycleTimings;
 
 /**
  * The clock as a deadline, with unanimity able to bring a phase forward.
@@ -94,19 +101,19 @@ export type TimedEpochInfo = BaseEpochInfo & {type: 'timed'} & EpochTimings;
  * countdown works unchanged, because an early advance changes WHEN a phase runs
  * and never what a phase is.
  */
-export type HybridEpochInfo = BaseEpochInfo & {type: 'hybrid'} & EpochTimings;
+export type HybridCycleInfo = BaseCycleInfo & {type: 'hybrid'} & CycleTimings;
 
-/** A chain where epochs only move when someone pushes them. No clock to read. */
-export type ManualEpochInfo = BaseEpochInfo & {type: 'manual'};
+/** A chain where cycles only move when someone pushes them. No clock to read. */
+export type ManualCycleInfo = BaseCycleInfo & {type: 'manual'};
 
-export type EpochInfo = TimedEpochInfo | HybridEpochInfo | ManualEpochInfo;
+export type CycleInfo = TimedCycleInfo | HybridCycleInfo | ManualCycleInfo;
 
-/** An epoch info that has a clock behind it, whichever of the two it is. */
-export type ClockedEpochInfo = TimedEpochInfo | HybridEpochInfo;
+/** A cycle info that has a clock behind it, whichever of the two it is. */
+export type ClockedCycleInfo = TimedCycleInfo | HybridCycleInfo;
 
-export type EpochInfoStore = Readable<EpochInfo> & {
-	now(): EpochInfo;
-	fromTime(time: number): EpochInfo;
+export type CycleInfoStore = Readable<CycleInfo> & {
+	now(): CycleInfo;
+	fromTime(time: number): CycleInfo;
 };
 
 /**
@@ -127,47 +134,47 @@ export type TwoPhase =
 	| {type: 'timed'; phase: 'play' | 'wait'; timeLeft: number; duration: number}
 	| {type: 'manual'; phase: 'play' | 'wait'};
 
-export function calculateEpochInfo(
+export function calculateCycleInfo(
 	currentTime: number,
-	config: EpochConfig,
-): TimedEpochInfo {
+	config: CycleConfig,
+): TimedCycleInfo {
 	const commitPhaseDuration = config.commitPhaseDuration;
 	const revealPhaseDuration = config.revealPhaseDuration;
-	const epochDuration = commitPhaseDuration + revealPhaseDuration;
+	const cycleDuration = commitPhaseDuration + revealPhaseDuration;
 	const startTime = config.startTime || 0;
 
 	const timePassed = currentTime - startTime;
 
-	// Epochs start at 2 (see the file comment).
-	const currentEpoch = Math.floor(timePassed / epochDuration) + 2;
+	// Cycles start at 2 (see the file comment).
+	const currentCycleNumber = Math.floor(timePassed / cycleDuration) + 2;
 
-	const timeInCurrentEpochCycle =
-		timePassed - (currentEpoch - 2) * epochDuration;
-	const timeLeftInEpoch = epochDuration - timeInCurrentEpochCycle;
-	const isCommitPhase = timeInCurrentEpochCycle < commitPhaseDuration;
+	const timeInCurrentCycle =
+		timePassed - (currentCycleNumber - 2) * cycleDuration;
+	const timeLeftInCycle = cycleDuration - timeInCurrentCycle;
+	const isCommitPhase = timeInCurrentCycle < commitPhaseDuration;
 
 	return {
 		type: 'timed',
-		currentEpoch,
+		currentCycleNumber,
 		isCommitPhase,
-		timeLeftInEpoch,
-		timeInCurrentEpochCycle,
+		timeLeftInCycle,
+		timeInCurrentCycle,
 		timeLeftInPhase: isCommitPhase
-			? commitPhaseDuration - timeInCurrentEpochCycle
-			: revealPhaseDuration - (timeInCurrentEpochCycle - commitPhaseDuration),
+			? commitPhaseDuration - timeInCurrentCycle
+			: revealPhaseDuration - (timeInCurrentCycle - commitPhaseDuration),
 		timeLeftForCommitEnd: isCommitPhase
-			? commitPhaseDuration - timeInCurrentEpochCycle
+			? commitPhaseDuration - timeInCurrentCycle
 			: 0,
-		timeLeftForRevealEnd: timeLeftInEpoch,
+		timeLeftForRevealEnd: timeLeftInCycle,
 		currentPhaseDuration: isCommitPhase
 			? commitPhaseDuration
 			: revealPhaseDuration,
-		revealOpensAt: revealPhaseStartTime(config, currentEpoch),
+		revealOpensAt: revealPhaseStartTime(config, currentCycleNumber),
 		config,
 	};
 }
 
-function threePhaseFrom(info: ClockedEpochInfo): ThreePhase {
+function threePhaseFrom(info: ClockedCycleInfo): ThreePhase {
 	const config = info.config;
 	let phase: 'play' | 'commit' | 'reveal' = 'reveal';
 	let timeLeft = info.timeLeftInPhase;
@@ -186,30 +193,30 @@ function threePhaseFrom(info: ClockedEpochInfo): ThreePhase {
 	return {phase, timeLeft, duration};
 }
 
-/** Epochs that follow the chain clock. What a deployed game uses. */
-export function createTimedEpochTrackers(params: {
+/** Cycles that follow the chain clock. What a deployed game uses. */
+export function createTimedCycleTrackers(params: {
 	chainTime: ChainTimeStore;
-	config: EpochConfigStore;
-}): {epochInfo: EpochInfoStore; twoPhase: Readable<TwoPhase>} {
+	config: CycleConfigStore;
+}): {cycleInfo: CycleInfoStore; twoPhase: Readable<TwoPhase>} {
 	const {chainTime, config} = params;
 
-	const _epochInfo = derived([chainTime, config], ([$chainTime, $config]) =>
-		calculateEpochInfo($chainTime.value, $config),
+	const _cycleInfo = derived([chainTime, config], ([$chainTime, $config]) =>
+		calculateCycleInfo($chainTime.value, $config),
 	);
 
-	const epochInfo: EpochInfoStore = {
-		subscribe: _epochInfo.subscribe,
-		now: () => calculateEpochInfo(chainTime.now(), config.current),
-		fromTime: (time: number) => calculateEpochInfo(time, config.current),
+	const cycleInfo: CycleInfoStore = {
+		subscribe: _cycleInfo.subscribe,
+		now: () => calculateCycleInfo(chainTime.now(), config.current),
+		fromTime: (time: number) => calculateCycleInfo(time, config.current),
 	};
 
-	const twoPhase = derived<Readable<EpochInfo>, TwoPhase>(
-		epochInfo,
-		// The store is built from calculateEpochInfo, so it is always timed.
-		($epochInfo): TwoPhase => twoPhaseFrom($epochInfo as TimedEpochInfo),
+	const twoPhase = derived<Readable<CycleInfo>, TwoPhase>(
+		cycleInfo,
+		// The store is built from calculateCycleInfo, so it is always timed.
+		($cycleInfo): TwoPhase => twoPhaseFrom($cycleInfo as TimedCycleInfo),
 	);
 
-	return {epochInfo, twoPhase};
+	return {cycleInfo, twoPhase};
 }
 
 /**
@@ -218,7 +225,7 @@ export function createTimedEpochTrackers(params: {
  * Shared by both clocked policies rather than written twice: what a phase MEANS
  * to a player is the same under either, and only when it runs differs.
  */
-function twoPhaseFrom(info: ClockedEpochInfo): TwoPhase {
+function twoPhaseFrom(info: ClockedCycleInfo): TwoPhase {
 	const three = threePhaseFrom(info);
 	const config = info.config;
 
@@ -246,7 +253,7 @@ function twoPhaseFrom(info: ClockedEpochInfo): TwoPhase {
  * under `hybrid` that grid moves when somebody advances early.
  */
 export type CycleReading = {
-	epoch: number;
+	cycleNumber: number;
 	isCommitPhase: boolean;
 	phaseStart: number;
 	phaseEnd: number;
@@ -255,7 +262,7 @@ export type CycleReading = {
 /**
  * Which of two readings is FURTHER ON.
  *
- * The ordering is (epoch, then commit before reveal), and it is total because a
+ * The ordering is (cycle, then commit before reveal), and it is total because a
  * cycle only ever moves one way. Used to combine what the chain last said with
  * what the clock has since predicted, and the direction matters: the prediction
  * is a floor, so the answer is whichever is later. Reversing it would let a
@@ -264,7 +271,8 @@ export type CycleReading = {
  * that cannot be sent.
  */
 function laterReading(a: CycleReading, b: CycleReading): CycleReading {
-	if (a.epoch !== b.epoch) return a.epoch > b.epoch ? a : b;
+	if (a.cycleNumber !== b.cycleNumber)
+		return a.cycleNumber > b.cycleNumber ? a : b;
 	if (a.isCommitPhase === b.isCommitPhase) return a;
 	return a.isCommitPhase ? b : a;
 }
@@ -285,29 +293,32 @@ function laterReading(a: CycleReading, b: CycleReading): CycleReading {
 export function predictCycle(
 	reading: CycleReading,
 	now: number,
-	config: EpochConfig,
+	config: CycleConfig,
 ): CycleReading {
-	const epochDuration = config.commitPhaseDuration + config.revealPhaseDuration;
-	const epochStart = reading.isCommitPhase
+	const cycleDuration = config.commitPhaseDuration + config.revealPhaseDuration;
+	// The ANCHOR's start - where the cycle the reading names began - as against
+	// `cycleStart` below, which is where the PREDICTED one begins. Two different
+	// moments, and the rename is what made them need two different names.
+	const anchorCycleStart = reading.isCommitPhase
 		? reading.phaseStart
-		: reading.phaseEnd - epochDuration;
-	const elapsed = now - epochStart;
+		: reading.phaseEnd - cycleDuration;
+	const elapsed = now - anchorCycleStart;
 	// A clock behind the reading predicts nothing; the reading stands.
 	if (!(elapsed >= 0)) return reading;
 
-	const epochsPassed = Math.floor(elapsed / epochDuration);
-	const cycleStart = epochStart + epochsPassed * epochDuration;
-	const inCycle = elapsed - epochsPassed * epochDuration;
+	const cyclesPassed = Math.floor(elapsed / cycleDuration);
+	const cycleStart = anchorCycleStart + cyclesPassed * cycleDuration;
+	const inCycle = elapsed - cyclesPassed * cycleDuration;
 	const isCommitPhase = inCycle < config.commitPhaseDuration;
 	return {
-		epoch: reading.epoch + epochsPassed,
+		cycleNumber: reading.cycleNumber + cyclesPassed,
 		isCommitPhase,
 		phaseStart: isCommitPhase
 			? cycleStart
 			: cycleStart + config.commitPhaseDuration,
 		phaseEnd: isCommitPhase
 			? cycleStart + config.commitPhaseDuration
-			: cycleStart + epochDuration,
+			: cycleStart + cycleDuration,
 	};
 }
 
@@ -315,22 +326,22 @@ export function predictCycle(
 export function timingsOf(
 	reading: CycleReading,
 	now: number,
-	config: EpochConfig,
-): EpochTimings {
-	const epochDuration = config.commitPhaseDuration + config.revealPhaseDuration;
-	const epochStart = reading.isCommitPhase
+	config: CycleConfig,
+): CycleTimings {
+	const cycleDuration = config.commitPhaseDuration + config.revealPhaseDuration;
+	const cycleStart = reading.isCommitPhase
 		? reading.phaseStart
-		: reading.phaseEnd - epochDuration;
+		: reading.phaseEnd - cycleDuration;
 	const timeLeftInPhase = reading.phaseEnd - now;
-	const timeLeftInEpoch = reading.isCommitPhase
+	const timeLeftInCycle = reading.isCommitPhase
 		? timeLeftInPhase + config.revealPhaseDuration
 		: timeLeftInPhase;
 	return {
-		timeLeftInEpoch,
-		timeInCurrentEpochCycle: now - epochStart,
+		timeLeftInCycle,
+		timeInCurrentCycle: now - cycleStart,
 		timeLeftInPhase,
 		timeLeftForCommitEnd: reading.isCommitPhase ? timeLeftInPhase : 0,
-		timeLeftForRevealEnd: timeLeftInEpoch,
+		timeLeftForRevealEnd: timeLeftInCycle,
 		// The window as it actually stands, which an early open WIDENS. Reporting
 		// the nominal duration instead would make the dial jump backwards the
 		// moment somebody advanced.
@@ -346,7 +357,7 @@ export function timingsOf(
 }
 
 /**
- * Epochs that follow the clock, and can be brought forward by unanimity.
+ * Cycles that follow the clock, and can be brought forward by unanimity.
  *
  * THE CHAIN IS THE ANSWER AND THE CLOCK IS A PREDICTOR, which is the whole
  * shape of this policy on the client. Polling alone would show a phase up to
@@ -354,15 +365,15 @@ export function timingsOf(
  * does both and publishes whichever is FURTHER ON. The prediction can only ever
  * be behind, because the only thing it cannot model is a phase opening EARLY.
  */
-export function createHybridEpochTrackers(params: {
+export function createHybridCycleTrackers(params: {
 	chainTime: ChainTimeStore;
-	config: EpochConfigStore;
+	config: CycleConfigStore;
 	/** Reads the cycle from the game contract. */
 	readCycle: () => Promise<CycleReading>;
 	/** How often to re-read. Defaults to one second. */
 	pollInterval?: number;
 }): {
-	epochInfo: EpochInfoStore;
+	cycleInfo: CycleInfoStore;
 	twoPhase: Readable<TwoPhase>;
 	refresh: () => Promise<void>;
 } {
@@ -378,23 +389,23 @@ export function createHybridEpochTrackers(params: {
 	 */
 	let known: CycleReading | undefined;
 
-	const subscribers = new Set<(value: EpochInfo) => void>();
+	const subscribers = new Set<(value: CycleInfo) => void>();
 	let timer: ReturnType<typeof setInterval> | undefined;
-	let published: EpochInfo | undefined;
+	let published: CycleInfo | undefined;
 
-	function infoAt(time: number): HybridEpochInfo {
+	function infoAt(time: number): HybridCycleInfo {
 		const $config = config.current;
 		if (!known) {
 			// Nothing has been read yet. The deployment's own grid is the best
 			// floor there is, and it is exactly the timed answer - which is what
 			// this policy degrades to when nobody has advanced anything.
-			const timed = calculateEpochInfo(time, $config);
+			const timed = calculateCycleInfo(time, $config);
 			return {...timed, type: 'hybrid'};
 		}
 		const reading = laterReading(known, predictCycle(known, time, $config));
 		return {
 			type: 'hybrid',
-			currentEpoch: reading.epoch,
+			currentCycleNumber: reading.cycleNumber,
 			isCommitPhase: reading.isCommitPhase,
 			...timingsOf(reading, time, $config),
 			config: $config,
@@ -414,7 +425,7 @@ export function createHybridEpochTrackers(params: {
 
 	const _clock = derived([chainTime, config], ([$chainTime]) => $chainTime);
 
-	const epochInfo: EpochInfoStore = {
+	const cycleInfo: CycleInfoStore = {
 		subscribe(run) {
 			subscribers.add(run);
 			run(published ?? infoAt(chainTime.now()));
@@ -438,44 +449,44 @@ export function createHybridEpochTrackers(params: {
 		fromTime: (time: number) => infoAt(time),
 	};
 
-	const twoPhase = derived<Readable<EpochInfo>, TwoPhase>(
-		epochInfo,
-		($epochInfo): TwoPhase => twoPhaseFrom($epochInfo as HybridEpochInfo),
+	const twoPhase = derived<Readable<CycleInfo>, TwoPhase>(
+		cycleInfo,
+		($cycleInfo): TwoPhase => twoPhaseFrom($cycleInfo as HybridCycleInfo),
 	);
 
-	return {epochInfo, twoPhase, refresh};
+	return {cycleInfo, twoPhase, refresh};
 }
 
 /**
- * Epochs that only move when the contract is told to move them.
+ * Cycles that only move when the contract is told to move them.
  *
- * There is no clock to read, so the current epoch has to be polled from the
+ * There is no clock to read, so the current cycle has to be polled from the
  * chain. What a game with no timer at all uses, and what local testing and
  * single-player debugging want, where waiting out a real commit phase would
  * make every test slow.
  */
-export function createManualEpochTrackers(params: {
-	config: EpochConfigStore;
-	/** Reads (epoch, committing) from the game contract. */
-	readEpoch: () => Promise<{epoch: number; committing: boolean}>;
+export function createManualCycleTrackers(params: {
+	config: CycleConfigStore;
+	/** Reads (cycle, committing) from the game contract. */
+	readCycleNumber: () => Promise<{cycleNumber: number; committing: boolean}>;
 	/** How often to re-read. Defaults to one second. */
 	pollInterval?: number;
 }): {
-	epochInfo: EpochInfoStore;
+	cycleInfo: CycleInfoStore;
 	twoPhase: Readable<TwoPhase>;
 	refresh: () => Promise<void>;
 } {
-	const {config, readEpoch} = params;
+	const {config, readCycleNumber} = params;
 	const pollInterval = params.pollInterval ?? 1000;
 
-	let $info: ManualEpochInfo = {
+	let $info: ManualCycleInfo = {
 		type: 'manual',
-		currentEpoch: 2,
+		currentCycleNumber: 2,
 		isCommitPhase: true,
 		config: config.current,
 	};
 
-	const subscribers = new Set<(value: EpochInfo) => void>();
+	const subscribers = new Set<(value: CycleInfo) => void>();
 	let timer: ReturnType<typeof setInterval> | undefined;
 
 	function publish() {
@@ -483,20 +494,23 @@ export function createManualEpochTrackers(params: {
 	}
 
 	async function refresh() {
-		const {epoch, committing} = await readEpoch();
-		if (epoch === $info.currentEpoch && committing === $info.isCommitPhase) {
+		const {cycleNumber, committing} = await readCycleNumber();
+		if (
+			cycleNumber === $info.currentCycleNumber &&
+			committing === $info.isCommitPhase
+		) {
 			return;
 		}
 		$info = {
 			type: 'manual',
-			currentEpoch: epoch,
+			currentCycleNumber: cycleNumber,
 			isCommitPhase: committing,
 			config: config.current,
 		};
 		publish();
 	}
 
-	const epochInfo: EpochInfoStore = {
+	const cycleInfo: CycleInfoStore = {
 		subscribe(run) {
 			subscribers.add(run);
 			run($info);
@@ -515,20 +529,20 @@ export function createManualEpochTrackers(params: {
 			};
 		},
 		now: () => $info,
-		// A manual chain has no notion of "the epoch at time t": it is wherever
+		// A manual chain has no notion of "the cycle at time t": it is wherever
 		// the contract currently says it is.
 		fromTime: () => $info,
 	};
 
-	const twoPhase = derived<Readable<EpochInfo>, TwoPhase>(
-		epochInfo,
-		($epochInfo): TwoPhase => ({
+	const twoPhase = derived<Readable<CycleInfo>, TwoPhase>(
+		cycleInfo,
+		($cycleInfo): TwoPhase => ({
 			type: 'manual',
-			phase: $epochInfo.isCommitPhase ? 'play' : 'wait',
+			phase: $cycleInfo.isCommitPhase ? 'play' : 'wait',
 		}),
 	);
 
-	return {epochInfo, twoPhase, refresh};
+	return {cycleInfo, twoPhase, refresh};
 }
 
 /**
@@ -537,17 +551,17 @@ export function createManualEpochTrackers(params: {
  * A number crosses the boundary because a Solidity enum is a number, so the
  * ORDER here is load-bearing in the same way the contract's is.
  */
-const POLICY_BY_VALUE: readonly EpochPolicy[] = ['timed', 'manual', 'hybrid'];
+const POLICY_BY_VALUE: readonly CyclePolicy[] = ['timed', 'manual', 'hybrid'];
 
-/** Read the epoch configuration off the deployment's linked data. */
-export function resolveEpochConfig(linkedData: {
+/** Read the cycle configuration off the deployment's linked data. */
+export function resolveCycleConfig(linkedData: {
 	commitPhaseDuration: unknown;
 	revealPhaseDuration: unknown;
 	startTime?: unknown;
 	cyclePolicy?: unknown;
-}): EpochConfig {
+}): CycleConfig {
 	// READ, not coerced. `Number(undefined)` is `NaN`, and a NaN phase duration
-	// makes every comparison against the clock false, so the epoch simply stops
+	// makes every comparison against the clock false, so the cycle simply stops
 	// advancing and nothing is ever raised: the app sits on one cycle forever
 	// with no error to go on. See `./linked-data.ts`.
 	const values = linkedData as DeclaredValues;
@@ -555,7 +569,7 @@ export function resolveEpochConfig(linkedData: {
 	return {
 		commitPhaseDuration: readNumber(values, 'commitPhaseDuration'),
 		revealPhaseDuration,
-		// A deployment that declares no start time started at the epoch, which is
+		// A deployment that declares no start time started at time zero, which is
 		// a real answer rather than a guess at a missing one.
 		startTime: optionalNumber(values, 'startTime') ?? 0,
 		// A commit needs to land before the phase closes; the reveal phase is a
@@ -573,7 +587,7 @@ export function resolveEpochConfig(linkedData: {
  * the durations - both zero meant the cycle had to be pushed, anything else
  * meant the clock decided. Reproducing that is the honest answer for such a
  * deployment, and it is the one thing here that may NOT be tidied into "assume
- * timed": a manual deployment read as timed would divide by a zero epoch and
+ * timed": a manual deployment read as timed would divide by a zero cycle and
  * put the client on a clock the chain is not running.
  *
  * It is emphatically not the reading for a NEW deployment. Declaring the policy
@@ -581,7 +595,7 @@ export function resolveEpochConfig(linkedData: {
  * contract now refuses a configuration where the durations disagree with the
  * policy, so the two can never drift apart again.
  */
-function resolvePolicy(values: DeclaredValues): EpochPolicy {
+function resolvePolicy(values: DeclaredValues): CyclePolicy {
 	const declared = optionalNumber(values, 'cyclePolicy');
 	if (declared !== undefined) {
 		const policy = POLICY_BY_VALUE[declared];
@@ -600,7 +614,7 @@ function resolvePolicy(values: DeclaredValues): EpochPolicy {
 }
 
 /** A config that never changes, which is the common case. */
-export function staticEpochConfig(config: EpochConfig): EpochConfigStore {
+export function staticCycleConfig(config: CycleConfig): CycleConfigStore {
 	return {
 		get current() {
 			return config;
@@ -614,16 +628,16 @@ export function staticEpochConfig(config: EpochConfig): EpochConfigStore {
 
 /** Convenience for consumers that want the three-phase view. */
 export function createThreePhase(
-	epochInfo: EpochInfoStore,
+	cycleInfo: CycleInfoStore,
 ): Readable<ThreePhase> {
-	return derived<Readable<EpochInfo>, ThreePhase>(
-		epochInfo,
-		($epochInfo): ThreePhase => {
-			if ($epochInfo.type !== 'manual') {
-				return threePhaseFrom($epochInfo);
+	return derived<Readable<CycleInfo>, ThreePhase>(
+		cycleInfo,
+		($cycleInfo): ThreePhase => {
+			if ($cycleInfo.type !== 'manual') {
+				return threePhaseFrom($cycleInfo);
 			}
 			// A manual chain has no countdown, only which phase it is in.
-			const phase: ThreePhase['phase'] = $epochInfo.isCommitPhase
+			const phase: ThreePhase['phase'] = $cycleInfo.isCommitPhase
 				? 'play'
 				: 'reveal';
 			return {phase, timeLeft: 0, duration: 0};
@@ -631,9 +645,9 @@ export function createThreePhase(
 	);
 }
 
-/** Read the current epoch without subscribing. */
-export function currentEpochOf(store: EpochInfoStore): number {
-	return get(store).currentEpoch;
+/** Read the current cycle without subscribing. */
+export function currentCycleNumberOf(store: CycleInfoStore): number {
+	return get(store).currentCycleNumber;
 }
 
 /**
@@ -646,44 +660,49 @@ export function currentEpochOf(store: EpochInfoStore): number {
  * `readCycle` is only used by the policies that need it. The timed one asks the
  * chain nothing at all, which is the point of it.
  */
-export function createEpochTrackers(params: {
+export function createCycleTrackers(params: {
 	chainTime: ChainTimeStore;
-	config: EpochConfigStore;
+	config: CycleConfigStore;
 	readCycle: () => Promise<CycleReading>;
 	pollInterval?: number;
-}): {epochInfo: EpochInfoStore; twoPhase: Readable<TwoPhase>} {
+}): {cycleInfo: CycleInfoStore; twoPhase: Readable<TwoPhase>} {
 	switch (params.config.current.policy) {
 		case 'manual':
-			return createManualEpochTrackers({
+			return createManualCycleTrackers({
 				config: params.config,
 				pollInterval: params.pollInterval,
-				readEpoch: async () => {
+				readCycleNumber: async () => {
 					const cycle = await params.readCycle();
-					return {epoch: cycle.epoch, committing: cycle.isCommitPhase};
+					return {
+						cycleNumber: cycle.cycleNumber,
+						committing: cycle.isCommitPhase,
+					};
 				},
 			});
 		case 'hybrid':
-			return createHybridEpochTrackers(params);
+			return createHybridCycleTrackers(params);
 		case 'timed':
-			return createTimedEpochTrackers(params);
+			return createTimedCycleTrackers(params);
 	}
 }
 
 /**
- * Chain time, in seconds, at which the reveal phase of an epoch opens.
+ * Chain time, in seconds, at which the reveal phase of a cycle opens.
  *
- * The inverse of the epoch formula, and the thing a scheduler is told at commit
- * time. Read it off the epoch info (`revealOpensAt`) rather than calling this
- * directly unless the epoch you are asking about is on the deployment's
+ * The inverse of the cycle formula, and the thing a scheduler is told at commit
+ * time. Read it off the cycle info (`revealOpensAt`) rather than calling this
+ * directly unless the cycle you are asking about is on the deployment's
  * ORIGINAL grid: under `hybrid` an early advance re-origins it, and this
  * function has no way to know.
  */
 export function revealPhaseStartTime(
-	config: EpochConfig,
-	epoch: number,
+	config: CycleConfig,
+	cycleNumber: number,
 ): number {
-	const epochDuration = config.commitPhaseDuration + config.revealPhaseDuration;
+	const cycleDuration = config.commitPhaseDuration + config.revealPhaseDuration;
 	return (
-		config.startTime + (epoch - 2) * epochDuration + config.commitPhaseDuration
+		config.startTime +
+		(cycleNumber - 2) * cycleDuration +
+		config.commitPhaseDuration
 	);
 }

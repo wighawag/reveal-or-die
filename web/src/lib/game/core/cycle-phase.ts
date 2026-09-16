@@ -1,8 +1,8 @@
 /**
  * Which part of the cycle it is, in the terms a PLAYER experiences.
  *
- * The contract has two phases and the epoch tracker reports three (`ThreePhase`
- * in `./epoch.ts`: the move window, the lock while commitments land, the
+ * The contract has two phases and the cycle tracker reports three (`ThreePhase`
+ * in `./cycle.ts`: the move window, the lock while commitments land, the
  * reveal). Neither is what the screen has to say, because there is a fourth
  * state that the clock cannot see: the board is showing a cycle that is already
  * over, because a fetch for the new one has not landed yet.
@@ -12,7 +12,7 @@
  * reported as "wait", and a player watching a stale board is told the cycle is
  * resolving when in fact nothing is being waited for except a poll.
  *
- * BOTH HALVES ARE FRAMEWORK. The epoch model is the framework's, so the
+ * BOTH HALVES ARE FRAMEWORK. The cycle model is the framework's, so the
  * consequences of it are too; and every game on this template would discover
  * this identically, because the gap between a client clock and a chain that
  * mines on transactions is a property of the arrangement rather than of any
@@ -50,8 +50,8 @@ export function cyclePhaseOf(
 /**
  * Whether the board is showing a cycle that has already ended.
  *
- * STAMPED WITH THE EPOCH THE FETCH WAS FOR, not with the chain's current one,
- * and that distinction is the whole of it. Comparing against the CHAIN's epoch
+ * STAMPED WITH THE CYCLE THE FETCH WAS FOR, not with the chain's current one,
+ * and that distinction is the whole of it. Comparing against the CHAIN's cycle
  * makes this wait for a block past the boundary, and on a node that mines only
  * on transactions that block is the next player's commit - so the catch-up
  * lasts twenty seconds while the data it is waiting for arrived immediately.
@@ -64,13 +64,13 @@ export function cyclePhaseOf(
  */
 export function boardIsBehindClock(params: {
 	/** What the board reports about itself. */
-	board: {step: string; epoch?: number};
-	/** The epoch the clock says it is. */
-	currentEpoch: number;
+	board: {step: string; cycleNumber?: number};
+	/** The cycle the clock says it is. */
+	currentCycleNumber: number;
 }): boolean {
-	const {board, currentEpoch} = params;
+	const {board, currentCycleNumber} = params;
 	// An unloaded board is not BEHIND, it is absent, and saying otherwise puts a
 	// catch-up over the first paint of every session.
-	if (board.step !== 'Loaded' || board.epoch === undefined) return false;
-	return board.epoch < currentEpoch;
+	if (board.step !== 'Loaded' || board.cycleNumber === undefined) return false;
+	return board.cycleNumber < currentCycleNumber;
 }

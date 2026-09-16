@@ -7,8 +7,8 @@ import {
 	enterGame,
 	avatarOwner,
 	deployGameWith,
-	EPOCH_POLICY,
-	type EpochPolicy,
+	CYCLE_POLICY,
+	type CyclePolicy,
 } from './utils/index.js';
 import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
 import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts';
@@ -59,15 +59,17 @@ describe('Game', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
+			advanceToCycleNumber,
 			advanceToRevealPhase,
-			getEpoch,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const player = unnamedAccounts[0];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		// Buy an avatar, which puts it at stake in the same transaction.
 		const identity = await enterGame({env, Game, GameAvatarSale}, player);
@@ -89,8 +91,8 @@ describe('Game', function () {
 		});
 
 		// Reveal.
-		const {epoch} = getEpoch(await getTimestamp());
-		await advanceToRevealPhase(epoch, true);
+		const {cycleNumber} = getCycleNumber(await getTimestamp());
+		await advanceToRevealPhase(cycleNumber, true);
 		await env.execute(Game, {
 			account: player,
 			functionName: 'reveal',
@@ -123,7 +125,7 @@ describe('Game', function () {
 	 * and "reject a cell that is already taken" both look like reasonable rules
 	 * and both violate it. So it is asserted directly rather than trusted.
 	 *
-	 * IT IS REPLAYED UNDER EVERY EPOCH POLICY, because the policy is the place
+	 * IT IS REPLAYED UNDER EVERY CYCLE POLICY, because the policy is the place
 	 * the same failure can reappear one level up: a round that could be pushed
 	 * forward by a subset would let whoever is quickest decide what everyone
 	 * else got, which is the reveal race wearing a clock. The board must come
@@ -133,7 +135,7 @@ describe('Game', function () {
 	it('reaches the same board whichever order the reveals arrive in', async function () {
 		async function boardAfterRevealsInOrder(
 			revealFirst: 'A' | 'B',
-			policy: EpochPolicy,
+			policy: CyclePolicy,
 		): Promise<{
 			contested: {totalStake: bigint; numClaimants: number};
 			listed: string[];
@@ -144,36 +146,38 @@ describe('Game', function () {
 				Game: TimedGame,
 				GameAvatarSale,
 				unnamedAccounts,
-				advanceToEpoch,
+				advanceToCycleNumber,
 				advanceToRevealPhase,
-				getEpoch,
+				getCycleNumber,
 				getTimestamp,
 			} = fixtures;
 
 			const playerA = unnamedAccounts[0];
 			const playerB = unnamedAccounts[1];
 
-			const {epoch: startEpoch} = getEpoch(await getTimestamp());
-			await advanceToEpoch(startEpoch + 2, true);
+			const {cycleNumber: startCycleNumber} = getCycleNumber(
+				await getTimestamp(),
+			);
+			await advanceToCycleNumber(startCycleNumber + 2, true);
 
 			// The shipped deployment is the timed one, so that policy is played
 			// on the real thing rather than on a copy of it.
-			const manual = policy === EPOCH_POLICY.Manual;
+			const manual = policy === CYCLE_POLICY.Manual;
 			const Game =
-				policy === EPOCH_POLICY.Timed
+				policy === CYCLE_POLICY.Timed
 					? TimedGame
 					: await deployGameWith(fixtures, {
 							name: `Game_replay_${policy}`,
-							epochPolicy: policy,
+							cyclePolicy: policy,
 							commitPhaseDuration: manual ? 0n : 30n,
 							revealPhaseDuration: manual ? 0n : 10n,
 						});
 
 			/** Get to the reveal phase the way this policy allows. */
 			async function openRevealPhase() {
-				if (policy === EPOCH_POLICY.Timed) {
-					const {epoch} = getEpoch(await getTimestamp());
-					await advanceToRevealPhase(epoch, true);
+				if (policy === CYCLE_POLICY.Timed) {
+					const {cycleNumber} = getCycleNumber(await getTimestamp());
+					await advanceToRevealPhase(cycleNumber, true);
 					return;
 				}
 				// Both players have committed, so the phase may be brought
@@ -274,10 +278,10 @@ describe('Game', function () {
 		}
 
 		for (const policy of [
-			EPOCH_POLICY.Timed,
-			EPOCH_POLICY.Manual,
-			EPOCH_POLICY.TimedWithEarlyAdvance,
-		] as EpochPolicy[]) {
+			CYCLE_POLICY.Timed,
+			CYCLE_POLICY.Manual,
+			CYCLE_POLICY.TimedWithEarlyAdvance,
+		] as CyclePolicy[]) {
 			const aFirst = await boardAfterRevealsInOrder('A', policy);
 			const bFirst = await boardAfterRevealsInOrder('B', policy);
 
@@ -312,7 +316,7 @@ describe('Game', function () {
 		// which is why it could not simply be inherited. There a member is an
 		// account with a funded reserve, so topping up twice must still be one
 		// member; here a member is an AVATAR IN CUSTODY, so an owner who buys
-		// two avatars really is two of the things the epoch waits for - each
+		// two avatars really is two of the things the cycle waits for - each
 		// one commits and reveals for itself. The hazard upstream found by
 		// mutation (one member counted twice makes unanimity unreachable) does
 		// not arise here at all, because a token cannot be deposited twice.
@@ -331,14 +335,16 @@ describe('Game', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const player = unnamedAccounts[0];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, player);
 
@@ -349,9 +355,9 @@ describe('Game', function () {
 			args: [identity, commitmentHash(placements, SECRET_A), 0n, zeroAddress],
 		});
 
-		// Let the epoch pass without revealing.
-		const {epoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(epoch + 1, true);
+		// Let the cycle pass without revealing.
+		const {cycleNumber} = getCycleNumber(await getTimestamp());
+		await advanceToCycleNumber(cycleNumber + 1, true);
 
 		await env.execute(Game, {
 			account: unnamedAccounts[1],
@@ -390,14 +396,16 @@ describe('Game', function () {
 			GameAvatars,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const player = unnamedAccounts[0];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, player);
 
@@ -436,8 +444,8 @@ describe('Game', function () {
 		).toBeRejectedWith(`custom error 'AvatarIsCommitted(`);
 
 		// And still pinned once the window has shut, when it is forfeit.
-		const {epoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(epoch + 1, true);
+		const {cycleNumber} = getCycleNumber(await getTimestamp());
+		await advanceToCycleNumber(cycleNumber + 1, true);
 		await expect(
 			env.execute(Game, {
 				account: player,
@@ -459,17 +467,19 @@ describe('Game', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
+			advanceToCycleNumber,
 			advanceToRevealPhase,
-			getEpoch,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const payer = unnamedAccounts[0]; // the wallet, holds the money
 		const player = unnamedAccounts[1]; // the signing key, holds nothing
 
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, player, {
 			payer,
@@ -497,8 +507,8 @@ describe('Game', function () {
 			args: [identity, commitmentHash(placements, SECRET_A), 0n, zeroAddress],
 		});
 
-		const {epoch} = getEpoch(await getTimestamp());
-		await advanceToRevealPhase(epoch, true);
+		const {cycleNumber} = getCycleNumber(await getTimestamp());
+		await advanceToRevealPhase(cycleNumber, true);
 		await env.execute(Game, {
 			account: player,
 			functionName: 'reveal',
@@ -521,15 +531,17 @@ describe('Game', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
+			advanceToCycleNumber,
 			advanceToRevealPhase,
-			getEpoch,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const player = unnamedAccounts[0];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, player);
 
@@ -544,8 +556,8 @@ describe('Game', function () {
 			args: [identity, commitmentHash(placements, SECRET_A), 0n, zeroAddress],
 		});
 
-		const {epoch} = getEpoch(await getTimestamp());
-		await advanceToRevealPhase(epoch, true);
+		const {cycleNumber} = getCycleNumber(await getTimestamp());
+		await advanceToRevealPhase(cycleNumber, true);
 		await env.execute(Game, {
 			account: player,
 			functionName: 'reveal',
@@ -571,7 +583,7 @@ describe('Game', function () {
  *
  * A player's moves are sent by a key their browser generated, which they never
  * see and which holds nothing. That key must be able to COMMIT, because a
- * wallet prompt twice an epoch is not a game, and it must not be able to take
+ * wallet prompt twice a cycle is not a game, and it must not be able to take
  * the money, because it is one cleared site away from being gone and anything
  * that gets hold of it has whatever authority it was given.
  *
@@ -585,8 +597,8 @@ describe('Game delegation', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
@@ -594,8 +606,10 @@ describe('Game delegation', function () {
 		// Stands in for the browser's local signer: it holds no tokens and has no
 		// reserve of its own, which is the whole point.
 		const signer = unnamedAccounts[1];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 
@@ -647,15 +661,17 @@ describe('Game delegation', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const account = unnamedAccounts[0];
 		const stranger = unnamedAccounts[2];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 
@@ -698,14 +714,16 @@ describe('Game delegation', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const account = unnamedAccounts[0];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 
@@ -750,14 +768,16 @@ describe('Game delegation', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const account = unnamedAccounts[0];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 
@@ -799,15 +819,17 @@ describe('Game delegation', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const account = unnamedAccounts[0];
 		const signer = unnamedAccounts[1];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const identity = await enterGame({env, Game, GameAvatarSale}, account);
 		await env.execute(Game, {

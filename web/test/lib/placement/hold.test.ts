@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {holdResolvingCycle, type HeldBoardState} from '$lib/placement/hold';
 
 const board = (cells: Record<string, number>): HeldBoardState => ({
-	epoch: 4,
+	cycleNumber: 4,
 	cells: new Map(
 		Object.entries(cells).map(([id, stake]) => [
 			BigInt(id),
@@ -23,7 +23,7 @@ describe('what this game holds back while a cycle resolves', () => {
 		const held = holdResolvingCycle({
 			shown: board({1: 10}),
 			latest: board({1: 30}),
-			resolvingEpoch: 4,
+			resolvingCycleNumber: 4,
 		});
 		expect(stakes(held)).toEqual({1: 10});
 	});
@@ -32,7 +32,7 @@ describe('what this game holds back while a cycle resolves', () => {
 		const held = holdResolvingCycle({
 			shown: board({1: 10}),
 			latest: board({1: 10}),
-			resolvingEpoch: 4,
+			resolvingCycleNumber: 4,
 		});
 		expect(stakes(held)).toEqual({1: 10});
 	});
@@ -47,7 +47,7 @@ describe('what this game holds back while a cycle resolves', () => {
 		const held = holdResolvingCycle({
 			shown: board({1: 10}),
 			latest: board({1: 10, 2: 7}),
-			resolvingEpoch: 4,
+			resolvingCycleNumber: 4,
 		});
 		expect(stakes(held)).toEqual({1: 10});
 	});
@@ -58,20 +58,20 @@ describe('what this game holds back while a cycle resolves', () => {
 		const held = holdResolvingCycle({
 			shown: board({1: 10, 2: 4}),
 			latest: board({1: 10}),
-			resolvingEpoch: 4,
+			resolvingCycleNumber: 4,
 		});
 		expect(stakes(held)).toEqual({1: 10});
 	});
 
-	it('carries the board\u2019s own epoch stamp through, because it is not part of the outcome', () => {
+	it('carries the board\u2019s own cycle stamp through, because it is not part of the outcome', () => {
 		// It says which cycle the FETCH was for, and everything watching for the
 		// board to catch up with the clock reads it. Holding it back would report
 		// the board as permanently behind for the length of every reveal window.
 		const held = holdResolvingCycle({
-			shown: {...board({1: 10}), epoch: 3},
-			latest: {...board({1: 30}), epoch: 4},
-			resolvingEpoch: 4,
+			shown: {...board({1: 10}), cycleNumber: 3},
+			latest: {...board({1: 30}), cycleNumber: 4},
+			resolvingCycleNumber: 4,
 		});
-		expect(held.epoch).toBe(4);
+		expect(held.cycleNumber).toBe(4);
 	});
 });

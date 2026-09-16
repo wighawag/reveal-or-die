@@ -28,7 +28,7 @@ import {
  * later assertion.
  */
 describe('Commit-reveal round', () => {
-	// The game keys one open commitment per player per epoch, so this file takes
+	// The game keys one open commitment per player per cycle, so this file takes
 	// its own burner account (the contracts suite uses index 1).
 	test.use({walletAccountIndex: 0});
 
@@ -41,7 +41,7 @@ describe('Commit-reveal round', () => {
 		const page = connectedPage;
 
 		// WHO OWNS and WHO SENDS are different addresses, and that is the whole
-		// design. A round is two transactions every epoch, so sending them from
+		// design. A round is two transactions every cycle, so sending them from
 		// the wallet would prompt twice a round forever, and an account
 		// authenticated by email has no wallet provider to prompt with at all -
 		// hence the signer. But the signer is a key this browser made, holding
@@ -238,7 +238,7 @@ describe('A missed reveal', () => {
 		fundWallets,
 		authoriseBrowser,
 	}) => {
-		// A committed round, then a whole epoch of waiting for it to lapse.
+		// A committed round, then a whole cycle of waiting for it to lapse.
 		test.setTimeout(400_000);
 		await fundWallets();
 
@@ -300,9 +300,9 @@ describe('A missed reveal', () => {
 		await expect(page.locator('canvas')).toBeVisible({timeout: 30_000});
 		const later = page;
 
-		const notice = later.getByText(/you missed the reveal for epoch/i);
-		// Nothing is owed until the epoch turns over, and the round rechecks the
-		// chain when it does. Allow more than one full epoch.
+		const notice = later.getByText(/you missed the reveal for cycle/i);
+		// Nothing is owed until the cycle turns over, and the round rechecks the
+		// chain when it does. Allow more than one full cycle.
 		await expect(
 			notice,
 			'the app should say a reveal was missed, from the chain alone',
@@ -338,7 +338,7 @@ describe('A missed reveal', () => {
  * NOT a storage feature, and the suite is arranged to say so. A cleared
  * browser, a second device, a second browser, a private window, a reinstall
  * and a storage write that silently failed all produce the identical state:
- * the contract holds a commitment, a reveal is owed this epoch, and this
+ * the contract holds a commitment, a reveal is owed this cycle, and this
  * client knows nothing about it. Unhandled, that costs the stake in silence.
  *
  * It is the sibling of the missed-reveal suite above, and the two are the same
@@ -353,11 +353,11 @@ describe('A missed reveal', () => {
  * those, so a clean context is a DIFFERENT PLAYER altogether and would prove
  * nothing about recovery.
  *
- * IT ALL HAS TO HAPPEN INSIDE ONE EPOCH, which is what shapes the test. A
- * commitment is only recoverable while the epoch it belongs to is running - one
+ * IT ALL HAS TO HAPPEN INSIDE ONE CYCLE, which is what shapes the test. A
+ * commitment is only recoverable while the cycle it belongs to is running - one
  * tick later it is a missed reveal, which is the suite above - so the re-entry
  * cannot use `planOnCanvas`, whose wait for the next play phase would be a wait
- * for the epoch that makes recovery impossible.
+ * for the cycle that makes recovery impossible.
  *
  * WHAT THE HAPPY PATH PROVES that no unit test can: that the hash this app
  * builds a candidate plan into is the hash the CONTRACT stored. If the two
@@ -388,7 +388,7 @@ describe('A round the chain holds and this browser has lost', () => {
 			})
 			.toBe(true);
 
-		// EVERYTHING AFTER THIS HAS TO FIT IN THE EPOCH, so the plan waits for a
+		// EVERYTHING AFTER THIS HAS TO FIT IN THE CYCLE, so the plan waits for a
 		// play phase with room left in it. The ceiling is the play phase itself
 		// (the commit phase less the allowance the round keeps for the commit to
 		// land), so asking for more than that waits forever; asking for too
@@ -443,7 +443,7 @@ describe('A round the chain holds and this browser has lost', () => {
 		).toBeDisabled();
 
 		// The same turn, re-entered. Not through `planOnCanvas`: see the note
-		// above about the epoch this has to stay inside.
+		// above about the cycle this has to stay inside.
 		await clickCanvas(page, {x: 70, y: 50});
 		await expect
 			.poll(async () => (await roundStep(page)).planned, {

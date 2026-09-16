@@ -158,15 +158,17 @@ describe('GameAvatarSale', function () {
 			Game,
 			GameAvatarSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const {price} = saleConfig(GameAvatarSale);
 		const player = unnamedAccounts[6];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		const avatarID = await nextAvatarID(env, GameAvatarSale);
 		await env.execute(GameAvatarSale, {

@@ -16,13 +16,13 @@ import type {CoreServices} from './core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
 import {
-	createEpochTrackers,
+	createCycleTrackers,
 	createThreePhase,
-	staticEpochConfig,
-	type EpochInfoStore,
+	staticCycleConfig,
+	type CycleInfoStore,
 	type ThreePhase,
 	type TwoPhase,
-} from '$lib/game/core/epoch';
+} from '$lib/game/core/cycle';
 import {
 	createRound,
 	type RoundStorage,
@@ -81,7 +81,7 @@ import {
 	roundStorageKey,
 } from '$lib/placement/storage';
 import {createPlanning, type PlanningStore} from '$lib/placement/planning';
-import {createCycleReader} from '$lib/placement/epoch';
+import {createCycleReader} from '$lib/placement/cycle';
 import {holdResolvingCycle, type HeldBoardState} from '$lib/placement/hold';
 import {holdPlanUntilBoardReleases} from '$lib/placement/display-plan';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
@@ -135,8 +135,8 @@ export type Game = {
 	activeIdentity: ActiveIdentityStore;
 	/** Chain-synced wall clock. NOT `clock`, which is only a UI ticker. */
 	chainTime: ChainTimeStore;
-	/** Which epoch we are in, and how far through its phases. */
-	epochInfo: EpochInfoStore;
+	/** Which cycle we are in, and how far through its phases. */
+	cycleInfo: CycleInfoStore;
 	/** Player-facing phases: play / commit / reveal. */
 	threePhase: Readable<ThreePhase>;
 	/**
@@ -160,14 +160,14 @@ export type Game = {
 	 */
 	acquisition: AcquisitionStore;
 	/**
-	 * An unrevealed commitment from a past epoch, which blocks all further play
+	 * An unrevealed commitment from a past cycle, which blocks all further play
 	 * until the player acknowledges the forfeit.
 	 */
 	missedReveal: MissedRevealStore;
 	/**
 	 * A commitment the chain holds for the round in progress that this browser
 	 * has no memory of - a cleared browser, a second device, a private window.
-	 * The stake is still recoverable while the epoch lasts. See
+	 * The stake is still recoverable while the cycle lasts. See
 	 * `$lib/game/core/recovery`.
 	 */
 	recovery: RecoveryStore<Placement>;
@@ -212,7 +212,7 @@ export type Render = {
 };
 
 export type GameContext = {
-	onchainState: OnchainStateStore<BoardState & {epoch: number}>;
+	onchainState: OnchainStateStore<BoardState & {cycleNumber: number}>;
 	viewState: ViewStateStore<BoardView>;
 	game: Game;
 	render: Render;
@@ -398,15 +398,15 @@ export function createGameContext(core: CoreServices): GameContext {
 	// prefer. A timed game is pure arithmetic and asks the chain nothing; the
 	// other two policies can be moved by a transaction, so for them the chain is
 	// the authority and `chainTime` only predicts between reads.
-	const {epochInfo, twoPhase} = createEpochTrackers({
+	const {cycleInfo, twoPhase} = createCycleTrackers({
 		chainTime,
-		config: staticEpochConfig(config.epoch),
+		config: staticCycleConfig(config.cycle),
 		readCycle: createCycleReader({
 			publicClient: core.publicClient,
 			deployments,
 		}),
 	});
-	const threePhase = createThreePhase(epochInfo);
+	const threePhase = createThreePhase(cycleInfo);
 
 	const {camera, cameraControl} = createCamera(config.camera);
 	const eventEmitter = createCanvasEventEmitter();
@@ -415,7 +415,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		publicClient: core.publicClient,
 		deployments,
 		camera,
-		epochInfo,
+		cycleInfo,
 		chainTime,
 		zonesForCamera,
 		read: createBoardReader({publicClient: core.publicClient, deployments}),
@@ -431,11 +431,11 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * in `game/core/cycle-phase.ts`.
 	 */
 	const boardBehindClock = derived(
-		[epochInfo, onchainState],
-		([$epoch, $state]) =>
+		[cycleInfo, onchainState],
+		([$cycle, $state]) =>
 			boardIsBehindClock({
-				board: $state as {step: string; epoch?: number},
-				currentEpoch: $epoch.currentEpoch,
+				board: $state as {step: string; cycleNumber?: number},
+				currentCycleNumber: $cycle.currentCycleNumber,
 			}),
 	);
 
@@ -556,7 +556,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	const round = createRound<GameIdentity, Placement>({
-		epochInfo,
+		cycleInfo,
 		/**
 		 * DERIVED, not random, so a cleared browser does not cost the stake.
 		 *
@@ -633,7 +633,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	const heldBoard = holdBoardUntilCycleEnds<HeldBoardState>({
 		state: onchainState,
 		phase: twoPhase,
-		epoch: derived(epochInfo, ($info) => $info.currentEpoch),
+		cycleNumber: derived(cycleInfo, ($info) => $info.currentCycleNumber),
 		hold: holdResolvingCycle,
 	});
 
@@ -755,20 +755,23 @@ export function createGameContext(core: CoreServices): GameContext {
 			onSettled: () => void reserve.update(),
 		});
 
-		// Re-check when the epoch turns over.
+		// Re-check when the cycle turns over.
 		//
 		// Whether a commitment counts as MISSED is a question about the current
-		// epoch, not a fixed property of the commitment: the very same commitment
-		// is live in the epoch it was made and forfeit in the next one. Checking
+		// cycle, not a fixed property of the commitment: the very same commitment
+		// is live in the cycle it was made and forfeit in the next one. Checking
 		// only on load and on account change means a tab that was open across the
 		// boundary answers "nothing is wrong" once and never revisits it, leaving
 		// the player silently blocked with no idea why committing does nothing.
-		let lastEpoch: number | undefined;
-		const unsubscribeEpoch = epochInfo.subscribe(($epoch) => {
-			if (lastEpoch !== undefined && $epoch.currentEpoch !== lastEpoch) {
+		let lastCycleNumber: number | undefined;
+		const unsubscribeCycle = cycleInfo.subscribe(($cycle) => {
+			if (
+				lastCycleNumber !== undefined &&
+				$cycle.currentCycleNumber !== lastCycleNumber
+			) {
 				void missedReveal.check();
 			}
-			lastEpoch = $epoch.currentEpoch;
+			lastCycleNumber = $cycle.currentCycleNumber;
 		});
 
 		return () => {
@@ -776,7 +779,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			eventEmitter.off('clicked', onClicked);
 			unsubscribeIdentity();
 			unsubscribeRound();
-			unsubscribeEpoch();
+			unsubscribeCycle();
 			unsubscribeGas();
 			unsubscribeAcquisition();
 		};
@@ -790,7 +793,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			identity: account,
 			activeIdentity,
 			chainTime,
-			epochInfo,
+			cycleInfo,
 			threePhase,
 			phase,
 			twoPhase,

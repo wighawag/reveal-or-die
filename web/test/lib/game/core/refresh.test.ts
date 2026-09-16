@@ -3,7 +3,7 @@ import {get, writable} from 'svelte/store';
 import {
 	refreshDuringReveal,
 	settleBoardWhenCycleStarts,
-	type BoardEpochState,
+	type BoardCycleState,
 	type PlayWindow,
 } from '$lib/game/core/refresh';
 
@@ -13,7 +13,7 @@ import {
  *
  * - during the reveal window, because another player's move is invisible from
  *   here and a 5s poll turns the one moment the game is about into a wait;
- * - when a cycle starts, because the client's clock crosses the epoch boundary
+ * - when a cycle starts, because the client's clock crosses the cycle boundary
  *   AHEAD of the chain, and the poller's own answer to that ("not yet", then
  *   backoff) leaves the new cycle playing on last cycle's board.
  *
@@ -32,7 +32,7 @@ function stores(initial: 'play' | 'wait' = 'play') {
 	return {
 		phase: writable<PlayWindow>({phase: initial}),
 		clock: writable(7),
-		board: writable<BoardEpochState>({step: 'Unloaded'}),
+		board: writable<BoardCycleState>({step: 'Unloaded'}),
 	};
 }
 
@@ -151,7 +151,7 @@ describe('settleBoardWhenCycleStarts', () => {
 		const refresh = vi.fn();
 		settleBoardWhenCycleStarts({
 			phase,
-			epoch: clock,
+			cycleNumber: clock,
 			state: board,
 			refresh,
 		});
@@ -167,16 +167,18 @@ describe('settleBoardWhenCycleStarts', () => {
 		let calls = 0;
 		const refresh = vi.fn(async () => {
 			calls++;
-			// The first two attempts find the chain still in the old epoch - the
+			// The first two attempts find the chain still in the old cycle - the
 			// client's clock crossed the boundary ahead of it - and the third
 			// lands.
 			board.set(
-				calls >= 3 ? {step: 'Loaded', epoch: 8} : {step: 'Loaded', epoch: 7},
+				calls >= 3
+					? {step: 'Loaded', cycleNumber: 8}
+					: {step: 'Loaded', cycleNumber: 7},
 			);
 		});
 		const settle = settleBoardWhenCycleStarts({
 			phase,
-			epoch: clock,
+			cycleNumber: clock,
 			state: board,
 			refresh,
 			retryMs: 400,
@@ -204,11 +206,11 @@ describe('settleBoardWhenCycleStarts', () => {
 		vi.useFakeTimers();
 		const {phase, clock, board} = stores();
 		const refresh = vi.fn(async () => {
-			board.set({step: 'Loaded', epoch: get(clock)});
+			board.set({step: 'Loaded', cycleNumber: get(clock)});
 		});
 		const settle = settleBoardWhenCycleStarts({
 			phase,
-			epoch: clock,
+			cycleNumber: clock,
 			state: board,
 			refresh,
 		});
@@ -238,11 +240,11 @@ describe('settleBoardWhenCycleStarts', () => {
 		vi.useFakeTimers();
 		const {phase, clock, board} = stores();
 		const refresh = vi.fn(async () => {
-			board.set({step: 'Loaded', epoch: 7});
+			board.set({step: 'Loaded', cycleNumber: 7});
 		});
 		const settle = settleBoardWhenCycleStarts({
 			phase,
-			epoch: clock,
+			cycleNumber: clock,
 			state: board,
 			refresh,
 			retryMs: 400,
@@ -268,7 +270,7 @@ describe('settleBoardWhenCycleStarts', () => {
 		});
 		const settle = settleBoardWhenCycleStarts({
 			phase,
-			epoch: clock,
+			cycleNumber: clock,
 			state: board,
 			refresh,
 			retryMs: 400,
@@ -286,7 +288,7 @@ describe('settleBoardWhenCycleStarts', () => {
 		const refresh = vi.fn();
 		const settle = settleBoardWhenCycleStarts({
 			phase,
-			epoch: clock,
+			cycleNumber: clock,
 			state: board,
 			refresh,
 		});

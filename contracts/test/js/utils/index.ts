@@ -17,48 +17,49 @@ import {parseEther, zeroAddress} from 'viem';
  * Both mirror `UsingGameTypes.CyclePolicy`, whose ORDER is the only thing that
  * decides what a number means.
  */
-export const EPOCH_POLICY = {
+export const CYCLE_POLICY = {
 	Timed: 0,
 	Manual: 1,
 	TimedWithEarlyAdvance: 2,
 } as const;
 
-export type EpochPolicy = (typeof EPOCH_POLICY)[keyof typeof EPOCH_POLICY];
+export type CyclePolicy = (typeof CYCLE_POLICY)[keyof typeof CYCLE_POLICY];
 
 /**
- * The epoch arithmetic, in the client's terms, for a game whose anchor has not
+ * The cycle arithmetic, in the client's terms, for a game whose anchor has not
  * moved.
  *
  * It exists twice on purpose: the contract computes it and so does this, so a
  * test that agreed with the contract by asking it would be asserting nothing.
  */
-export function epochClock(config: {
+export function cycleClock(config: {
 	startTime: number;
 	commitPhaseDuration: number;
 	revealPhaseDuration: number;
 }) {
-	const epochDuration = config.commitPhaseDuration + config.revealPhaseDuration;
+	const cycleDuration = config.commitPhaseDuration + config.revealPhaseDuration;
 	return {
-		epochDuration,
-		getEpoch(time: number): {epoch: number; commiting: boolean} {
+		cycleDuration,
+		getCycleNumber(time: number): {cycleNumber: number; commiting: boolean} {
 			if (time < config.startTime) {
 				throw new Error('Game not started');
 			}
 			const timePassed = time - config.startTime;
-			const epoch = Math.floor(timePassed / epochDuration) + 2;
+			const cycleNumber = Math.floor(timePassed / cycleDuration) + 2;
 			return {
-				epoch,
+				cycleNumber,
 				commiting:
-					timePassed - (epoch - 2) * epochDuration < config.commitPhaseDuration,
+					timePassed - (cycleNumber - 2) * cycleDuration <
+					config.commitPhaseDuration,
 			};
 		},
-		epochStartTime(epoch: number): number {
-			return config.startTime + (epoch - 2) * epochDuration;
+		cycleStartTime(cycleNumber: number): number {
+			return config.startTime + (cycleNumber - 2) * cycleDuration;
 		},
-		revealStartTime(epoch: number): number {
+		revealStartTime(cycleNumber: number): number {
 			return (
 				config.startTime +
-				(epoch - 2) * epochDuration +
+				(cycleNumber - 2) * cycleDuration +
 				config.commitPhaseDuration
 			);
 		},
@@ -66,7 +67,7 @@ export function epochClock(config: {
 }
 
 /**
- * A SECOND GAME, ON A DIFFERENT EPOCH POLICY, beside the deployed one.
+ * A SECOND GAME, ON A DIFFERENT CYCLE POLICY, beside the deployed one.
  *
  * The deployment this repo ships is timed, because that is what a real game
  * wants; the other two policies still have to be played, and the cheapest
@@ -86,7 +87,7 @@ export async function deployGameWith(
 	fixtures: {env: any; GameToken: any; GameAvatars: any},
 	options: {
 		name: string;
-		epochPolicy: EpochPolicy;
+		cyclePolicy: CyclePolicy;
 		commitPhaseDuration: bigint;
 		revealPhaseDuration: bigint;
 		startTime?: bigint;
@@ -100,7 +101,7 @@ export async function deployGameWith(
 		revealPhaseDuration: options.revealPhaseDuration,
 		time: zeroAddress,
 		// WHAT THE GAME IS MADE OF COMES OUT OF THE FIXTURES, not out of the
-		// caller's hand. A suite about the epoch should not have to know what
+		// caller's hand. A suite about the cycle should not have to know what
 		// this game puts at stake, because that is the thing each branch of
 		// this repo changes - and a caller that spelled it out would be the
 		// line every branch has to rewrite. This is that branch: the ERC20 is
@@ -110,13 +111,13 @@ export async function deployGameWith(
 		// Zero, as the deployment's is. What is at stake here is custody of the
 		// avatar, so a bond is exactly what a commitment does not need.
 		placementCost: options.placementCost ?? 0n,
-		cyclePolicy: BigInt(options.epochPolicy),
+		cyclePolicy: BigInt(options.cyclePolicy),
 	};
 
 	// THE BRANCH'S ROUTES, which is the whole difference. Two of them are
 	// `main`'s plus one override each and the third is new, exactly as the
 	// deploy script builds them - so a game deployed here to try a different
-	// epoch policy is THIS game, keyed by avatars, rather than upstream's.
+	// cycle policy is THIS game, keyed by avatars, rather than upstream's.
 	const routes = [
 		{name: 'Getters', artifact: artifacts.GameGetters, args: [config]},
 		{
@@ -217,7 +218,7 @@ export const TURN_BOND = 0n;
 /**
  * STOP BEING A MEMBER, by whatever leaving means here.
  *
- * The epoch waits for members, so something has to be able to stop being one:
+ * The cycle waits for members, so something has to be able to stop being one:
  * that is what keeps a game with no clock from being frozen by somebody who
  * walked away. Here membership is CUSTODY, so leaving is taking the avatar
  * back out - which the contract refuses while a commitment of theirs is open,
@@ -260,7 +261,7 @@ export async function enterGame(
 	});
 
 	// THE SALE MINTS INTO THE DEPLOYED GAME, so a suite that deployed a game of
-	// its own - to run a different epoch policy against it - has to move the
+	// its own - to run a different cycle policy against it - has to move the
 	// avatar across. Taking it out and sending it back in is the players' own
 	// route rather than a test-only one, so what this exercises is something a
 	// player could do. A second SALE is not available at all: `GameAvatars` has
@@ -335,8 +336,11 @@ export function setupFixtures(provider: EthereumProvider) {
 				return Math.floor(Date.now() / 1000);
 			}
 
-			function getEpoch(time: number): {epoch: number; commiting: boolean} {
-				const epochDuration =
+			function getCycleNumber(time: number): {
+				cycleNumber: number;
+				commiting: boolean;
+			} {
+				const cycleDuration =
 					Number(linkedData.commitPhaseDuration) +
 					Number(linkedData.revealPhaseDuration);
 				const startTime = Number(linkedData.startTime);
@@ -344,28 +348,29 @@ export function setupFixtures(provider: EthereumProvider) {
 					throw new Error('Game not started');
 				}
 				const timePassed = time - startTime;
-				const epoch = Math.floor(timePassed / epochDuration + 2);
+				const cycleNumber = Math.floor(timePassed / cycleDuration + 2);
 				const commiting =
-					timePassed - (epoch - 2) * epochDuration <
+					timePassed - (cycleNumber - 2) * cycleDuration <
 					Number(linkedData.commitPhaseDuration);
 
-				return {epoch, commiting};
+				return {cycleNumber, commiting};
 			}
 
-			function getEpochStartTime(epoch: number): number {
-				const epochDuration =
+			function getCycleStartTime(cycleNumber: number): number {
+				const cycleDuration =
 					Number(linkedData.commitPhaseDuration) +
 					Number(linkedData.revealPhaseDuration);
-				return Number(linkedData.startTime) + (epoch - 2) * epochDuration;
+				return Number(linkedData.startTime) + (cycleNumber - 2) * cycleDuration;
 			}
 
-			async function advanceToEpoch(epoch: number, mine?: boolean) {
-				await advanceToTime(getEpochStartTime(epoch), mine);
+			async function advanceToCycleNumber(cycleNumber: number, mine?: boolean) {
+				await advanceToTime(getCycleStartTime(cycleNumber), mine);
 			}
 
-			async function advanceToRevealPhase(epoch: number, mine?: boolean) {
+			async function advanceToRevealPhase(cycleNumber: number, mine?: boolean) {
 				await advanceToTime(
-					getEpochStartTime(epoch) + Number(linkedData.commitPhaseDuration),
+					getCycleStartTime(cycleNumber) +
+						Number(linkedData.commitPhaseDuration),
 					mine,
 				);
 			}
@@ -377,15 +382,15 @@ export function setupFixtures(provider: EthereumProvider) {
 				GameAvatarSale,
 				GameAvatars,
 				linkedData,
-				getEpoch,
+				getCycleNumber,
 				getTimestamp,
 				// Exposed because a game deployed INSIDE a test has a schedule of
 				// its own: the two helpers above answer for the deployment's
-				// durations, and an epoch policy suite is the one thing that
+				// durations, and a cycle policy suite is the one thing that
 				// deploys a game with different ones.
 				advanceToTime,
 				advanceToRevealPhase,
-				advanceToEpoch,
+				advanceToCycleNumber,
 				namedAccounts: env.namedAccounts,
 				unnamedAccounts: env.unnamedAccounts,
 			};

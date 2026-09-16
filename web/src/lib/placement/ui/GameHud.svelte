@@ -42,7 +42,7 @@
 <div
 	class="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-3"
 >
-	<!-- Phase and epoch -->
+	<!-- Phase and cycle -->
 	<div
 		class="pointer-events-auto w-fit rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"
 	>
@@ -62,7 +62,7 @@
 			/>
 			<div>
 				<p class="text-sm font-semibold">{$hud.phaseLabel}</p>
-				<p class="text-xs text-muted-foreground">round {$hud.epoch}</p>
+				<p class="text-xs text-muted-foreground">round {$hud.cycleNumber}</p>
 			</div>
 		</div>
 		{#if $hud.walletSigningNotice}

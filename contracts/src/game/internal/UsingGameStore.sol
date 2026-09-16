@@ -16,7 +16,7 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     /// @notice how much one placement costs
     uint256 internal immutable PLACEMENT_COST;
     /// @notice how the cycle advances: see {UsingGameTypes-CyclePolicy}
-    CyclePolicy internal immutable EPOCH_POLICY;
+    CyclePolicy internal immutable CYCLE_POLICY;
 
     /// @notice the number of placements a hash represents
     uint8 internal constant MAX_NUM_PLACEMENTS_PER_HASH = 32;
@@ -52,10 +52,10 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     ///      by _place on a cell's first ever placement; read by _cellsInZones.
     mapping(uint64 => uint64[]) internal _occupiedCellsInZone;
 
-    /// @notice What the last advance wrote down. See {UsingGameTypes-EpochState}.
-    EpochState internal _epochState;
+    /// @notice What the last advance wrote down. See {UsingGameTypes-CycleState}.
+    CycleState internal _cycleState;
 
-    /// @notice How many members the epoch waits for.
+    /// @notice How many members the cycle waits for.
     /// @dev THE DENOMINATOR OF UNANIMITY, and the reason early advance cannot
     ///      be offered as a switch independent of membership: "everyone has
     ///      committed" has no meaning under open entry, because there is no
@@ -67,11 +67,11 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     ///         incremented twice for the same member.
     mapping(uint256 => bool) internal _isWaitedFor;
 
-    /// @notice How many of them have acted in the epoch it names.
-    /// @dev One slot rather than a mapping per epoch: it is only ever read for
-    ///      the CURRENT epoch, so a stale epoch number means both counts are
+    /// @notice How many of them have acted in the cycle it names.
+    /// @dev One slot rather than a mapping per cycle: it is only ever read for
+    ///      the CURRENT cycle, so a stale cycle number means both counts are
     ///      zero and the slot is reset in place by whoever acts first.
-    EpochTally internal _tally;
+    CycleTally internal _tally;
 
     /// @notice Create an instance of a game
     /// @param config configuration options for the game
@@ -81,7 +81,7 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
         REVEAL_PHASE_DURATION = config.revealPhaseDuration;
         TOKENS = config.tokens;
         PLACEMENT_COST = config.placementCost;
-        EPOCH_POLICY = config.cyclePolicy;
+        CYCLE_POLICY = config.cyclePolicy;
         // What makes a configuration VALID is checked one level up, in
         // {UsingGameInternal}, which is where the errors are declared.
     }

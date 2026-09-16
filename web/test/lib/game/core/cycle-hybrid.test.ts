@@ -1,15 +1,15 @@
 import {describe, expect, it, vi} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {
-	createEpochTrackers,
-	createHybridEpochTrackers,
+	createCycleTrackers,
+	createHybridCycleTrackers,
 	predictCycle,
-	staticEpochConfig,
+	staticCycleConfig,
 	timingsOf,
-	type EpochConfig,
-	type HybridEpochInfo,
+	type CycleConfig,
+	type HybridCycleInfo,
 	type CycleReading,
-} from '$lib/game/core/epoch';
+} from '$lib/game/core/cycle';
 import type {ChainTimeStore, SyncedTime} from '$lib/game/core/chain-time';
 
 /**
@@ -23,7 +23,7 @@ import type {ChainTimeStore, SyncedTime} from '$lib/game/core/chain-time';
  * phase that the chain had already closed, and let a player plan a turn that
  * can no longer be sent.
  */
-const config: EpochConfig = {
+const config: CycleConfig = {
 	commitPhaseDuration: 30,
 	revealPhaseDuration: 10,
 	startTime: 0,
@@ -31,9 +31,9 @@ const config: EpochConfig = {
 	policy: 'hybrid',
 };
 
-/** A round on the nominal grid: epoch 2 runs 0..40, committing until 30. */
+/** A round on the nominal grid: cycle 2 runs 0..40, committing until 30. */
 const nominal: CycleReading = {
-	epoch: 2,
+	cycleNumber: 2,
 	isCommitPhase: true,
 	phaseStart: 0,
 	phaseEnd: 30,
@@ -69,19 +69,19 @@ describe('predictCycle', () => {
 	it('rolls a known round forward on the clock alone', () => {
 		expect(predictCycle(nominal, 10, config)).toEqual(nominal);
 		expect(predictCycle(nominal, 30, config)).toEqual({
-			epoch: 2,
+			cycleNumber: 2,
 			isCommitPhase: false,
 			phaseStart: 30,
 			phaseEnd: 40,
 		});
 		expect(predictCycle(nominal, 85, config)).toEqual({
-			epoch: 4,
+			cycleNumber: 4,
 			isCommitPhase: true,
 			phaseStart: 80,
 			phaseEnd: 110,
 		});
 		expect(predictCycle(nominal, 115, config)).toEqual({
-			epoch: 4,
+			cycleNumber: 4,
 			isCommitPhase: false,
 			phaseStart: 110,
 			phaseEnd: 120,
@@ -89,24 +89,24 @@ describe('predictCycle', () => {
 	});
 
 	it('predicts from the ROUND it was given, not from the deployment', () => {
-		// What an early epoch advance leaves behind: epoch 7 began at 1000,
+		// What an early cycle advance leaves behind: cycle 7 began at 1000,
 		// which is nowhere on the grid the deployment's start time implies. An
 		// arithmetic that ignored this would answer for a schedule the chain has
-		// already left, and would be wrong about both the epoch and the phase.
+		// already left, and would be wrong about both the cycle and the phase.
 		const reAnchored: CycleReading = {
-			epoch: 7,
+			cycleNumber: 7,
 			isCommitPhase: true,
 			phaseStart: 1000,
 			phaseEnd: 1030,
 		};
 		expect(predictCycle(reAnchored, 1035, config)).toEqual({
-			epoch: 7,
+			cycleNumber: 7,
 			isCommitPhase: false,
 			phaseStart: 1030,
 			phaseEnd: 1040,
 		});
 		expect(predictCycle(reAnchored, 1045, config)).toEqual({
-			epoch: 8,
+			cycleNumber: 8,
 			isCommitPhase: true,
 			phaseStart: 1040,
 			phaseEnd: 1070,
@@ -122,7 +122,7 @@ describe('timingsOf', () => {
 	it('reports the reveal window an early open WIDENED, not the nominal one', () => {
 		// The chain opened the reveal phase at 12 and the deadline did not move.
 		const openedEarly: CycleReading = {
-			epoch: 2,
+			cycleNumber: 2,
 			isCommitPhase: false,
 			phaseStart: 12,
 			phaseEnd: 40,
@@ -155,9 +155,9 @@ describe('the hybrid tracker', () => {
 		const readCycle = vi.fn(
 			async () => readings[Math.min(read++, readings.length - 1)],
 		);
-		const trackers = createHybridEpochTrackers({
+		const trackers = createHybridCycleTrackers({
 			chainTime,
-			config: staticEpochConfig(config),
+			config: staticCycleConfig(config),
 			readCycle,
 		});
 		return {...trackers, chainTime, readCycle};
@@ -168,47 +168,47 @@ describe('the hybrid tracker', () => {
 		// phase is already open, because everyone committed and someone pushed
 		// it. THE CHAIN WINS: this is the case the whole policy exists for and
 		// the one the arithmetic cannot produce.
-		const {epochInfo, refresh, chainTime} = harness([
-			{epoch: 2, isCommitPhase: false, phaseStart: 4, phaseEnd: 40},
+		const {cycleInfo, refresh, chainTime} = harness([
+			{cycleNumber: 2, isCommitPhase: false, phaseStart: 4, phaseEnd: 40},
 		]);
 		chainTime.set(5);
 		await refresh();
 
-		const info = get(epochInfo) as HybridEpochInfo;
+		const info = get(cycleInfo) as HybridCycleInfo;
 		expect(info.type).toBe('hybrid');
-		expect(info.currentEpoch).toBe(2);
+		expect(info.currentCycleNumber).toBe(2);
 		expect(info.isCommitPhase).toBe(false);
 	});
 
 	it('carries on with the clock between reads', async () => {
-		const {epochInfo, refresh, chainTime} = harness([nominal]);
+		const {cycleInfo, refresh, chainTime} = harness([nominal]);
 		await refresh();
-		expect((get(epochInfo) as HybridEpochInfo).isCommitPhase).toBe(true);
+		expect((get(cycleInfo) as HybridCycleInfo).isCommitPhase).toBe(true);
 
 		// No new read, and the phase still turns over: polling alone would show
 		// it up to a whole interval late, which on a ten-second reveal window is
 		// a tenth of the time a player has to send it.
 		chainTime.set(31);
-		const info = epochInfo.now() as HybridEpochInfo;
+		const info = cycleInfo.now() as HybridCycleInfo;
 		expect(info.isCommitPhase).toBe(false);
-		expect(info.currentEpoch).toBe(2);
+		expect(info.currentCycleNumber).toBe(2);
 	});
 
 	it('never walks the round backwards when an answer arrives stale', async () => {
 		// A load-balanced RPC can answer from a node a block behind. The chain
 		// is monotone; the answers about it are not, and a round that went
 		// backwards on screen would re-open a commit phase the chain has closed.
-		const {epochInfo, refresh, chainTime} = harness([
-			{epoch: 3, isCommitPhase: false, phaseStart: 70, phaseEnd: 80},
-			{epoch: 2, isCommitPhase: true, phaseStart: 0, phaseEnd: 30},
+		const {cycleInfo, refresh, chainTime} = harness([
+			{cycleNumber: 3, isCommitPhase: false, phaseStart: 70, phaseEnd: 80},
+			{cycleNumber: 2, isCommitPhase: true, phaseStart: 0, phaseEnd: 30},
 		]);
 		chainTime.set(70);
 		await refresh();
-		expect((get(epochInfo) as HybridEpochInfo).currentEpoch).toBe(3);
+		expect((get(cycleInfo) as HybridCycleInfo).currentCycleNumber).toBe(3);
 
 		await refresh();
-		const info = get(epochInfo) as HybridEpochInfo;
-		expect(info.currentEpoch).toBe(3);
+		const info = get(cycleInfo) as HybridCycleInfo;
+		expect(info.currentCycleNumber).toBe(3);
 		expect(info.isCommitPhase).toBe(false);
 	});
 
@@ -216,18 +216,18 @@ describe('the hybrid tracker', () => {
 		// The first paint, before the first read lands. Degrading to the timed
 		// answer is right because that IS the floor: the chain can only be
 		// further on than the grid, never behind it.
-		const {epochInfo, chainTime} = harness([nominal]);
+		const {cycleInfo, chainTime} = harness([nominal]);
 		chainTime.set(35);
-		const info = epochInfo.now() as HybridEpochInfo;
-		expect(info.currentEpoch).toBe(2);
+		const info = cycleInfo.now() as HybridCycleInfo;
+		expect(info.currentCycleNumber).toBe(2);
 		expect(info.isCommitPhase).toBe(false);
 	});
 
 	it('stops reading and stops listening once nobody is subscribed', async () => {
-		const {epochInfo, readCycle, chainTime} = harness([nominal]);
+		const {cycleInfo, readCycle, chainTime} = harness([nominal]);
 		vi.useFakeTimers();
 		try {
-			const stop = epochInfo.subscribe(() => {});
+			const stop = cycleInfo.subscribe(() => {});
 			expect(chainTime.listeners).toBe(1);
 			stop();
 			const readsAtStop = readCycle.mock.calls.length;
@@ -244,7 +244,7 @@ describe('the hybrid tracker', () => {
 			expect(readCycle.mock.calls.length).toBe(readsAtStop);
 
 			// And it can be started again, because the canvas really does remount.
-			const restart = epochInfo.subscribe(() => {});
+			const restart = cycleInfo.subscribe(() => {});
 			expect(chainTime.listeners).toBe(1);
 			restart();
 		} finally {
@@ -253,27 +253,27 @@ describe('the hybrid tracker', () => {
 	});
 });
 
-describe('createEpochTrackers', () => {
+describe('createCycleTrackers', () => {
 	it('builds the tracker the DEPLOYMENT calls for, not the one the app prefers', async () => {
 		// FOUND BY MUTATION: a dispatcher that always built the timed tracker
 		// passed everything. It would leave a manual or hybrid deployment being
-		// drawn from pure arithmetic - a countdown against an epoch nobody is
+		// drawn from pure arithmetic - a countdown against a cycle nobody is
 		// counting down, with the chain free to be somewhere else entirely, and
 		// no error anywhere.
 		const readCycle = vi.fn(async () => ({
-			epoch: 9,
+			cycleNumber: 9,
 			isCommitPhase: false,
 			phaseStart: 400,
 			phaseEnd: 440,
 		}));
 
-		function typeUnder(policy: EpochConfig['policy']) {
-			const {epochInfo} = createEpochTrackers({
+		function typeUnder(policy: CycleConfig['policy']) {
+			const {cycleInfo} = createCycleTrackers({
 				chainTime: fakeChainTime(0),
-				config: staticEpochConfig({...config, policy}),
+				config: staticCycleConfig({...config, policy}),
 				readCycle,
 			});
-			return epochInfo.now().type;
+			return cycleInfo.now().type;
 		}
 
 		expect(typeUnder('timed')).toBe('timed');

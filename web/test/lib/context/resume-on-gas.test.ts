@@ -41,7 +41,7 @@ function fakeRound(state: State) {
 const outOfGas = (during: 'commit' | 'reveal'): State => ({
 	step: 'Error',
 	during,
-	epoch: 3,
+	cycleNumber: 3,
 	actions: [{cellID: 1n}],
 	message: 'Not enough gas to send this move.',
 	error: new SignerOutOfFundsError(new Error('insufficient funds')),
@@ -65,7 +65,7 @@ describe('resuming a round when gas arrives', () => {
 
 	it('retries the REVEAL when it was the reveal that failed', () => {
 		// Not interchangeable: committing again here would build a second
-		// commitment for an epoch that already has one, and the reveal the player
+		// commitment for a cycle that already has one, and the reveal the player
 		// has a stake riding on would still never be sent.
 		const round = fakeRound(outOfGas('reveal'));
 		const balance = writable<{step: string; value?: bigint}>({
@@ -89,7 +89,7 @@ describe('resuming a round when gas arrives', () => {
 		const round = fakeRound({
 			step: 'Error',
 			during: 'commit',
-			epoch: 3,
+			cycleNumber: 3,
 			actions: [{cellID: 1n}],
 			message: 'The commitment was rejected by the contract',
 			error: new Error('The commitment was rejected by the contract'),
@@ -110,7 +110,7 @@ describe('resuming a round when gas arrives', () => {
 	it('does not send anything when the round is not failed', () => {
 		const round = fakeRound({
 			step: 'Committed',
-			epoch: 3,
+			cycleNumber: 3,
 			actions: [{cellID: 1n}],
 			hash: '0xabc',
 		} as unknown as State);

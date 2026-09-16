@@ -17,7 +17,7 @@ interface UsingGameTypes {
     ///      like a mode instead of a policy, so the policy is now said out loud
     ///      and the commit phase is never skipped by anybody.
     ///
-    ///      `Timed` needs no transaction at all: the epoch simply is what the
+    ///      `Timed` needs no transaction at all: the cycle simply is what the
     ///      clock says. The other two are advanced by {IGameReveal-advanceCycle},
     ///      which is permissionless and strictly conditional - it may only do
     ///      what the rules already permit, so letting anyone call it grants
@@ -60,7 +60,7 @@ interface UsingGameTypes {
         /// @notice true in the commit phase, false in the reveal phase
         bool commiting;
         /// @notice chain time the current phase opened
-        /// @dev ZERO MEANS THERE IS NO CLOCK (a Manual game), not "the epoch".
+        /// @dev ZERO MEANS THERE IS NO CLOCK (a Manual game), not "the cycle".
         uint64 phaseStart;
         /// @notice chain time the current phase closes, if nobody advances it
         /// @dev Zero means there is no clock. Under an early advance this is
@@ -70,7 +70,7 @@ interface UsingGameTypes {
         uint64 phaseEnd;
     }
 
-    /// @notice WHO THE EPOCH IS WAITING FOR, and how many have acted.
+    /// @notice WHO THE CYCLE IS WAITING FOR, and how many have acted.
     /// @dev `waitedFor` is the denominator unanimity is measured against, and
     ///      it is deliberately NOT the number of players who are alive: a game
     ///      may keep a silent player in the world while no longer blocking on
@@ -78,7 +78,7 @@ interface UsingGameTypes {
     ///      is a separate question from this count.
     struct Attendance {
         uint64 waitedFor;
-        /// @notice how many of them have committed IN THE CURRENT EPOCH
+        /// @notice how many of them have committed IN THE CURRENT CYCLE
         uint64 committed;
         /// @notice how many of those commitments have been revealed
         uint64 revealed;
@@ -88,18 +88,18 @@ interface UsingGameTypes {
     /// @dev STORAGE ONLY. Read {Cycle} instead; this is the raw anchor it is
     ///      computed from, and every field means something different per
     ///      policy, which is why it is not the thing anyone else reads.
-    struct EpochState {
-        /// @notice the epoch the anchor names; zero means nothing has advanced
-        ///         yet, so the anchor is (epoch 2, START_TIME, commit phase)
-        uint64 anchorEpoch;
-        /// @notice chain time the anchor epoch's COMMIT phase opened (timed
+    struct CycleState {
+        /// @notice the cycle the anchor names; zero means nothing has advanced
+        ///         yet, so the anchor is (cycle 2, START_TIME, commit phase)
+        uint64 anchorCycleNumber;
+        /// @notice chain time the anchor cycle's COMMIT phase opened (timed
         ///         policies only)
         uint64 anchoredAt;
-        /// @notice the epoch whose reveal phase was opened early, if any
-        uint64 earlyRevealEpoch;
+        /// @notice the cycle whose reveal phase was opened early, if any
+        uint64 earlyRevealCycleNumber;
         /// @notice when that happened, which is when that reveal window opened
         uint64 earlyRevealAt;
-        /// @notice which phase the anchor epoch is in (Manual only; the timed
+        /// @notice which phase the anchor cycle is in (Manual only; the timed
         ///         policies read it off the clock)
         bool commiting;
     }
@@ -131,12 +131,12 @@ interface UsingGameTypes {
     // STORAGE TYPES
     // ------------------------------------------------------------------------
 
-    /// @notice How many members have acted, in the epoch it names.
-    /// @dev The epoch is stored WITH the counts so that one slot can serve
-    ///      every epoch: a tally whose epoch is not the current one is a tally
-    ///      of zero, and the first player to act in a new epoch resets it.
-    struct EpochTally {
-        uint64 epoch;
+    /// @notice How many members have acted, in the cycle it names.
+    /// @dev The cycle is stored WITH the counts so that one slot can serve
+    ///      every cycle: a tally whose cycle is not the current one is a tally
+    ///      of zero, and the first player to act in a new cycle resets it.
+    struct CycleTally {
+        uint64 cycleNumber;
         uint64 committed;
         uint64 revealed;
     }
