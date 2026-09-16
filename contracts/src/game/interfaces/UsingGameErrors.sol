@@ -42,13 +42,13 @@ interface UsingGameErrors {
     /// @notice the revealed placements cost more than the bond set aside
     error BondTooLow(uint256 bond, uint256 required);
 
-    /// @notice this game's round is advanced by the clock and by nothing else
+    /// @notice this game's cycle is advanced by the clock and by nothing else
     /// @dev A purely timed epoch needs no transaction at all - it simply is
     ///      what the clock says - so there is nothing for a caller to do here
     ///      and pretending otherwise would let one look like it had.
     error NextPhaseNotAllowed();
 
-    /// @notice the phase durations do not describe a round this game can run
+    /// @notice the phase durations do not describe a cycle this game can run
     /// @dev Both phases must be non-zero on a timed policy, and both must be
     ///      zero on a manual one. See {UsingGameInternal} for why a zero phase
     ///      is not a configuration but a hole: it makes a commitment either
@@ -59,12 +59,12 @@ interface UsingGameErrors {
     /// @dev Early advance needs a closed set of members. "Everyone has
     ///      committed" is not a question that can be answered under open
     ///      entry, and answering it against an empty set would let one caller
-    ///      spin the round forward on their own.
+    ///      spin the cycle forward on their own.
     error NoOneToWaitFor();
 
     /// @notice this identity has not entered the game, so it cannot take a turn
     /// @dev What entering MEANS is the game's: a funded reserve here, custody of
-    ///      a token elsewhere. What the round needs is only that the set of
+    ///      a token elsewhere. What the cycle needs is only that the set of
     ///      players who may commit is the same set unanimity is measured
     ///      against - see {UsingGameInternal-_makeCommitment}.
     error NotInGame(uint256 player);

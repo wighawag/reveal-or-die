@@ -180,7 +180,7 @@ describe('Game', function () {
 				// forward. Anyone may do it; it is nobody's move.
 				await env.execute(Game, {
 					account: playerA,
-					functionName: 'advanceRound',
+					functionName: 'advanceCycle',
 					args: [],
 				});
 			}

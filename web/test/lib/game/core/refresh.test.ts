@@ -2,7 +2,7 @@ import {describe, expect, it, vi, afterEach} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {
 	refreshDuringReveal,
-	settleBoardWhenRoundStarts,
+	settleBoardWhenCycleStarts,
 	type BoardEpochState,
 	type PlayWindow,
 } from '$lib/game/core/refresh';
@@ -13,9 +13,9 @@ import {
  *
  * - during the reveal window, because another player's move is invisible from
  *   here and a 5s poll turns the one moment the game is about into a wait;
- * - when a round starts, because the client's clock crosses the epoch boundary
+ * - when a cycle starts, because the client's clock crosses the epoch boundary
  *   AHEAD of the chain, and the poller's own answer to that ("not yet", then
- *   backoff) leaves the new round playing on last round's board.
+ *   backoff) leaves the new cycle playing on last cycle's board.
  *
  * Both are policies that act unprompted, so both are functions of two stores
  * and a callback, testable with fake timers and no chain, camera or app.
@@ -79,7 +79,7 @@ describe('refreshDuringReveal', () => {
 		// the clock crossed, a node whose timestamps trail the wall clock - and
 		// without the grace they wait for the poller's full interval. Observed
 		// once as another player's piece standing still a few seconds into the
-		// next round.
+		// next cycle.
 		vi.useFakeTimers();
 		const {phase} = stores();
 		const refresh = vi.fn();
@@ -131,7 +131,7 @@ describe('refreshDuringReveal', () => {
 		// Entering `wait` before the teardown only proves `stop()` clears a timer;
 		// a version written that way passed with the `unsubscribe()` deleted,
 		// because the leak it was supposed to catch only shows when the phase
-		// changes AFTER teardown - which is exactly what a round boundary does to
+		// changes AFTER teardown - which is exactly what a cycle boundary does to
 		// a binding whose owner has gone.
 		stop();
 		refresh.mockClear();
@@ -142,14 +142,14 @@ describe('refreshDuringReveal', () => {
 	});
 });
 
-describe('settleBoardWhenRoundStarts', () => {
+describe('settleBoardWhenCycleStarts', () => {
 	it('does nothing until the commit phase begins, and nothing without watch()', async () => {
 		// `watch()` is the switch because the subscription opens the chain clock,
 		// and construction must not start IO (ADR-0002).
 		vi.useFakeTimers();
 		const {phase, clock, board} = stores();
 		const refresh = vi.fn();
-		settleBoardWhenRoundStarts({
+		settleBoardWhenCycleStarts({
 			phase,
 			epoch: clock,
 			state: board,
@@ -174,7 +174,7 @@ describe('settleBoardWhenRoundStarts', () => {
 				calls >= 3 ? {step: 'Loaded', epoch: 8} : {step: 'Loaded', epoch: 7},
 			);
 		});
-		const settle = settleBoardWhenRoundStarts({
+		const settle = settleBoardWhenCycleStarts({
 			phase,
 			epoch: clock,
 			state: board,
@@ -197,7 +197,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		expect(refresh).toHaveBeenCalledTimes(3);
 	});
 
-	it('does not restart on every clock tick of the same round', async () => {
+	it('does not restart on every clock tick of the same cycle', async () => {
 		// A phase store derived from chain time re-emits on every tick, so the
 		// settle has to trigger on the TRANSITION into the commit phase, not on
 		// the phase value.
@@ -206,7 +206,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		const refresh = vi.fn(async () => {
 			board.set({step: 'Loaded', epoch: get(clock)});
 		});
-		const settle = settleBoardWhenRoundStarts({
+		const settle = settleBoardWhenCycleStarts({
 			phase,
 			epoch: clock,
 			state: board,
@@ -221,7 +221,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		// point: three synchronous `play` emissions are all swallowed by the
 		// in-flight guard, so a version of this test that fired them back to back
 		// passed with the transition check deleted and proved nothing. The clock
-		// re-emits for the rest of the round, long after the settle has finished.
+		// re-emits for the rest of the cycle, long after the settle has finished.
 		await vi.advanceTimersByTimeAsync(100);
 		expect(refresh).toHaveBeenCalledTimes(1);
 
@@ -240,7 +240,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		const refresh = vi.fn(async () => {
 			board.set({step: 'Loaded', epoch: 7});
 		});
-		const settle = settleBoardWhenRoundStarts({
+		const settle = settleBoardWhenCycleStarts({
 			phase,
 			epoch: clock,
 			state: board,
@@ -266,7 +266,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		const refresh = vi.fn(async () => {
 			board.set({step: 'Unloaded'});
 		});
-		const settle = settleBoardWhenRoundStarts({
+		const settle = settleBoardWhenCycleStarts({
 			phase,
 			epoch: clock,
 			state: board,
@@ -284,7 +284,7 @@ describe('settleBoardWhenRoundStarts', () => {
 		vi.useFakeTimers();
 		const {phase, clock, board} = stores();
 		const refresh = vi.fn();
-		const settle = settleBoardWhenRoundStarts({
+		const settle = settleBoardWhenCycleStarts({
 			phase,
 			epoch: clock,
 			state: board,

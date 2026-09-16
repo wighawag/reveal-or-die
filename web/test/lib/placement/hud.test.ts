@@ -104,7 +104,7 @@ function fakeContext(round: State, hasLocalSigner = true) {
 			config: {sale: {price: 1n, amount: 10n, stipend: 2n}},
 			twoPhase: writable({phase: 'play', timeLeft: 10, duration: 20}),
 			// The four-part model, asked separately from the countdown: the
-			// catch-up has no countdown at all. See game/core/round-phase.ts.
+			// catch-up has no countdown at all. See game/core/cycle-phase.ts.
 			phase: writable('play'),
 			round: writable(round),
 			planning: {count: writable(1)},

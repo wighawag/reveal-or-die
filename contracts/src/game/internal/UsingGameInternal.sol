@@ -13,7 +13,7 @@ abstract contract UsingGameInternal is
     UsingGameErrors
 {
     constructor(Config memory config) UsingGameStore(config) {
-        // THE ARITHMETIC THE WHOLE ROUND RESTS ON, checked once here rather
+        // THE ARITHMETIC THE WHOLE CYCLE RESTS ON, checked once here rather
         // than trusted forever. An epoch is a commit phase followed by a reveal
         // phase and nothing else, with no trailing segment, so a commitment
         // made in the CURRENT epoch is always still openable: you are either in
@@ -83,7 +83,7 @@ abstract contract UsingGameInternal is
         // AND YOU CANNOT LEAVE WITH A TURN STILL OPEN, which is the same rule
         // as the line above applied to the thing that is really at stake. The
         // bond is not the only thing an open commitment holds: being a member
-        // is, because the round is WAITING for this player. A turn bonding
+        // is, because the cycle is WAITING for this player. A turn bonding
         // ZERO locks nothing, so without this a player could commit, empty
         // their reserve, cease to be waited for, and leave the epoch counting
         // their commitment while no longer counting them - at which point a
@@ -102,7 +102,7 @@ abstract contract UsingGameInternal is
         // Note what this does NOT do: it settles nothing and it costs nothing
         // beyond the departure itself. Leaving the set the epoch waits for and
         // being punished for going silent are different questions, and only
-        // the first one is the round's.
+        // the first one is the cycle's.
         if (newAmount == 0) {
             _stopWaitingFor(player);
         }
@@ -305,7 +305,7 @@ abstract contract UsingGameInternal is
     // WHO THE EPOCH WAITS FOR
     //-------------------------------------------------------------------------
 
-    /// @notice Start blocking the round on this player.
+    /// @notice Start blocking the cycle on this player.
     /// @dev Idempotent on purpose: the caller is a game rule ("a funded
     ///      reserve means you are in") and rules fire more than once. A count
     ///      that could be incremented twice for one member would make
@@ -321,7 +321,7 @@ abstract contract UsingGameInternal is
         emit WaitedForChanged(player, true, count);
     }
 
-    /// @notice Stop blocking the round on this player.
+    /// @notice Stop blocking the cycle on this player.
     /// @dev The whole of what leaving means. It settles nothing, returns
     ///      nothing and burns nothing, because those are the GAME's questions
     ///      and answering them here would make "stop waiting for me" into a
@@ -385,10 +385,10 @@ abstract contract UsingGameInternal is
     }
 
     //-------------------------------------------------------------------------
-    // ADVANCING THE ROUND
+    // ADVANCING THE CYCLE
     //-------------------------------------------------------------------------
 
-    /// @notice Move the round on, if the rules already permit it.
+    /// @notice Move the cycle on, if the rules already permit it.
     /// @return epoch The epoch after the move.
     /// @return commiting Which phase it is now in.
     /// @dev ITS OWN TRANSACTION, NEVER A RIDER ON THE LAST REVEAL, and the
@@ -399,7 +399,7 @@ abstract contract UsingGameInternal is
     ///      depend on winning a race, which is the worst possible input to the
     ///      out-of-gas remedy this app already has. And it would not be
     ///      retriable: an advance stranded by an unrelated revert would leave
-    ///      the round stuck, where a separate call can simply be made again, by
+    ///      the cycle stuck, where a separate call can simply be made again, by
     ///      anyone.
     ///
     ///      PERMISSIONLESS BUT STRICTLY CONDITIONAL. Anyone may call it and it
@@ -408,13 +408,13 @@ abstract contract UsingGameInternal is
     ///      it only exists in the policies where somebody is present anyway.
     ///
     ///      UNANIMITY, NEVER A MAJORITY OR A QUORUM. If a subset could close a
-    ///      phase, fast players would time out slow ones and the round would
+    ///      phase, fast players would time out slow ones and the cycle would
     ///      become a race - the order-independence failure one level up, where
     ///      whoever is quickest decides the outcome and committing bought
     ///      nothing.
     ///
     ///      IT ONLY EVER WIDENS A WINDOW. Opening the reveal phase early does
-    ///      not move the epoch's deadline (see {_round}), so a reveal scheduled
+    ///      not move the epoch's deadline (see {_cycle}), so a reveal scheduled
     ///      against the nominal time still lands inside the window, and a
     ///      player who has not acted still has their full clock. Closing the
     ///      epoch early is only permitted once every commitment in it has been
@@ -427,15 +427,15 @@ abstract contract UsingGameInternal is
     ///      commitment you have already made, since cancelling is a commit
     ///      phase action. That is not a window being shortened; it is what
     ///      committing means.
-    function _advanceRound() internal returns (uint64 epoch, bool commiting) {
+    function _advanceCycle() internal returns (uint64 epoch, bool commiting) {
         if (EPOCH_POLICY == CyclePolicy.Timed) {
             // The epoch simply IS what the clock says, so there is nothing
             // here for anyone to do.
             revert NextPhaseNotAllowed();
         }
 
-        Round memory round = _round();
-        Attendance memory attendance = _attendance(round.cycleNumber);
+        Cycle memory cycle = _cycle();
+        Attendance memory attendance = _attendance(cycle.cycleNumber);
 
         // C1: no closed set, no denominator. Without this, one caller could
         // push an empty game forward as fast as they liked.
@@ -443,14 +443,14 @@ abstract contract UsingGameInternal is
             revert NoOneToWaitFor();
         }
 
-        if (round.commiting) {
+        if (cycle.commiting) {
             if (attendance.committed < attendance.waitedFor) {
                 revert StillWaitingToCommit(
                     attendance.committed,
                     attendance.waitedFor
                 );
             }
-            epoch = round.cycleNumber;
+            epoch = cycle.cycleNumber;
             commiting = false;
 
             if (EPOCH_POLICY == CyclePolicy.Manual) {
@@ -475,7 +475,7 @@ abstract contract UsingGameInternal is
                     attendance.committed
                 );
             }
-            epoch = round.cycleNumber + 1;
+            epoch = cycle.cycleNumber + 1;
             commiting = true;
 
             _epochState.anchorEpoch = epoch;
@@ -484,12 +484,12 @@ abstract contract UsingGameInternal is
             } else {
                 // The new epoch runs its full length from here, which is the
                 // only way early advance makes a game with a clock finish a
-                // round sooner than the clock would.
+                // cycle sooner than the clock would.
                 _epochState.anchoredAt = uint64(_timestamp());
             }
         }
 
-        emit RoundAdvanced(epoch, commiting, msg.sender);
+        emit CycleAdvanced(epoch, commiting, msg.sender);
     }
 
     //-------------------------------------------------------------------------
@@ -573,7 +573,7 @@ abstract contract UsingGameInternal is
     // INTERNALS
     //-------------------------------------------------------------------------
 
-    /// @notice WHERE THE ROUND IS. The seam the epoch policy varies at.
+    /// @notice WHERE THE CYCLE IS. The seam the epoch policy varies at.
     /// @dev `virtual`, and it is the ONLY thing about the clock that is: a game
     ///      with a fourth policy overrides this one function and touches no
     ///      store, no route and no other internal. It replaced a virtual
@@ -594,7 +594,7 @@ abstract contract UsingGameInternal is
     ///      Epochs start at 2 so that the hypothetical reveal phase before the
     ///      first commit phase can be epoch 1, which is also why zero can mean
     ///      "no commitment" in {Commitment}.
-    function _round() internal view virtual returns (Round memory round) {
+    function _cycle() internal view virtual returns (Cycle memory cycle) {
         EpochState memory state = _epochState;
         bool anchored = state.anchorEpoch != 0;
         uint64 anchorEpoch = anchored ? state.anchorEpoch : 2;
@@ -604,7 +604,7 @@ abstract contract UsingGameInternal is
             // to count down to", which is a different statement from a
             // deadline that happens to be zero.
             return
-                Round({
+                Cycle({
                     cycleNumber: anchorEpoch,
                     commiting: anchored ? state.commiting : true,
                     phaseStart: 0,
@@ -620,12 +620,12 @@ abstract contract UsingGameInternal is
 
         uint256 epochDuration = COMMIT_PHASE_DURATION + REVEAL_PHASE_DURATION;
         uint256 elapsed = time - anchoredAt;
-        round.cycleNumber = anchorEpoch + uint64(elapsed / epochDuration);
-        round.commiting = (elapsed % epochDuration) < COMMIT_PHASE_DURATION;
+        cycle.cycleNumber = anchorEpoch + uint64(elapsed / epochDuration);
+        cycle.commiting = (elapsed % epochDuration) < COMMIT_PHASE_DURATION;
 
         uint256 epochStart =
             anchoredAt +
-                uint256(round.cycleNumber - anchorEpoch) * epochDuration;
+                uint256(cycle.cycleNumber - anchorEpoch) * epochDuration;
 
         // AN EARLY OPEN MOVES THE START AND NOT THE DEADLINE. The reveal window
         // becomes "as soon as everyone has committed, until the nominal end",
@@ -635,30 +635,30 @@ abstract contract UsingGameInternal is
         // reveals, and lose them silently, at the cost of the stake.
         bool openedEarly =
             EPOCH_POLICY == CyclePolicy.TimedWithEarlyAdvance &&
-                state.earlyRevealEpoch == round.cycleNumber;
+                state.earlyRevealEpoch == cycle.cycleNumber;
         if (openedEarly) {
-            round.commiting = false;
+            cycle.commiting = false;
         }
 
-        if (round.commiting) {
-            round.phaseStart = uint64(epochStart);
-            round.phaseEnd = uint64(epochStart + COMMIT_PHASE_DURATION);
+        if (cycle.commiting) {
+            cycle.phaseStart = uint64(epochStart);
+            cycle.phaseEnd = uint64(epochStart + COMMIT_PHASE_DURATION);
         } else {
-            round.phaseStart =
+            cycle.phaseStart =
                 openedEarly
                     ? state.earlyRevealAt
                     : uint64(epochStart + COMMIT_PHASE_DURATION);
-            round.phaseEnd = uint64(epochStart + epochDuration);
+            cycle.phaseEnd = uint64(epochStart + epochDuration);
         }
     }
 
-    /// @notice The round as everything inside this contract asks about it.
-    /// @dev Deliberately NOT virtual: {_round} is the seam, and a second
+    /// @notice The cycle as everything inside this contract asks about it.
+    /// @dev Deliberately NOT virtual: {_cycle} is the seam, and a second
     ///      overridable answer to the same question is a second thing to keep
     ///      in step with the first.
     function _epoch() internal view returns (uint64 epoch, bool commiting) {
-        Round memory round = _round();
-        return (round.cycleNumber, round.commiting);
+        Cycle memory cycle = _cycle();
+        return (cycle.cycleNumber, cycle.commiting);
     }
 
     function _checkHash(
