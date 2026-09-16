@@ -15,7 +15,7 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     IERC20 internal immutable TOKENS;
     /// @notice how much one placement costs
     uint256 internal immutable PLACEMENT_COST;
-    /// @notice how the round advances: see {UsingGameTypes-CyclePolicy}
+    /// @notice how the cycle advances: see {UsingGameTypes-CyclePolicy}
     CyclePolicy internal immutable EPOCH_POLICY;
 
     /// @notice the number of placements a hash represents

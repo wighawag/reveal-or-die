@@ -9,7 +9,7 @@ interface UsingGameTypes {
     // EXTERNAL TYPES
     // ------------------------------------------------------------------------
 
-    /// @notice HOW THE ROUND ADVANCES. One of three, chosen by the deployment.
+    /// @notice HOW THE CYCLE ADVANCES. One of three, chosen by the deployment.
     /// @dev It used to be derived rather than declared: a game whose two phase
     ///      durations were both zero was a manual game, AND was a game that
     ///      skipped the commit phase, because one flag stood for both. Two
@@ -18,19 +18,19 @@ interface UsingGameTypes {
     ///      and the commit phase is never skipped by anybody.
     ///
     ///      `Timed` needs no transaction at all: the epoch simply is what the
-    ///      clock says. The other two are advanced by {IGameReveal-advanceRound},
+    ///      clock says. The other two are advanced by {IGameReveal-advanceCycle},
     ///      which is permissionless and strictly conditional - it may only do
     ///      what the rules already permit, so letting anyone call it grants
     ///      nothing.
     enum CyclePolicy {
         /// @notice The clock decides, and nothing else can.
         Timed,
-        /// @notice There is no clock. The round moves when the players have all
+        /// @notice There is no clock. The cycle moves when the players have all
         ///         acted and someone pushes it.
         Manual,
         /// @notice The clock decides the DEADLINE, and unanimity can bring the
         ///         next phase forward. Never the other way round: see
-        ///         {UsingGameInternal-_advanceRound}.
+        ///         {UsingGameInternal-_advanceCycle}.
         TimedWithEarlyAdvance
     }
 
@@ -44,18 +44,18 @@ interface UsingGameTypes {
         IERC20 tokens;
         /// @notice how much one placement costs, taken from the player's reserve
         uint256 placementCost;
-        /// @notice how the round advances
+        /// @notice how the cycle advances
         CyclePolicy cyclePolicy;
     }
 
-    /// @notice WHERE THE ROUND IS, and until when.
+    /// @notice WHERE THE CYCLE IS, and until when.
     /// @dev The client reads this rather than computing it, because under
     ///      {CyclePolicy-TimedWithEarlyAdvance} the arithmetic alone cannot
     ///      know that a phase was brought forward - that takes a transaction.
     ///      A local clock predicts this correctly right up until someone
     ///      advances early, which is exactly why the prediction is a floor and
     ///      this is the answer.
-    struct Round {
+    struct Cycle {
         uint64 cycleNumber;
         /// @notice true in the commit phase, false in the reveal phase
         bool commiting;
@@ -85,7 +85,7 @@ interface UsingGameTypes {
     }
 
     /// @notice What an advance has written down, if anything.
-    /// @dev STORAGE ONLY. Read {Round} instead; this is the raw anchor it is
+    /// @dev STORAGE ONLY. Read {Cycle} instead; this is the raw anchor it is
     ///      computed from, and every field means something different per
     ///      policy, which is why it is not the thing anyone else reads.
     struct EpochState {

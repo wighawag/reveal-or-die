@@ -34,13 +34,13 @@ import {
 	type ActiveIdentityStore,
 	type GameIdentity,
 } from '$lib/game/identity';
-import {holdBoardUntilRoundEnds} from '$lib/game/core/handover';
+import {holdBoardUntilCycleEnds} from '$lib/game/core/handover';
 import {createRoundRecovery, type RecoveryStore} from '$lib/game/core/recovery';
 import {
 	boardIsBehindClock,
-	roundPhaseOf,
-	type RoundPhase,
-} from '$lib/game/core/round-phase';
+	cyclePhaseOf,
+	type CyclePhase,
+} from '$lib/game/core/cycle-phase';
 import {
 	createAcquisition,
 	refreshWhenPendingAcquisitionSettles,
@@ -81,8 +81,8 @@ import {
 	roundStorageKey,
 } from '$lib/placement/storage';
 import {createPlanning, type PlanningStore} from '$lib/placement/planning';
-import {createRoundReader} from '$lib/placement/epoch';
-import {holdResolvingRound, type HeldBoardState} from '$lib/placement/hold';
+import {createCycleReader} from '$lib/placement/epoch';
+import {holdResolvingCycle, type HeldBoardState} from '$lib/placement/hold';
 import {holdPlanUntilBoardReleases} from '$lib/placement/display-plan';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
 import {isRegistered, type DelegationValue} from '$lib/onchain/delegation';
@@ -143,9 +143,9 @@ export type Game = {
 	 * The four-part model the HUD draws and the move gate reads.
 	 *
 	 * `threePhase` plus the one state a clock cannot see: the board is still
-	 * showing a round that is already over. See `game/core/round-phase.ts`.
+	 * showing a cycle that is already over. See `game/core/cycle-phase.ts`.
 	 */
-	phase: Readable<RoundPhase>;
+	phase: Readable<CyclePhase>;
 	/** The same, collapsed to play / wait. */
 	twoPhase: Readable<TwoPhase>;
 	/** The commit-reveal round: what is planned, committed, revealed. */
@@ -180,7 +180,7 @@ export type Game = {
 	 * Clicks do nothing while this is false. Letting someone plan a whole turn
 	 * they cannot commit is worse than not letting them start: the moves look
 	 * accepted, and the failure only arrives at the commit, by which point the
-	 * round is over.
+	 * cycle is over.
 	 */
 	readyToPlay: Readable<boolean>;
 	/** What is still missing before a turn can be taken, if anything. */
@@ -401,7 +401,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	const {epochInfo, twoPhase} = createEpochTrackers({
 		chainTime,
 		config: staticEpochConfig(config.epoch),
-		readRound: createRoundReader({
+		readCycle: createCycleReader({
 			publicClient: core.publicClient,
 			deployments,
 		}),
@@ -424,11 +424,11 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	/**
-	 * Is the board still showing the round that just ended?
+	 * Is the board still showing the cycle that just ended?
 	 *
 	 * Derived from the two stores rather than tracked, so it cannot go stale: it
 	 * is a comparison, not a state machine. The rule and the trap it avoids are
-	 * in `game/core/round-phase.ts`.
+	 * in `game/core/cycle-phase.ts`.
 	 */
 	const boardBehindClock = derived(
 		[epochInfo, onchainState],
@@ -440,7 +440,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	);
 
 	const phase = derived([threePhase, boardBehindClock], ([$three, $behind]) =>
-		roundPhaseOf($three, $behind),
+		cyclePhaseOf($three, $behind),
 	);
 
 	// The stake is filed under WHO PLAYS, not under who signed in: a game whose
@@ -622,19 +622,19 @@ export function createGameContext(core: CoreServices): GameContext {
 	 *
 	 * Reveals arrive one transaction at a time and in whatever order the mempool
 	 * delivers them, so a board that draws each as it lands shows a simultaneous
-	 * round playing out in payment order - which is the very thing committing is
-	 * paid for to prevent. What is held back is only what the resolving round
+	 * cycle playing out in payment order - which is the very thing committing is
+	 * paid for to prevent. What is held back is only what the resolving cycle
 	 * changed, and only until it is over; see `$lib/placement/hold`.
 	 *
 	 * Everything about FETCHING - the settle, the catching-up phase, the RPC
 	 * health - keeps reading the RAW store, because those are about what the
 	 * chain says and this is about what the player is shown.
 	 */
-	const heldBoard = holdBoardUntilRoundEnds<HeldBoardState>({
+	const heldBoard = holdBoardUntilCycleEnds<HeldBoardState>({
 		state: onchainState,
 		phase: twoPhase,
 		epoch: derived(epochInfo, ($info) => $info.currentEpoch),
-		hold: holdResolvingRound,
+		hold: holdResolvingCycle,
 	});
 
 	const viewState = createViewState({
@@ -646,7 +646,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		 * board's account of it after - have to hand over with nothing in between,
 		 * and the round drops its actions the moment it reaches `Revealed`, before
 		 * the board releases what they did. Released by the board's OWN signal, so
-		 * the two cannot disagree about when the round ended.
+		 * the two cannot disagree about when the cycle ended.
 		 *
 		 * ONLY WHAT IS DRAWN. `planning.plan` is untouched and everything that
 		 * ACTS on a turn keeps reading it.
