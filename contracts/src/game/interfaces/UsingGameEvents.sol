@@ -26,18 +26,21 @@ interface UsingGameEvents is UsingGameTypes {
     /// @notice A player committed to a set of placements for this epoch.
     event CommitmentMade(
         uint256 indexed player,
-        uint64 indexed epoch,
+        uint64 indexed cycleNumber,
         bytes24 commitmentHash,
         uint256 bond
     );
 
     /// @notice A player withdrew their commitment before the reveal phase.
-    event CommitmentCancelled(uint256 indexed player, uint64 indexed epoch);
+    event CommitmentCancelled(
+        uint256 indexed player,
+        uint64 indexed cycleNumber
+    );
 
     /// @notice A player revealed what they had committed to.
     event CommitmentRevealed(
         uint256 indexed player,
-        uint64 indexed epoch,
+        uint64 indexed cycleNumber,
         bytes24 commitmentHash,
         Placement[] placements,
         uint256 cost
@@ -51,7 +54,7 @@ interface UsingGameEvents is UsingGameTypes {
     ///        event of its own.
     event CommitmentVoid(
         uint256 indexed player,
-        uint64 indexed epoch,
+        uint64 indexed cycleNumber,
         uint256 forfeited
     );
 
@@ -65,7 +68,11 @@ interface UsingGameEvents is UsingGameTypes {
     ///      transaction and never a rider on the last reveal. A clock-driven
     ///      turnover emits nothing, because nothing happened on chain: that is
     ///      the difference this event exists to make visible.
-    event RoundAdvanced(uint64 indexed epoch, bool commiting, address pushedBy);
+    event RoundAdvanced(
+        uint64 indexed cycleNumber,
+        bool commiting,
+        address pushedBy
+    );
 
     /// @notice The epoch started, or stopped, waiting for this player.
     /// @param waitedFor Whether it now waits for them.

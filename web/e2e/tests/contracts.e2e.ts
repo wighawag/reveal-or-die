@@ -52,8 +52,8 @@ describe('Contracts Page', () => {
 
 	test('should display view functions in Read tab', async ({page}) => {
 		await page.goto('/contracts');
-		// `getEpoch` is the GAME's, so the page has to be on the Game. It is not
-		// enough to be on whichever contract sorts first.
+		// `getCycleNumber` is the GAME's, so the page has to be on the Game. It is
+		// not enough to be on whichever contract sorts first.
 		await selectContract(page);
 
 		// Wait for Read tab to be visible and click it
@@ -68,7 +68,7 @@ describe('Contracts Page', () => {
 
 		// Should list the game's own view functions. One specific function, not an
 		// `.or()` of two: the union matches both cards and trips strict mode.
-		await expect(page.getByText('getEpoch').first()).toBeVisible({
+		await expect(page.getByText('getCycleNumber').first()).toBeVisible({
 			timeout: 5000,
 		});
 	});
@@ -97,9 +97,10 @@ describe('Contracts Page', () => {
 		await expect(readTab).toBeVisible({timeout: 5000});
 		await readTab.click();
 
-		// `getEpoch` takes no arguments, so it can be called with nothing filled in
+		// `getCycleNumber` takes no arguments, so it can be called with nothing
+		// filled in
 		const functionCard = page.locator('[class*="card"]').filter({
-			hasText: 'getEpoch',
+			hasText: 'getCycleNumber',
 		});
 
 		// Click the call/query button

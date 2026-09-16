@@ -33,7 +33,7 @@ import {derived, get, type Readable} from 'svelte/store';
 import type {ChainTimeStore} from './chain-time';
 
 /**
- * How the round advances. The client's half of `UsingGameTypes.EpochPolicy`.
+ * How the round advances. The client's half of `UsingGameTypes.CyclePolicy`.
  *
  * DECLARED BY THE DEPLOYMENT, never inferred. It used to be inferred, on both
  * sides: a game whose two phase durations were zero was a manual game, and was
@@ -544,7 +544,7 @@ export function resolveEpochConfig(linkedData: {
 	commitPhaseDuration: unknown;
 	revealPhaseDuration: unknown;
 	startTime?: unknown;
-	epochPolicy?: unknown;
+	cyclePolicy?: unknown;
 }): EpochConfig {
 	// READ, not coerced. `Number(undefined)` is `NaN`, and a NaN phase duration
 	// makes every comparison against the clock false, so the epoch simply stops
@@ -582,12 +582,12 @@ export function resolveEpochConfig(linkedData: {
  * policy, so the two can never drift apart again.
  */
 function resolvePolicy(values: DeclaredValues): EpochPolicy {
-	const declared = optionalNumber(values, 'epochPolicy');
+	const declared = optionalNumber(values, 'cyclePolicy');
 	if (declared !== undefined) {
 		const policy = POLICY_BY_VALUE[declared];
 		if (!policy) {
 			throw new Error(
-				`The deployment declares an epochPolicy of ${declared}, which this build does not know. ` +
+				`The deployment declares a cyclePolicy of ${declared}, which this build does not know. ` +
 					`It understands ${POLICY_BY_VALUE.join(', ')}; check the app is as new as the contract.`,
 			);
 		}

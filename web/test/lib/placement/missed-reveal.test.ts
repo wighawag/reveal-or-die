@@ -18,7 +18,7 @@ const PLAYER = '0x1111111111111111111111111111111111111111' as const;
  * is usually that NOTHING was sent.
  */
 function fakeDeps(options: {
-	commitment: {epoch: bigint; bond: bigint};
+	commitment: {cycleNumber: bigint; bond: bigint};
 	currentEpoch: bigint;
 	identity?: GameIdentity | undefined;
 	writeFails?: boolean;
@@ -74,7 +74,8 @@ function fakeDeps(options: {
 				reads.push({functionName, args});
 				if (options.readFails) throw new Error('rpc down');
 				if (functionName === 'getCommitment') return options.commitment;
-				if (functionName === 'getEpoch') return [options.currentEpoch, true];
+				if (functionName === 'getCycleNumber')
+					return [options.currentEpoch, true];
 				throw new Error(`unexpected read ${functionName}`);
 			},
 			waitForTransactionReceipt: async () => {
@@ -96,7 +97,7 @@ const config = {placementCost: 10n ** 18n} as never;
 describe('a commitment that was never revealed', () => {
 	it('is reported, with what it cost, when it is from a past epoch', async () => {
 		const {deps, identity} = fakeDeps({
-			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
+			commitment: {cycleNumber: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
 		const store = createMissedReveal({deps, config, identity});
@@ -124,7 +125,7 @@ describe('a commitment that was never revealed', () => {
 		// to a `uint256` parameter, which viem rejects at the call and which no
 		// other assertion in this file would notice, since they all fake the read.
 		const {deps, identity, reads, sends} = fakeDeps({
-			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
+			commitment: {cycleNumber: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
 		const store = createMissedReveal({deps, config, identity});
@@ -145,7 +146,7 @@ describe('a commitment that was never revealed', () => {
 
 	it('is NOT settled without the player asking', async () => {
 		const {deps, identity, writes} = fakeDeps({
-			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
+			commitment: {cycleNumber: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
 		const store = createMissedReveal({deps, config, identity});
@@ -159,7 +160,7 @@ describe('a commitment that was never revealed', () => {
 
 	it('forfeits the bond only when acknowledged, and then unblocks play', async () => {
 		const {deps, identity, writes} = fakeDeps({
-			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
+			commitment: {cycleNumber: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
 		const onSettled = vi.fn();
@@ -177,7 +178,7 @@ describe('a commitment that was never revealed', () => {
 
 	it('leaves a commitment for the CURRENT epoch alone', async () => {
 		const {deps, identity, writes} = fakeDeps({
-			commitment: {epoch: 12n, bond: 5n * 10n ** 18n},
+			commitment: {cycleNumber: 12n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 		});
 		const store = createMissedReveal({deps, config, identity});
@@ -192,7 +193,7 @@ describe('a commitment that was never revealed', () => {
 
 	it('reports nothing when there is no commitment at all', async () => {
 		const {deps, identity} = fakeDeps({
-			commitment: {epoch: 0n, bond: 0n},
+			commitment: {cycleNumber: 0n, bond: 0n},
 			currentEpoch: 12n,
 		});
 		const store = createMissedReveal({deps, config, identity});
@@ -202,7 +203,7 @@ describe('a commitment that was never revealed', () => {
 
 	it('does not claim a stake was lost because a read failed', async () => {
 		const {deps, identity} = fakeDeps({
-			commitment: {epoch: 0n, bond: 0n},
+			commitment: {cycleNumber: 0n, bond: 0n},
 			currentEpoch: 12n,
 			readFails: true,
 		});
@@ -216,7 +217,7 @@ describe('a commitment that was never revealed', () => {
 
 	it('keeps the notice up when acknowledging fails, so it can be retried', async () => {
 		const {deps, identity} = fakeDeps({
-			commitment: {epoch: 10n, bond: 5n * 10n ** 18n},
+			commitment: {cycleNumber: 10n, bond: 5n * 10n ** 18n},
 			currentEpoch: 12n,
 			writeFails: true,
 		});

@@ -13,7 +13,7 @@ import {parseEther, zeroAddress} from 'viem';
  *
  * Mirrors `rocketh/config.ts`'s copy rather than importing it, because that one
  * is bigints for the deploy and these are the numbers a test asserts against.
- * Both mirror `UsingGameTypes.EpochPolicy`, whose ORDER is the only thing that
+ * Both mirror `UsingGameTypes.CyclePolicy`, whose ORDER is the only thing that
  * decides what a number means.
  */
 export const EPOCH_POLICY = {
@@ -105,7 +105,7 @@ export async function deployGameWith(
 		// line every branch has to rewrite.
 		tokens: fixtures.GameToken.address,
 		placementCost: options.placementCost ?? parseEther('1'),
-		epochPolicy: BigInt(options.epochPolicy),
+		cyclePolicy: BigInt(options.epochPolicy),
 	};
 
 	const routes = [

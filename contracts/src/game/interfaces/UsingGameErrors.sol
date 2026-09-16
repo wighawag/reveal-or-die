@@ -6,10 +6,10 @@ interface UsingGameErrors {
     error GameNotStarted();
 
     /// @notice trying to commit while the reveal phase is running
-    error InRevealPhase(uint64 epoch);
+    error InRevealPhase(uint64 cycleNumber);
 
     /// @notice trying to reveal while the commit phase is running
-    error InCommitmentPhase(uint64 epoch);
+    error InCommitmentPhase(uint64 cycleNumber);
 
     /// @notice there is no commitment to reveal or to void
     error NothingToReveal();
@@ -21,13 +21,13 @@ interface UsingGameErrors {
     error PreviousCommitmentNotRevealed();
 
     /// @notice the commitment belongs to a different epoch
-    error InvalidEpoch(uint64 currentEpoch, uint64 commitmentEpoch);
+    error InvalidCycle(uint64 currentCycleNumber, uint64 commitmentCycleNumber);
 
     /// @notice the revealed placements do not hash to what was committed
     error CommitmentHashNotMatching();
 
     /// @notice the player can still reveal, so the commitment cannot be voided
-    error CanStillReveal(uint64 epoch);
+    error CanStillReveal(uint64 cycleNumber);
 
     /// @notice this identity cannot play this game
     /// @dev What makes an identity invalid is the GAME's, and it is decided in
@@ -53,7 +53,7 @@ interface UsingGameErrors {
     ///      zero on a manual one. See {UsingGameInternal} for why a zero phase
     ///      is not a configuration but a hole: it makes a commitment either
     ///      impossible to make or impossible to open.
-    error InvalidEpochConfiguration();
+    error InvalidCycleConfiguration();
 
     /// @notice nobody is being waited for, so unanimity has no denominator
     /// @dev Early advance needs a closed set of members. "Everyone has
@@ -70,7 +70,7 @@ interface UsingGameErrors {
     error NotInGame(uint256 player);
 
     /// @notice cannot stop being a member while a turn of yours is still open
-    error CommitmentStillOpen(uint64 epoch);
+    error CommitmentStillOpen(uint64 cycleNumber);
 
     /// @notice some of the members the epoch waits for have not committed yet
     error StillWaitingToCommit(uint64 committed, uint64 waitedFor);
