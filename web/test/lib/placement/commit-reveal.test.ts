@@ -212,7 +212,7 @@ describe('the game move boundary', () => {
  * WHY IT IS WORTH A TEST RATHER THAN A READING. Getting it wrong is silent in
  * every direction that matters. A commitment filed under the wrong identity is
  * accepted by the contract, bonds a reserve that is not the player's (or an
- * empty one), and surfaces an epoch later as a reveal that cannot find it -
+ * empty one), and surfaces a cycle later as a reveal that cannot find it -
  * by which time the bond is spent. Neither `check` nor any other suite here
  * looks at an argument list: the ABI types it as `uint256` and an address
  * widens to one perfectly happily.
@@ -264,7 +264,7 @@ describe('the identity that reaches the contract', () => {
 			hash: '0xhash' as `0x${string}`,
 			actions: [{cellID: 1n}, {cellID: 2n}],
 			secret: '0xsecret' as `0x${string}`,
-			epoch: 3,
+			cycleNumber: 3,
 			revealDueAt: 0,
 		});
 
@@ -278,7 +278,7 @@ describe('the identity that reaches the contract', () => {
 	});
 
 	it('reveals against the same identity it committed under', async () => {
-		// Two calls an epoch apart, and a mismatch between them costs the stake
+		// Two calls a cycle apart, and a mismatch between them costs the stake
 		// rather than failing loudly: the reveal simply finds no commitment.
 		const {sent, adapter} = adapterRecording();
 
@@ -287,7 +287,7 @@ describe('the identity that reaches the contract', () => {
 			hash: '0xhash' as `0x${string}`,
 			actions: [{cellID: 1n}],
 			secret: '0xsecret' as `0x${string}`,
-			epoch: 3,
+			cycleNumber: 3,
 			revealDueAt: 0,
 		});
 		await adapter.reveal({

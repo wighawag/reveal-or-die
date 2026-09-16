@@ -9,7 +9,7 @@ import type {RoundState} from '$lib/game/core/round';
 import type {OnchainStateStore, OnchainStateValue} from '$lib/game/core/seams';
 import type {PlayWindow} from '$lib/game/core/refresh';
 
-type Board = {marks: Map<string, number>; epoch: number};
+type Board = {marks: Map<string, number>; cycleNumber: number};
 
 /** A state store a test drives by hand, in the shape a game's poller has. */
 function fakeBoard(initial: OnchainStateValue<Board>) {
@@ -22,9 +22,9 @@ function fakeBoard(initial: OnchainStateValue<Board>) {
 	return {state, set: store.set};
 }
 
-const loaded = (epoch: number, marks: Record<string, number>) => ({
+const loaded = (cycleNumber: number, marks: Record<string, number>) => ({
 	step: 'Loaded' as const,
-	epoch,
+	cycleNumber,
 	marks: new Map(Object.entries(marks)),
 });
 
@@ -41,17 +41,17 @@ const holdEverythingShown = ({
 		const previous = shown.marks.get(key);
 		if (previous !== undefined) marks.set(key, previous);
 	}
-	return {marks, epoch: latest.epoch};
+	return {marks, cycleNumber: latest.cycleNumber};
 };
 
 function setup(initial: OnchainStateValue<Board>) {
 	const board = fakeBoard(initial);
 	const phase = writable<PlayWindow>({phase: 'play'});
-	const epoch = writable(2);
+	const cycleNumber = writable(2);
 	const held = holdBoardUntilCycleEnds<Board>({
 		state: board.state,
 		phase,
-		epoch,
+		cycleNumber,
 		hold: holdEverythingShown,
 	});
 	// Subscribed, because the memory only advances while something is watching -
@@ -60,7 +60,7 @@ function setup(initial: OnchainStateValue<Board>) {
 	const holding: (number | undefined)[] = [];
 	held.board.subscribe((v) => seen.push(v));
 	held.holding.subscribe((v) => holding.push(v));
-	return {...board, phase, epoch, held, seen, holding};
+	return {...board, phase, cycleNumber, held, seen, holding};
 }
 
 describe('holding the board until the cycle is over', () => {
@@ -144,11 +144,11 @@ describe('holding the board until the cycle is over', () => {
 		const calls: unknown[] = [];
 		const board = fakeBoard(loaded(2, {a: 1}));
 		const phase = writable<PlayWindow>({phase: 'play'});
-		const epoch = writable(7);
+		const cycleNumber = writable(7);
 		const held = holdBoardUntilCycleEnds<Board>({
 			state: board.state,
 			phase,
-			epoch,
+			cycleNumber,
 			hold: (params) => {
 				calls.push(params);
 				return params.shown;
@@ -162,7 +162,7 @@ describe('holding the board until the cycle is over', () => {
 		expect(calls.at(-1)).toMatchObject({
 			shown: {marks: new Map([['a', 1]])},
 			latest: {marks: new Map([['a', 4]])},
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 	});
 
@@ -176,7 +176,7 @@ describe('holding the board until the cycle is over', () => {
 		const held = holdBoardUntilCycleEnds<Board>({
 			state: board.state,
 			phase,
-			epoch: writable(2),
+			cycleNumber: writable(2),
 			hold: ({shown, latest}) => {
 				sawStep = (latest as unknown as {step?: unknown}).step;
 				return shown;
@@ -205,18 +205,18 @@ describe('the turn the round no longer carries', () => {
 		const seen: unknown[] = [];
 		remembered.subscribe((v) => seen.push(v));
 
-		set({step: 'Planning', epoch: 2, actions: [{cellID: 1n}]});
-		expect(get(remembered)).toEqual({epoch: 2, actions: [{cellID: 1n}]});
+		set({step: 'Planning', cycleNumber: 2, actions: [{cellID: 1n}]});
+		expect(get(remembered)).toEqual({cycleNumber: 2, actions: [{cellID: 1n}]});
 
 		// A player who plans a path and then CLEARS it has planned nothing. A
 		// memory that only took non-empty turns would redraw the path they
 		// deleted for the whole of the cycle it resolves in.
-		set({step: 'Committed', epoch: 2, actions: []});
-		expect(get(remembered)).toEqual({epoch: 2, actions: []});
+		set({step: 'Committed', cycleNumber: 2, actions: []});
+		expect(get(remembered)).toEqual({cycleNumber: 2, actions: []});
 
 		// `Revealed` carries no actions, which is the reason any of this exists.
-		set({step: 'Revealed', epoch: 2});
-		expect(get(remembered)).toEqual({epoch: 2, actions: []});
+		set({step: 'Revealed', cycleNumber: 2});
+		expect(get(remembered)).toEqual({cycleNumber: 2, actions: []});
 	});
 
 	it('bridges the gap between the round dropping a turn and the board releasing it', () => {
@@ -225,7 +225,7 @@ describe('the turn the round no longer carries', () => {
 		const held = heldTurnUntilBoardReleases({round, holding});
 		held.subscribe(() => {});
 
-		set({step: 'Committed', epoch: 2, actions: [{cellID: 1n}]});
+		set({step: 'Committed', cycleNumber: 2, actions: [{cellID: 1n}]});
 		// Nothing being held: the round is the only thing drawing the turn, and
 		// this must not compete with it.
 		expect(get(held)).toBeUndefined();
@@ -234,7 +234,7 @@ describe('the turn the round no longer carries', () => {
 		// they did until the cycle is over. Without the bridge there is a window
 		// here in which the player is shown NEITHER copy of their own turn.
 		holding.set(2);
-		set({step: 'Revealed', epoch: 2});
+		set({step: 'Revealed', cycleNumber: 2});
 		expect(get(held)).toEqual([{cellID: 1n}]);
 
 		holding.set(undefined);
@@ -249,8 +249,8 @@ describe('the turn the round no longer carries', () => {
 		const held = heldTurnUntilBoardReleases({round, holding});
 		held.subscribe(() => {});
 
-		set({step: 'Revealing', epoch: 2, actions: [{cellID: 1n}]});
-		set({step: 'Revealed', epoch: 2});
+		set({step: 'Revealing', cycleNumber: 2, actions: [{cellID: 1n}]});
+		set({step: 'Revealed', cycleNumber: 2});
 		holding.set(3);
 
 		expect(get(held)).toBeUndefined();

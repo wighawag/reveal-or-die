@@ -46,11 +46,42 @@ deliberately does NOT take so that your game can have them: `round` and `turn`
 are yours, and the framework never uses either. Read it before naming anything
 new, and extend it when your game settles a word of its own.
 
-**Code in this tree still says `epoch` where the glossary says `cycle`.** The
-rename is staged rather than done: contracts are not inherited here, so each
-game is ported one at a time, and a descendant full of `epoch` means that game
-has not been ported yet rather than that the glossary is stale. The reasoning,
-the rejected alternatives and the migration order are in ADR-0001
+**The template now says `cycle`, and the games still say `epoch`.** That split
+is deliberate and it is how you should read a grep.
+
+In the template (`template-commit-reveal`) the rename has landed: `cycle` is the
+interval, `cycleNumber` is its index, and apart from the three exceptions below
+`epoch` appears nowhere in `web/src` or `contracts/src`. If you find another one
+there, it is drift and it is worth fixing.
+
+In a GAME repo built from this template, `epoch` is expected and means the game
+has not been ported yet. Contracts are not inherited here, so each game carries
+its own and is ported one at a time; a descendant full of `epoch` is a schedule,
+not a stale glossary. What a game must not do is use `cycle` for something that
+is not the framework's interval.
+
+Three files keep the old word on purpose, and all three are different cases.
+
+`web/src/lib/placement/storage.ts` still writes an `epoch` field under
+`__placement_round__`. That is a serialised shape with a stake behind it: a
+record the previous build wrote must stay readable, or a player loses the secret
+that opens a commitment in flight. The reason is written at the line.
+
+`web/src/lib/core/transaction/in-flight.ts` says `ms since epoch`, and that is
+the UNIX epoch - a wall-clock origin, not this project's interval, so it was
+never the word being renamed. It is also jolly-roger's file and byte-identical
+to the stem's, which is the second reason to leave it: editing `lib/core` to
+satisfy a grep buys a conflict in every future merge. A sweep that rewrites it
+to `cycle` has made the comment false; that happened once already.
+
+`contracts/src/game/internal/UsingGameInternal.sol` cites bomber-world's
+`_epoch()` as the precedent for its identity seam. That is a DESCENDANT'S symbol
+name, and by the paragraph above a game repo is expected to still say `epoch`
+until it is ported, so the citation is only correct while it spells the name
+that repo actually uses. A sweep rewrote it to `_cycleNumber()` once, naming a
+function that exists in no repo.
+
+The reasoning, the rejected alternatives and the migration order are in ADR-0001
 (template-commit-reveal `work`).
 
 ## Commit-reveal rules

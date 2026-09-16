@@ -33,11 +33,11 @@ export type StatefulRendererParams<TSurface, TView, TKey, TEntity, TObject> = {
 	 * branches.
 	 *
 	 * Typed against the LOADED branch rather than `TView`, so the loaded value
-	 * reaches it without a cast and `epoch` is visible on the value itself.
+	 * reaches it without a cast and `cycleNumber` is visible on the value itself.
 	 */
 	entities(
 		view: Extract<ViewStateValue<TView>, {step: 'Loaded'}>,
-		epoch: number,
+		cycleNumber: number,
 	): Keyed<TKey, TEntity>;
 	/** Defaults to reference inequality. See `reconcile.ts`. */
 	changed?: Changed<TEntity>;
@@ -52,18 +52,18 @@ export type StatefulRendererParams<TSurface, TView, TKey, TEntity, TObject> = {
 	remove(params: {key: TKey; object: TObject; surface: TSurface}): void;
 
 	/**
-	 * Called when the view state moves to a new epoch, BEFORE that epoch's
+	 * Called when the view state moves to a new cycle, BEFORE that cycle's
 	 * entities are applied.
 	 *
 	 * A commit-reveal game needs this and an ordinary one does not: everything
 	 * drawn from local intent (a planned move, a preview, a phase overlay) is
-	 * scoped to one epoch and is meaningless in the next. Without a signal, a
+	 * scoped to one cycle and is meaningless in the next. Without a signal, a
 	 * renderer can only infer the boundary from entities changing, which is
 	 * exactly the inference that fails when nothing changed.
 	 */
-	onEpochChanged?(params: {
-		epoch: number;
-		previousEpoch: number | undefined;
+	onCycleChanged?(params: {
+		cycleNumber: number;
+		previousCycleNumber: number | undefined;
 		surface: TSurface;
 	}): void;
 
@@ -104,7 +104,7 @@ export function createStatefulRenderer<TSurface, TView, TKey, TEntity, TObject>(
 } {
 	let surface: TSurface | undefined;
 	let unsubscribe: (() => void) | undefined;
-	let epoch: number | undefined;
+	let cycleNumber: number | undefined;
 	let lastDiff: Diff<TKey, TEntity> | undefined;
 
 	const reconciler = createReconciler<TKey, TEntity, TObject>(
@@ -130,20 +130,20 @@ export function createStatefulRenderer<TSurface, TView, TKey, TEntity, TObject>(
 					// is no longer known to be true (an account switch, a chain reset),
 					// and leaving it there shows a board that belongs to nobody.
 					reconciler.clear();
-					epoch = undefined;
+					cycleNumber = undefined;
 					return;
 				}
 
-				if ($view.epoch !== epoch) {
-					params.onEpochChanged?.({
-						epoch: $view.epoch,
-						previousEpoch: epoch,
+				if ($view.cycleNumber !== cycleNumber) {
+					params.onCycleChanged?.({
+						cycleNumber: $view.cycleNumber,
+						previousCycleNumber: cycleNumber,
 						surface: next,
 					});
-					epoch = $view.epoch;
+					cycleNumber = $view.cycleNumber;
 				}
 
-				lastDiff = reconciler.apply(params.entities($view, $view.epoch));
+				lastDiff = reconciler.apply(params.entities($view, $view.cycleNumber));
 			});
 		},
 
@@ -151,7 +151,7 @@ export function createStatefulRenderer<TSurface, TView, TKey, TEntity, TObject>(
 			unsubscribe?.();
 			unsubscribe = undefined;
 			reconciler.forget();
-			epoch = undefined;
+			cycleNumber = undefined;
 			lastDiff = undefined;
 			if (surface !== undefined) params.onStopped?.(surface);
 			surface = undefined;

@@ -166,7 +166,7 @@ describe('the canvas-2d host', () => {
 		const {store, canvas} = setup();
 		store.set({
 			step: 'Loaded',
-			epoch: 1,
+			cycleNumber: 1,
 			cells: new Map([cell(0, 0, {numClaimants: 2, totalStake: 5n})]),
 		});
 
@@ -192,7 +192,7 @@ describe('the canvas-2d host', () => {
 		const {store, canvas} = setup();
 		store.set({
 			step: 'Loaded',
-			epoch: 1,
+			cycleNumber: 1,
 			cells: new Map([cell(1, 0, {planned: true})]),
 		});
 
@@ -220,7 +220,7 @@ describe('the canvas-2d host', () => {
 		const {store, canvas} = setup();
 		store.set({
 			step: 'Loaded',
-			epoch: 1,
+			cycleNumber: 1,
 			cells: new Map([
 				cell(0, 0, {numClaimants: 1}),
 				cell(500, 500, {numClaimants: 4}),
@@ -258,7 +258,7 @@ describe('the canvas-2d host', () => {
 		const {store, canvas} = setup();
 		store.set({
 			step: 'Loaded',
-			epoch: 1,
+			cycleNumber: 1,
 			cells: new Map([cell(0, 0, {numClaimants: 2})]),
 		});
 		const expected = over(CONFIRMED, claimantAlpha(2));
@@ -267,7 +267,7 @@ describe('the canvas-2d host', () => {
 			expect(isNear(pixelAt(canvas(), at.x, at.y), expected)).toBe(true);
 		});
 
-		store.set({step: 'Loaded', epoch: 2, cells: new Map()});
+		store.set({step: 'Loaded', cycleNumber: 2, cells: new Map()});
 		await painted(() => {
 			const at = screenOf(0, 0);
 			expect(isNear(pixelAt(canvas(), at.x, at.y), BACKGROUND)).toBe(true);
@@ -278,7 +278,7 @@ describe('the canvas-2d host', () => {
 		const {store, cameraControl, canvas} = setup();
 		store.set({
 			step: 'Loaded',
-			epoch: 1,
+			cycleNumber: 1,
 			cells: new Map([cell(0, 0, {numClaimants: 2})]),
 		});
 		const expected = over(CONFIRMED, claimantAlpha(2));

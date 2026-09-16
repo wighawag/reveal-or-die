@@ -2,7 +2,7 @@ import {describe, expect, it, vi, beforeEach, afterEach} from 'vitest';
 import {writable} from 'svelte/store';
 import {createPollingOnchainState} from '$lib/onchain/state';
 import type {ChainTimeStore, SyncedTime} from '$lib/game/core/chain-time';
-import type {EpochInfo, EpochInfoStore} from '$lib/game/core/epoch';
+import type {CycleInfo, CycleInfoStore} from '$lib/game/core/cycle';
 import type {Camera, CameraWatcher} from '$lib/game/render/camera';
 import type {
 	TypedDeployments,
@@ -22,23 +22,23 @@ import type {
 
 const FETCH_INTERVAL = 5_000;
 
-function epochStore(initial: EpochInfo) {
-	const store = writable<EpochInfo>(initial);
-	const epochInfo: EpochInfoStore = {
+function cycleStore(initial: CycleInfo) {
+	const store = writable<CycleInfo>(initial);
+	const cycleInfo: CycleInfoStore = {
 		subscribe: store.subscribe,
 		now: () => initial,
 		fromTime: () => initial,
 	};
-	return {epochInfo, set: store.set};
+	return {cycleInfo, set: store.set};
 }
 
-function timed(currentEpoch: number, isCommitPhase: boolean): EpochInfo {
+function timed(currentCycleNumber: number, isCommitPhase: boolean): CycleInfo {
 	return {
 		type: 'timed',
-		currentEpoch,
+		currentCycleNumber,
 		isCommitPhase,
-		timeLeftInEpoch: 10,
-		timeInCurrentEpochCycle: 0,
+		timeLeftInCycle: 10,
+		timeInCurrentCycle: 0,
 		timeLeftInPhase: 10,
 		timeLeftForCommitEnd: 10,
 		timeLeftForRevealEnd: 10,
@@ -55,10 +55,10 @@ function timed(currentEpoch: number, isCommitPhase: boolean): EpochInfo {
 }
 
 function harness(
-	initial: EpochInfo,
+	initial: CycleInfo,
 	refreshPolicy: false | undefined = undefined,
 ) {
-	const {epochInfo, set} = epochStore(initial);
+	const {cycleInfo, set} = cycleStore(initial);
 
 	const camera: CameraWatcher = writable<Camera>({
 		x: 0,
@@ -76,15 +76,17 @@ function harness(
 	const chainTime: ChainTimeStore = {subscribe: time.subscribe, now: () => 0};
 
 	/**
-	 * The epoch the reader STAMPS, when it is not simply the one asked for.
+	 * The cycle the reader STAMPS, when it is not simply the one asked for.
 	 * Standing in for a chain that has not yet mined past the boundary the
 	 * client's clock has crossed, which is the whole reason the settle exists.
 	 */
-	let boardEpoch: number | undefined;
-	const read = vi.fn(async ({expectedEpoch}: {expectedEpoch: number}) => ({
-		cells: new Map(),
-		epoch: boardEpoch ?? expectedEpoch,
-	}));
+	let boardCycleNumber: number | undefined;
+	const read = vi.fn(
+		async ({expectedCycleNumber}: {expectedCycleNumber: number}) => ({
+			cells: new Map(),
+			cycleNumber: boardCycleNumber ?? expectedCycleNumber,
+		}),
+	);
 
 	const store = createPollingOnchainState<{cells: Map<bigint, unknown>}>({
 		publicClient: {
@@ -96,7 +98,7 @@ function harness(
 			},
 		} as unknown as TypedDeployments,
 		camera,
-		epochInfo,
+		cycleInfo,
 		chainTime,
 		zonesForCamera: () => [0n],
 		read,
@@ -107,9 +109,9 @@ function harness(
 	return {
 		store,
 		read,
-		setEpoch: set,
-		setBoardEpoch: (epoch: number | undefined) => {
-			boardEpoch = epoch;
+		setCycleNumber: set,
+		setBoardCycleNumber: (cycleNumber: number | undefined) => {
+			boardCycleNumber = cycleNumber;
 		},
 	};
 }
@@ -160,7 +162,7 @@ describe('createPollingOnchainState: the round-edge refresh policy', () => {
 
 	it('keeps fetching at a round boundary until the board has caught up', async () => {
 		// THE POINT IS THE RETRY, and saying so precisely matters because the
-		// obvious version of this test proves nothing: changing the epoch changes
+		// obvious version of this test proves nothing: changing the cycle changes
 		// the poller's scope key, so ONE refetch happens whether the policy exists
 		// or not. Deleting the policy left that version passing.
 		//
@@ -169,22 +171,24 @@ describe('createPollingOnchainState: the round-edge refresh policy', () => {
 		// clock already crossed. Without it the board sits on last round's
 		// positions for a whole interval (or longer, once the refusal turns into
 		// backoff behind a health banner). With it, the fetch repeats every 400ms
-		// until the board's own epoch reaches the clock's.
-		const {store, read, setEpoch, setBoardEpoch} = harness(timed(7, false));
+		// until the board's own cycle reaches the clock's.
+		const {store, read, setCycleNumber, setBoardCycleNumber} = harness(
+			timed(7, false),
+		);
 		const off = store.subscribe(() => {});
 		await vi.waitFor(() => expect(read).toHaveBeenCalled());
 
 		// The chain is behind: every read lands, but reports the old round.
-		setBoardEpoch(7);
+		setBoardCycleNumber(7);
 		read.mockClear();
 		// Into the commit phase of the next round: the transition it triggers on.
-		setEpoch(timed(8, true));
+		setCycleNumber(timed(8, true));
 
 		// Well under one plain interval, so the scope change accounts for exactly
 		// one of these and every other one is the settle retrying.
 		await vi.advanceTimersByTimeAsync(1600);
 		expect(read.mock.calls.length).toBeGreaterThan(2);
-		expect(read.mock.calls[0][0].expectedEpoch).toBe(8);
+		expect(read.mock.calls[0][0].expectedCycleNumber).toBe(8);
 
 		// That the retrying STOPS once the board catches up is pinned precisely in
 		// `game/core/refresh.test.ts`, and deliberately not re-asserted here: the

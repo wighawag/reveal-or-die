@@ -18,7 +18,7 @@ describe('Transaction inspector', () => {
 	//
 	// Index 3 rather than 2, because `out-of-gas.e2e.ts` needs 2 for a stronger
 	// reason: it deliberately fails a commit, and the game keys one open
-	// commitment per player per epoch, so it must not share a player with any
+	// commitment per player per cycle, so it must not share a player with any
 	// suite that commits. This one only needs an account nobody else sends from.
 	test.use({walletAccountIndex: 3});
 
@@ -84,7 +84,7 @@ describe('Transaction inspector', () => {
 	 *
 	 * WHAT IS SENT: a contracts-page write, not a game move. The inspector needs
 	 * ONE operation in account data and does not care where it came from, and the
-	 * game's commit is the wrong instrument for that - it depends on the epoch
+	 * game's commit is the wrong instrument for that - it depends on the cycle
 	 * phase, keys one open commitment per player, and auto-commits as the phase
 	 * closes, so a suite that only wants "a transaction happened" would be racing
 	 * the round for no reason. `addToReserve` is a plain account-sent write that

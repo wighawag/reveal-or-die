@@ -23,7 +23,7 @@
  *
  * ONE READ, TWO QUESTIONS, and the second one used to be thrown away. Asking
  * `getCommitment` answers "am I blocked?" - a commitment left over from an
- * EARLIER epoch - and it equally answers "is there a commitment for the round
+ * EARLIER cycle - and it equally answers "is there a commitment for the round
  * in progress that this browser knows nothing about?". That second answer is
  * the one that costs the stake, and it was being reported as `Clear` and
  * dropped, because blocking was the only thing anyone had ever asked. It is
@@ -40,16 +40,16 @@ import type {LiveCommitment} from '$lib/game/core/recovery';
 export type MissedRevealState =
 	/** Not checked yet, or nobody connected. */
 	| {step: 'Unknown'}
-	/** No open commitment from a past epoch: the player is free to commit. */
+	/** No open commitment from a past cycle: the player is free to commit. */
 	| {step: 'Clear'}
 	/**
 	 * An unrevealed commitment is blocking play. The bond is already lost; what
 	 * is left is to say so on chain, which is what frees the player to commit
 	 * again.
 	 */
-	| {step: 'Blocked'; epoch: number; bond: bigint}
-	| {step: 'Acknowledging'; epoch: number; bond: bigint}
-	| {step: 'Failed'; epoch: number; bond: bigint; message: string};
+	| {step: 'Blocked'; cycleNumber: number; bond: bigint}
+	| {step: 'Acknowledging'; cycleNumber: number; bond: bigint}
+	| {step: 'Failed'; cycleNumber: number; bond: bigint; message: string};
 
 export type MissedRevealStore = Readable<MissedRevealState> & {
 	readonly value: MissedRevealState;
@@ -58,10 +58,10 @@ export type MissedRevealStore = Readable<MissedRevealState> & {
 	/** Forfeit the bond and free the player to commit again. */
 	acknowledge(): Promise<void>;
 	/**
-	 * The commitment the contract holds for the epoch NOW IN PROGRESS, if any.
+	 * The commitment the contract holds for the cycle NOW IN PROGRESS, if any.
 	 *
 	 * It blocks nothing, which is why the state above says `Clear` beside it.
-	 * What it does is say that a reveal is owed this epoch, whatever this
+	 * What it does is say that a reveal is owed this cycle, whatever this
 	 * browser happens to remember, and `./recover-round` is what acts on that.
 	 *
 	 * Undefined whenever the read has not happened, failed, or found nothing:
@@ -124,20 +124,20 @@ export function createMissedReveal(params: {
 				return;
 			}
 
-			const [currentEpoch] = (await deps.publicClient.readContract({
+			const [currentCycleNumber] = (await deps.publicClient.readContract({
 				address: deployments.contracts.Game.address,
 				abi: deployments.contracts.Game.abi,
 				functionName: 'getCycleNumber',
 			})) as [bigint, boolean];
 
-			// A commitment for the CURRENT epoch is live, not missed: it can still
+			// A commitment for the CURRENT cycle is live, not missed: it can still
 			// be revealed, the contract lets it be replaced, and acknowledging it
 			// would revert with `CanStillReveal`. It is still worth SAYING, because
 			// a reveal is owed for it and this browser may have no idea: publishing
 			// it here is the whole of the chain half of recovering a lost round.
-			if (onChain.cycleNumber === currentEpoch) {
+			if (onChain.cycleNumber === currentCycleNumber) {
 				commitment.set({
-					epoch: Number(onChain.cycleNumber),
+					cycleNumber: Number(onChain.cycleNumber),
 					hash: onChain.hash,
 				});
 				set({step: 'Clear'});
@@ -147,7 +147,7 @@ export function createMissedReveal(params: {
 			commitment.set(undefined);
 			set({
 				step: 'Blocked',
-				epoch: Number(onChain.cycleNumber),
+				cycleNumber: Number(onChain.cycleNumber),
 				bond: onChain.bond,
 			});
 		} catch {
@@ -159,7 +159,7 @@ export function createMissedReveal(params: {
 
 	async function acknowledge() {
 		if ($state.step !== 'Blocked' && $state.step !== 'Failed') return;
-		const {epoch, bond} = $state;
+		const {cycleNumber, bond} = $state;
 
 		const player = get(params.identity);
 		if (player === undefined) return;
@@ -168,7 +168,7 @@ export function createMissedReveal(params: {
 		const executor = get(deps.signerExecutor);
 		if (executor.status !== 'ready') return;
 
-		set({step: 'Acknowledging', epoch, bond});
+		set({step: 'Acknowledging', cycleNumber, bond});
 		try {
 			// Sent by the signer, like every other move, so no spending modal.
 			await sendPlacementTransaction(
@@ -192,7 +192,7 @@ export function createMissedReveal(params: {
 		} catch (error) {
 			set({
 				step: 'Failed',
-				epoch,
+				cycleNumber,
 				bond,
 				message: error instanceof Error ? error.message : String(error),
 			});

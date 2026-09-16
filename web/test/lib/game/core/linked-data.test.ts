@@ -6,7 +6,7 @@ import {
 	readBigInt,
 	readNumber,
 } from '$lib/game/core/linked-data';
-import {resolveEpochConfig} from '$lib/game/core/epoch';
+import {resolveCycleConfig} from '$lib/game/core/cycle';
 
 /**
  * Reading what the deployment declared.
@@ -67,17 +67,17 @@ describe('reading a declared value', () => {
 	it('does not mistake a legitimate zero for an absent value', () => {
 		// A start time of zero and a gas price of zero are both real answers, and
 		// a presence check written as `if (!value)` would turn either into
-		// "missing" - which for the start time means every epoch number is wrong.
+		// "missing" - which for the start time means every cycle number is wrong.
 		expect(optionalNumber({startTime: 0}, 'startTime')).toBe(0);
 		expect(optionalBigInt({price: 0}, 'price')).toBe(0n);
 		expect(readNumber({startTime: 0}, 'startTime')).toBe(0);
 	});
 });
 
-describe('the epoch config, read off the deployment', () => {
+describe('the cycle config, read off the deployment', () => {
 	it('is built from what the chain declared', () => {
 		expect(
-			resolveEpochConfig({
+			resolveCycleConfig({
 				commitPhaseDuration: '30',
 				revealPhaseDuration: '10',
 				startTime: '100',
@@ -91,9 +91,9 @@ describe('the epoch config, read off the deployment', () => {
 		});
 	});
 
-	it('takes the epoch policy the deployment declared', () => {
+	it('takes the cycle policy the deployment declared', () => {
 		const declared = (cyclePolicy: number) =>
-			resolveEpochConfig({
+			resolveCycleConfig({
 				commitPhaseDuration: '30',
 				revealPhaseDuration: '10',
 				cyclePolicy,
@@ -102,7 +102,7 @@ describe('the epoch config, read off the deployment', () => {
 		// The numbers are the contract's enum, so the ORDER is the thing being
 		// asserted: a client that read 2 as "manual" would poll a chain that is
 		// running a clock, and one that read 1 as "timed" would draw a countdown
-		// against an epoch nobody is counting down.
+		// against a cycle nobody is counting down.
 		expect(declared(0)).toBe('timed');
 		expect(declared(1)).toBe('manual');
 		expect(declared(2)).toBe('hybrid');
@@ -112,7 +112,7 @@ describe('the epoch config, read off the deployment', () => {
 		// A deployment newer than the build. Guessing would put the client on the
 		// wrong clock silently, which costs a stake rather than a page.
 		expect(() =>
-			resolveEpochConfig({
+			resolveCycleConfig({
 				commitPhaseDuration: '30',
 				revealPhaseDuration: '10',
 				cyclePolicy: 7,
@@ -124,30 +124,30 @@ describe('the epoch config, read off the deployment', () => {
 		// Not a default: before the policy was declared there was one rule, and
 		// it read the policy off the durations. Reproducing it is what keeps a
 		// game deployed before this change playable; assuming `timed` instead
-		// would divide by a zero-length epoch on the manual ones.
+		// would divide by a zero-length cycle on the manual ones.
 		expect(
-			resolveEpochConfig({commitPhaseDuration: '30', revealPhaseDuration: '10'})
+			resolveCycleConfig({commitPhaseDuration: '30', revealPhaseDuration: '10'})
 				.policy,
 		).toBe('timed');
 		expect(
-			resolveEpochConfig({commitPhaseDuration: '0', revealPhaseDuration: '0'})
+			resolveCycleConfig({commitPhaseDuration: '0', revealPhaseDuration: '0'})
 				.policy,
 		).toBe('manual');
 	});
 
 	it('starts at zero when no start time was declared', () => {
 		expect(
-			resolveEpochConfig({commitPhaseDuration: 30, revealPhaseDuration: 10})
+			resolveCycleConfig({commitPhaseDuration: 30, revealPhaseDuration: 10})
 				.startTime,
 		).toBe(0);
 	});
 
 	it('refuses to build a clock out of a missing phase duration', () => {
 		// The failure this replaces had no symptom at all: a NaN duration makes
-		// every comparison false, so the epoch never advances, the round never
+		// every comparison false, so the cycle never advances, the round never
 		// commits, and there is nothing in the console to go on.
 		expect(() =>
-			resolveEpochConfig({
+			resolveCycleConfig({
 				commitPhaseDuration: undefined,
 				revealPhaseDuration: 10,
 			}),

@@ -147,7 +147,7 @@ export type DiagnosableApp = {
 	account: Readable<string | undefined>;
 	game: {
 		round: Readable<RoundState<unknown>>;
-		epochInfo: Readable<{currentEpoch: number; isCommitPhase: boolean}>;
+		cycleInfo: Readable<{currentCycleNumber: number; isCommitPhase: boolean}>;
 	};
 };
 
@@ -302,7 +302,7 @@ export function startCoreDiagnostics(app: DiagnosableApp): () => void {
 			// `commitWhenIdle`), and telling it apart from a real turn matters when
 			// reading a trace.
 			return `round: ${step}${
-				'epoch' in $round ? ` epoch=${$round.epoch}` : ''
+				'cycleNumber' in $round ? ` cycle=${$round.cycleNumber}` : ''
 			} actions=${actions}`;
 		}),
 	);
@@ -310,10 +310,10 @@ export function startCoreDiagnostics(app: DiagnosableApp): () => void {
 	stops.push(
 		watch(
 			DIAG.round,
-			app.game.epochInfo,
-			($epoch) =>
-				`epoch ${$epoch.currentEpoch} ${
-					$epoch.isCommitPhase ? 'commit' : 'reveal'
+			app.game.cycleInfo,
+			($cycle) =>
+				`cycle ${$cycle.currentCycleNumber} ${
+					$cycle.isCommitPhase ? 'commit' : 'reveal'
 				}`,
 		),
 	);

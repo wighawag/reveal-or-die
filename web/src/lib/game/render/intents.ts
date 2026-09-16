@@ -12,7 +12,7 @@
  * back is what a board game's controls are; "step north", "commit the round"
  * and "leave the world" are what a particular game calls them, and that
  * translation belongs in the game. Anything that has to say "avatar" or
- * "epoch" to be described is on the wrong side of this line.
+ * "cycle" to be described is on the wrong side of this line.
  */
 
 /**
