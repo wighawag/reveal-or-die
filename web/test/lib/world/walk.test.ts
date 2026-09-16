@@ -71,7 +71,7 @@ describe('walking a path', () => {
 
 	it('speeds up rather than dragging when a turn is long', () => {
 		// `maxSeconds` is the whole-path bound: the reveal window is short, and an
-		// animation still running when the next epoch resolves would draw a board
+		// animation still running when the next cycle resolves would draw a board
 		// that is one turn behind.
 		const w = createWalk({
 			from: {x: 0, y: 0},

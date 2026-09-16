@@ -85,7 +85,7 @@ describe('a move the signer demonstrably cannot pay for', () => {
 	 * That lands on the one feature this file is most careful about.
 	 * `resumeWhenGasArrives` retries the round once the player tops up, and a
 	 * retry at a burned nonce can never mine, so a turn that was recoverable is
-	 * lost instead. Here it also blocks the NEXT epoch, because a reveal that
+	 * lost instead. Here it also blocks the NEXT cycle, because a reveal that
 	 * never lands needs `acknowledgeMissedReveal` before anything else can
 	 * commit.
 	 */
@@ -125,7 +125,7 @@ describe('a move the signer demonstrably cannot pay for', () => {
 				hash: '0x1',
 				actions: [],
 				secret: '0x2',
-				epoch: 3,
+				cycleNumber: 3,
 			}),
 		).rejects.toBeInstanceOf(SignerOutOfFundsError);
 		expect(sent, 'nothing should have been dispatched').toBe(0);
@@ -151,7 +151,7 @@ describe('a move the signer demonstrably cannot pay for', () => {
 			hash: '0x1',
 			actions: [],
 			secret: '0x2',
-			epoch: 3,
+			cycleNumber: 3,
 		});
 		expect(sent).toBe(1);
 	});
@@ -163,7 +163,7 @@ describe('a move the signer demonstrably cannot pay for', () => {
 			hash: '0x1',
 			actions: [],
 			secret: '0x2',
-			epoch: 3,
+			cycleNumber: 3,
 		});
 		expect(sent).toBe(1);
 	});

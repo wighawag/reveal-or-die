@@ -171,6 +171,9 @@ function fakeClient(options: {
 		lastEpoch: bigint;
 		life: number;
 	}[];
+	// `epoch` here is the EVENT'S OWN component name, which this game's
+	// contracts still use: the reader does `args.epoch`, so a fixture spelling
+	// it `cycleNumber` would test nothing.
 	events?: {
 		args: {
 			avatarID: bigint;
@@ -179,7 +182,7 @@ function fakeClient(options: {
 		};
 	}[];
 	eventsFail?: boolean;
-	epoch?: bigint;
+	cycleNumber?: bigint;
 }) {
 	const calls: {
 		logRanges: {from: bigint; to: bigint}[];
@@ -188,7 +191,7 @@ function fakeClient(options: {
 	const client = {
 		readContract: async (request: {blockNumber?: bigint}) => {
 			calls.readBlocks.push(request.blockNumber);
-			return [options.avatars ?? [], false, options.epoch ?? 7n];
+			return [options.avatars ?? [], false, options.cycleNumber ?? 7n];
 		},
 		getContractEvents: async (args: {fromBlock: bigint; toBlock: bigint}) => {
 			calls.logRanges.push({from: args.fromBlock, to: args.toBlock});
@@ -236,16 +239,16 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			zones: [0n],
 			fromBlock: 0,
 			toBlock: 10,
-			expectedEpoch: 7,
+			expectedCycleNumber: 7,
 		});
 		expect(state?.avatars.get(5n)?.lastTurn).toEqual({
-			epoch: 7,
+			cycleNumber: 7,
 			actions: [{actionType: 1, data: 1n}],
 		});
 	});
 
-	it('keeps the LATEST turn when two epochs were asked for', async () => {
-		// Two epochs are fetched so a client arriving after a boundary still has
+	it('keeps the LATEST turn when two cycles were asked for', async () => {
+		// Two cycles are fetched so a client arriving after a boundary still has
 		// the turn that produced the board. The older one is history.
 		const {client} = fakeClient({
 			avatars: [someAvatar],
@@ -262,9 +265,9 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			zones: [0n],
 			fromBlock: 0,
 			toBlock: 10,
-			expectedEpoch: 7,
+			expectedCycleNumber: 7,
 		});
-		expect(state?.avatars.get(5n)?.lastTurn?.epoch).toEqual(7);
+		expect(state?.avatars.get(5n)?.lastTurn?.cycleNumber).toEqual(7);
 	});
 
 	it('still reports the board when the logs cannot be read', async () => {
@@ -281,7 +284,7 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			zones: [0n],
 			fromBlock: 0,
 			toBlock: 10,
-			expectedEpoch: 7,
+			expectedCycleNumber: 7,
 		});
 		expect(state?.avatars.get(5n)?.position).toEqual({x: 0, y: 0});
 		expect(state?.avatars.get(5n)?.lastTurn).toBeUndefined();
@@ -296,7 +299,12 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			publicClient: client as never,
 			deployments,
 		});
-		await read({zones: [0n], fromBlock: 0, toBlock: 2500, expectedEpoch: 7});
+		await read({
+			zones: [0n],
+			fromBlock: 0,
+			toBlock: 2500,
+			expectedCycleNumber: 7,
+		});
 		expect(calls.logRanges.length).toBeGreaterThan(1);
 		for (const range of calls.logRanges) {
 			expect(Number(range.to - range.from)).toBeLessThan(1000);
@@ -319,20 +327,25 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			publicClient: client as never,
 			deployments,
 		});
-		await read({zones: [0n], fromBlock: 0, toBlock: 42, expectedEpoch: 7});
+		await read({
+			zones: [0n],
+			fromBlock: 0,
+			toBlock: 42,
+			expectedCycleNumber: 7,
+		});
 		expect(calls.readBlocks.length).toBeGreaterThan(0);
 		for (const block of calls.readBlocks) {
 			expect(block).toEqual(42n);
 		}
 	});
 
-	it('accepts a read from BEHIND the clock, whatever epoch the chain reports', async () => {
-		// THE FALSE OUTAGE, FIXED. The client's clock crosses the epoch boundary
+	it('accepts a read from BEHIND the clock, whatever cycle the chain reports', async () => {
+		// THE FALSE OUTAGE, FIXED. The client's clock crosses the cycle boundary
 		// ahead of the chain, and refusing the read for that turned a two-clock
 		// disagreement of seconds into a failed one: catchup budget expiring into
 		// backoff, an UNHEALTHY line, the RPC banner over a board that was merely
 		// a moment behind.
-		const {client} = fakeClient({avatars: [someAvatar], epoch: 6n});
+		const {client} = fakeClient({avatars: [someAvatar], cycleNumber: 6n});
 		const read = createWorldReader({
 			publicClient: client as never,
 			deployments,
@@ -341,26 +354,26 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			zones: [0n],
 			fromBlock: 0,
 			toBlock: 10,
-			expectedEpoch: 7,
+			expectedCycleNumber: 7,
 		});
 		expect(state?.avatars.get(5n)).toBeTruthy();
-		// STAMPED WITH THE EPOCH THE FETCH WAS FOR, not the chain's answer: the
+		// STAMPED WITH THE CYCLE THE FETCH WAS FOR, not the chain's answer: the
 		// chain's counter only advances when a block is mined, and nothing the
 		// board reads can change before one is (a reveal mined after the boundary
 		// is refused with InCommitmentPhase, and commits move no avatar) - so a
 		// fetch that lands after the clock ticks already holds the new round's
 		// data, and the request is the honest answer to "is the board caught up".
-		// Stamping the chain's epoch made the catch-up last until the next
+		// Stamping the chain's cycle made the catch-up last until the next
 		// TRANSACTION, some twenty seconds on a quiet node, while the data sat
 		// there the whole time.
-		expect(state?.epoch).toEqual(7);
+		expect(state?.cycleNumber).toEqual(7);
 	});
 
-	it('accepts a read from AHEAD of the clock, whatever epoch the chain reports', async () => {
+	it('accepts a read from AHEAD of the clock, whatever cycle the chain reports', async () => {
 		// The other direction of the same disagreement, and the other half of why
 		// an exact match was wrong: a chain a block ahead of the client's clock is
 		// fresher data, not a failed read.
-		const {client} = fakeClient({avatars: [someAvatar], epoch: 8n});
+		const {client} = fakeClient({avatars: [someAvatar], cycleNumber: 8n});
 		const read = createWorldReader({
 			publicClient: client as never,
 			deployments,
@@ -369,14 +382,14 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			zones: [0n],
 			fromBlock: 0,
 			toBlock: 10,
-			expectedEpoch: 7,
+			expectedCycleNumber: 7,
 		});
-		expect(state?.epoch).toEqual(7);
+		expect(state?.cycleNumber).toEqual(7);
 	});
 
-	it('refuses to stitch pages whose epochs disagree', async () => {
+	it('refuses to stitch pages whose cycles disagree', async () => {
 		// The ONE refusal that is left, and the reason it exists: pages are
-		// pinned to one block, so disagreeing epochs mean a reorg replaced it
+		// pinned to one block, so disagreeing cycles mean a reorg replaced it
 		// mid-read, and the halves describe different worlds. (The old check
 		// conflated this with comparing against the clock.)
 		let page = 0;
@@ -401,7 +414,7 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			zones: [0n],
 			fromBlock: 0,
 			toBlock: 10,
-			expectedEpoch: 7,
+			expectedCycleNumber: 7,
 		});
 		expect(state).toBeUndefined();
 	});
@@ -412,7 +425,7 @@ describe('reading what the chain resolved, not just where things stand', () => {
 			publicClient: client as never,
 			deployments,
 		});
-		await read({zones: [], fromBlock: 0, toBlock: 10, expectedEpoch: 7});
+		await read({zones: [], fromBlock: 0, toBlock: 10, expectedCycleNumber: 7});
 		expect(calls.logRanges).toEqual([]);
 	});
 });

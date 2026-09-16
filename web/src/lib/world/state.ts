@@ -32,7 +32,7 @@ import type {Action} from './commit-reveal';
  * not only for the player.
  */
 export type ResolvedTurn = {
-	epoch: number;
+	cycleNumber: number;
 	actions: readonly Action[];
 };
 
@@ -42,7 +42,8 @@ export type Avatar = {
 	owner: `0x${string}`;
 	inGame: boolean;
 	position: Position;
-	lastEpoch: number;
+	/** The cycle of its last resolved turn: the contract's `lastEpoch`. */
+	lastCycleNumber: number;
 	life: number;
 	/** What its last resolved turn was, when a log for it was fetched. */
 	lastTurn?: ResolvedTurn;
@@ -146,15 +147,25 @@ const MAX_PAGES = 50;
 const MAX_BLOCK_RANGE = 1000;
 
 /**
- * How many epochs of reveals to ask for.
+ * How many cycles of reveals to ask for.
  *
- * Two: the epoch in progress, whose reveals are landing right now and are what
+ * Two: the cycle in progress, whose reveals are landing right now and are what
  * the animation replays, and the one before it, so a client that arrives just
- * after an epoch boundary still has the turn that produced the board it is
+ * after a cycle boundary still has the turn that produced the board it is
  * looking at.
  */
-const REVEAL_EPOCHS = 2;
+const REVEAL_CYCLES = 2;
 
+/**
+ * The chain's `PublicAvatar`, as the getters return it.
+ *
+ * `lastEpoch` IS THE CONTRACT'S NAME AND NOT THE CLIENT'S. This type is the
+ * cast target for `getAvatarsInMultipleZones`, so its components are read out
+ * of the ABI BY NAME: the struct component really is called `lastEpoch`
+ * (`UsingGameTypes.PublicAvatar`), and these contracts are this game's own and
+ * have not been renamed. Spelling it `lastCycleNumber` here would read
+ * `undefined`, and nothing would say so.
+ */
 type PublicAvatar = {
 	owner: `0x${string}`;
 	avatarID: bigint;
@@ -189,7 +200,7 @@ export function createWorldReader(params: {
 	 *
 	 * Scoped exactly like the entity read - the same zones, because the event's
 	 * `zone` topic is the zone the avatar ENDED in, which is where storage lists
-	 * it too - and to the last couple of epochs. `fromBlock`/`toBlock` come from
+	 * it too - and to the last couple of cycles. `fromBlock`/`toBlock` come from
 	 * the framework, which is why the seam carries them (see `ZonesReader`).
 	 *
 	 * NEVER FATAL. A failure here loses the animation; throwing would lose the
@@ -200,16 +211,16 @@ export function createWorldReader(params: {
 	 */
 	async function readResolvedTurns(params: {
 		zones: readonly bigint[];
-		epoch: number;
+		cycleNumber: number;
 		fromBlock: number;
 		toBlock: number;
 	}): Promise<Map<bigint, ResolvedTurn>> {
 		const byAvatar = new Map<bigint, ResolvedTurn>();
 		const Game = deployments.contracts.Game;
-		const epochs: bigint[] = [];
-		for (let i = 0; i < REVEAL_EPOCHS; i++) {
-			const epoch = params.epoch - i;
-			if (epoch > 0) epochs.push(BigInt(epoch));
+		const cycleNumbers: bigint[] = [];
+		for (let i = 0; i < REVEAL_CYCLES; i++) {
+			const cycleNumber = params.cycleNumber - i;
+			if (cycleNumber > 0) cycleNumbers.push(BigInt(cycleNumber));
 		}
 
 		const ranges: {from: bigint; to: bigint}[] = [];
@@ -233,7 +244,13 @@ export function createWorldReader(params: {
 						eventName: 'CommitmentRevealed',
 						// Both are INDEXED, so this is a node-side topic filter rather
 						// than a download of every reveal in the world.
-						args: {epoch: epochs, zone: [...params.zones]},
+						//
+						// `epoch:` IS THE EVENT'S OWN TOPIC NAME, not the client's: the
+						// key has to match `CommitmentRevealed(uint256 indexed
+						// avatarID, uint64 indexed epoch, ...)` as this game's contract
+						// declares it. A key viem does not recognise is not an error,
+						// it is an unfiltered query.
+						args: {epoch: cycleNumbers, zone: [...params.zones]},
 						strict: true,
 						fromBlock: range.from,
 						toBlock: range.to,
@@ -242,17 +259,18 @@ export function createWorldReader(params: {
 			);
 
 			for (const event of batches.flat()) {
+				// `epoch` again the EVENT'S component name, for the reason above.
 				const args = event.args as unknown as {
 					avatarID: bigint;
 					epoch: bigint;
 					actions: readonly Action[];
 				};
-				const epoch = Number(args.epoch);
+				const cycleNumber = Number(args.epoch);
 				const held = byAvatar.get(args.avatarID);
-				// One avatar can only reveal once per epoch, so the only way to see
-				// two is to have asked for two epochs. The later one is its last turn.
-				if (held && held.epoch >= epoch) continue;
-				byAvatar.set(args.avatarID, {epoch, actions: args.actions});
+				// One avatar can only reveal once per cycle, so the only way to see
+				// two is to have asked for two cycles. The later one is its last turn.
+				if (held && held.cycleNumber >= cycleNumber) continue;
+				byAvatar.set(args.avatarID, {cycleNumber, actions: args.actions});
 			}
 		} catch (err) {
 			console.warn(
@@ -265,31 +283,34 @@ export function createWorldReader(params: {
 		return byAvatar;
 	}
 
-	return async ({zones, expectedEpoch, fromBlock, toBlock}) => {
-		if (zones.length === 0) return {avatars: new Map(), epoch: expectedEpoch};
+	return async ({zones, expectedCycleNumber, fromBlock, toBlock}) => {
+		if (zones.length === 0)
+			return {avatars: new Map(), cycleNumber: expectedCycleNumber};
 
 		const Game = deployments.contracts.Game;
 
 		async function readBatch(
 			batch: bigint[],
 			toBlock: number,
-		): Promise<{avatars: PublicAvatar[]; epoch: number} | undefined> {
+		): Promise<{avatars: PublicAvatar[]; cycleNumber: number} | undefined> {
 			const collected: PublicAvatar[] = [];
 			/**
-			 * The epoch of the first page, which every later page must agree with.
+			 * The cycle of the first page, which every later page must agree with.
 			 *
 			 * THE ONLY REASON A READ IS REFUSED. All the pages are pinned to one
 			 * block, so they normally cannot disagree; one that does means a reorg
 			 * replaced the block mid-read, and stitching the halves would produce a
 			 * world that never existed.
 			 */
-			let readEpoch: number | undefined;
+			let readCycleNumber: number | undefined;
 			// `fromIndex` is a FLAT index across the whole batch of zones, not a
 			// per-zone one, so paging walks the concatenation of their avatar
 			// arrays.
 			let fromIndex = 0n;
 			for (let page = 0; page < MAX_PAGES; page++) {
-				const [avatars, more, epoch] = (await publicClient.readContract({
+				// Destructured BY POSITION, so these are the client's names for the
+				// tuple `(PublicAvatar[], bool, uint64)` and not the ABI's.
+				const [avatars, more, cycleNumber] = (await publicClient.readContract({
 					address: Game.address,
 					abi: Game.abi,
 					functionName: 'getAvatarsInMultipleZones',
@@ -308,9 +329,9 @@ export function createWorldReader(params: {
 					blockNumber: BigInt(toBlock),
 				})) as [readonly PublicAvatar[], boolean, bigint];
 
-				const at = Number(epoch);
-				if (readEpoch === undefined) readEpoch = at;
-				else if (at !== readEpoch) return undefined;
+				const at = Number(cycleNumber);
+				if (readCycleNumber === undefined) readCycleNumber = at;
+				else if (at !== readCycleNumber) return undefined;
 
 				collected.push(...avatars);
 
@@ -319,11 +340,11 @@ export function createWorldReader(params: {
 				// the `else`). That costs one extra call returning nothing, which is
 				// why the empty page rather than `more` is what ends the loop.
 				if (!more || avatars.length === 0) {
-					return {avatars: collected, epoch: readEpoch};
+					return {avatars: collected, cycleNumber: readCycleNumber};
 				}
 				fromIndex += BigInt(avatars.length);
 			}
-			return {avatars: collected, epoch: readEpoch!};
+			return {avatars: collected, cycleNumber: readCycleNumber!};
 		}
 
 		// TOGETHER, because they describe the same moment and the reveal window is
@@ -333,57 +354,63 @@ export function createWorldReader(params: {
 			Promise.all(
 				chunk(zones, ZONES_PER_CALL).map((batch) => readBatch(batch, toBlock)),
 			),
-			readResolvedTurns({zones, epoch: expectedEpoch, fromBlock, toBlock}),
+			readResolvedTurns({
+				zones,
+				cycleNumber: expectedCycleNumber,
+				fromBlock,
+				toBlock,
+			}),
 		]);
 
 		const byID = new Map<bigint, Avatar>();
-		let chainEpoch: number | undefined;
+		let chainCycleNumber: number | undefined;
 		for (const batch of batches) {
 			if (batch === undefined) return undefined;
 			// Every batch reads the same pinned block, so they agree; a
 			// disagreement is the same reorg case the pages guard against.
-			if (chainEpoch === undefined) chainEpoch = batch.epoch;
-			else if (batch.epoch !== chainEpoch) return undefined;
+			if (chainCycleNumber === undefined) chainCycleNumber = batch.cycleNumber;
+			else if (batch.cycleNumber !== chainCycleNumber) return undefined;
 			for (const a of batch.avatars) {
 				byID.set(a.avatarID, {
 					avatarID: a.avatarID,
 					owner: a.owner,
 					inGame: a.inGame,
 					position: bigIntIDToXY(a.position),
-					lastEpoch: Number(a.lastEpoch),
+					// Client field on the left, ABI component on the right.
+					lastCycleNumber: Number(a.lastEpoch),
 					life: Number(a.life),
 					lastTurn: turns.get(a.avatarID),
 				});
 			}
 		}
 
-		// STAMPED WITH THE EPOCH THE FETCH WAS FOR, not the one the chain's
+		// STAMPED WITH THE CYCLE THE FETCH WAS FOR, not the one the chain's
 		// latest block reports, and both halves of that are deliberate.
 		//
-		// THE READ IS ACCEPTED whatever the chain's epoch is: the client's clock
-		// interpolates from the wall clock between blocks and crosses the epoch
+		// THE READ IS ACCEPTED whatever the chain's cycle is: the client's clock
+		// interpolates from the wall clock between blocks and crosses the cycle
 		// boundary BEFORE the chain has mined a block past it, and refusing the
 		// read for that turned a two-clock disagreement of seconds into a FAILED
 		// one - the poller's catchup budget expiring into backoff, an UNHEALTHY
 		// line, the RPC banner over a board that was never anything but a moment
 		// behind. bomber-world's fetcher only refuses one direction and even
-		// that as an error; `expectedEpoch` keeps the job it is fit for (the
+		// that as an error; `expectedCycleNumber` keeps the job it is fit for (the
 		// SCOPE the framework refetches on) without being allowed to fail a
 		// read over it.
 		//
 		// THE STAMP IS THE REQUEST because that is what "caught up" means for
-		// the board. Stamping the CHAIN's epoch instead made the catch-up last
+		// the board. Stamping the CHAIN's cycle instead made the catch-up last
 		// until a block past the boundary was mined - on a node that mines only
 		// on transactions, that is the next commit, some twenty seconds in - and
 		// it was a wait for a COUNTER while the DATA had already arrived: a
 		// reveal mined after the boundary is refused with `InCommitmentPhase`
-		// (the epoch it lands in is the new one, and it is a commit phase), and
+		// (the cycle it lands in is the new one, and it is a commit phase), and
 		// commits move no avatar, so nothing the board reads can change between
 		// the clock crossing and the chain crossing. Anything that does change
 		// on-chain state is a transaction, which mines the block itself. So a
 		// fetch that lands after the clock ticks already holds the new round's
-		// data in full, and the epoch it was FOR is the honest answer to "is the
+		// data in full, and the cycle it was FOR is the honest answer to "is the
 		// board caught up".
-		return {avatars: byID, epoch: expectedEpoch};
+		return {avatars: byID, cycleNumber: expectedCycleNumber};
 	};
 }

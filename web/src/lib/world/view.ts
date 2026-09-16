@@ -14,7 +14,7 @@ import {ActionType, bigIntIDToXY, type Position} from 'reveal-or-die-contracts';
 import type {Action} from './commit-reveal';
 import type {Avatar, ResolvedTurn, WorldState} from './state';
 
-/** A planned action for this epoch, before it is committed. */
+/** A planned action for this cycle, before it is committed. */
 export type PlannedAction = {
 	type: 'enter' | 'move' | 'exit';
 	to: Position;
@@ -50,7 +50,7 @@ export function toPlannedActions(actions: readonly Action[]): PlannedAction[] {
  * what HAPPENED, for every avatar on the board rather than only the player's.
  */
 export type ResolvedTurnView = {
-	epoch: number;
+	cycleNumber: number;
 	actions: readonly PlannedAction[];
 };
 
@@ -69,7 +69,7 @@ export type AvatarView = Omit<Avatar, 'lastTurn'> & {
 	 * else's for the rest of the session.
 	 */
 	isPlayer: boolean;
-	/** Where the player has said this avatar should go this epoch, in order. */
+	/** Where the player has said this avatar should go this cycle, in order. */
 	planned: readonly PlannedAction[];
 	/**
 	 * Where it will stand if every planned action resolves. Equal to `position`
@@ -77,7 +77,7 @@ export type AvatarView = Omit<Avatar, 'lastTurn'> & {
 	 * an out-of-range step), so this is intent and not a prediction.
 	 */
 	plannedPosition: Position;
-	/** Planned to enter this epoch, so it is not on chain yet at all. */
+	/** Planned to enter this cycle, so it is not on chain yet at all. */
 	entering: boolean;
 	/**
 	 * The turn the chain last resolved for this avatar, when it is recent enough
@@ -94,7 +94,7 @@ export type WorldView = {
 	avatars: Map<bigint, AvatarView>;
 	/** The avatar this client is playing, if one has been chosen. */
 	activeAvatarID?: bigint;
-	epoch: number;
+	cycleNumber: number;
 };
 
 export type LocalPlan = {
@@ -121,13 +121,16 @@ function resolvedTurnView(
 	turn: ResolvedTurn | undefined,
 ): ResolvedTurnView | undefined {
 	if (!turn) return undefined;
-	return {epoch: turn.epoch, actions: toPlannedActions(turn.actions)};
+	return {
+		cycleNumber: turn.cycleNumber,
+		actions: toPlannedActions(turn.actions),
+	};
 }
 
 export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 	onchain,
 	local,
-	epoch,
+	cycleNumber,
 }) => {
 	const avatars = new Map<bigint, AvatarView>();
 
@@ -144,7 +147,7 @@ export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 
 	const activeID = local.activeAvatarID;
 	if (activeID === undefined || local.planned.length === 0) {
-		return {avatars, activeAvatarID: activeID, epoch};
+		return {avatars, activeAvatarID: activeID, cycleNumber};
 	}
 
 	const last = local.planned[local.planned.length - 1];
@@ -156,14 +159,14 @@ export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 			planned: local.planned,
 			plannedPosition: last.to,
 		});
-		return {avatars, activeAvatarID: activeID, epoch};
+		return {avatars, activeAvatarID: activeID, cycleNumber};
 	}
 
 	// NOTHING ON CHAIN BEHIND THIS AVATAR, so the entity is invented here.
 	// Drawing it is the point, and there are two ways to arrive at it.
 	//
 	// Planned to ENTER, which is the ordinary one: a player who picks a spawn and
-	// sees nothing appear until the reveal lands an epoch later has no way to
+	// sees nothing appear until the reveal lands a cycle later has no way to
 	// tell the click registered.
 	//
 	// Or planned to LEAVE and already gone from the read: `_exit` removes the
@@ -183,7 +186,7 @@ export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 		owner: local.player ?? '0x0000000000000000000000000000000000000000',
 		inGame: false,
 		position: last.to,
-		lastEpoch: epoch,
+		lastCycleNumber: cycleNumber,
 		life: 1,
 		isPlayer: true,
 		planned: local.planned,
@@ -191,5 +194,5 @@ export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 		entering: local.planned.some((action) => action.type === 'enter'),
 	});
 
-	return {avatars, activeAvatarID: activeID, epoch};
+	return {avatars, activeAvatarID: activeID, cycleNumber};
 };

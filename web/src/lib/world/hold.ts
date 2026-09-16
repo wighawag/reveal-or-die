@@ -56,21 +56,22 @@ import type {WorldState} from './state';
  * The log keeps the ONE question storage cannot answer: whether an avatar that
  * was not on screen ENTERED, or was merely panned onto. See below.
  *
- * @param resolvingEpoch the round whose reveals are landing right now.
+ * @param resolvingCycleNumber the cycle whose reveals are landing right now.
  */
 export function holdResolvingRound<TState extends WorldState>(params: {
 	shown: WorldState;
 	latest: TState;
-	resolvingEpoch: number;
+	resolvingCycleNumber: number;
 }): TState {
-	const {shown, latest, resolvingEpoch} = params;
+	const {shown, latest, resolvingCycleNumber} = params;
 	const avatars = new Map(latest.avatars);
 
 	for (const [id, avatar] of latest.avatars) {
-		// Not part of this round's outcome: nothing to hold. `lastEpoch` only
+		// Not part of this round's outcome: nothing to hold. The contract's
+		// `lastEpoch` (this client's `lastCycleNumber`) only
 		// advances on a reveal, so this is exactly "its turn for this round has
 		// landed", and it is the same read that carries the position.
-		if (avatar.lastEpoch !== resolvingEpoch) continue;
+		if (avatar.lastCycleNumber !== resolvingCycleNumber) continue;
 
 		const previous = shown.avatars.get(id);
 		if (previous) {
@@ -93,14 +94,14 @@ export function holdResolvingRound<TState extends WorldState>(params: {
 		// been standing in the world since before the round began.
 		//
 		// A MISSING LOG THEREFORE SHOWS IT, unchanged from before and still the
-		// better default: every avatar now reveals every epoch (the client commits
+		// better default: every avatar now reveals every cycle (the client commits
 		// empty turns to keep them alive), so "revealed this round" no longer
 		// narrows anything down, and hiding on a missing log would blank most of
 		// the board the moment a player panned during a reveal window. What is
 		// risked instead is one entry appearing a few seconds early, which is the
 		// same bound the pan case already accepts.
 		if (
-			avatar.lastTurn?.epoch === resolvingEpoch &&
+			avatar.lastTurn?.cycleNumber === resolvingCycleNumber &&
 			avatar.lastTurn.actions.some(
 				(action) => action.actionType === ActionType.Enter,
 			)

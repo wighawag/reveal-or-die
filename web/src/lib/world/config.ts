@@ -7,7 +7,7 @@
  * the UI describing a different game from the one on chain.
  */
 import type {TypedDeployments} from '$lib/core/connection/types';
-import {resolveEpochConfig, type EpochConfig} from '$lib/game/core/epoch';
+import {resolveCycleConfig, type CycleConfig} from '$lib/game/core/cycle';
 import {
 	optionalBigInt,
 	optionalNumber,
@@ -18,7 +18,7 @@ import {
 } from '$lib/game/core/linked-data';
 
 export type WorldConfig = {
-	epoch: EpochConfig;
+	cycle: CycleConfig;
 	/**
 	 * How many Move actions one reveal may contain.
 	 *
@@ -115,7 +115,7 @@ type GameLinkedData = DeclaredValues & {
  * Deliberately generous, and the reveal far more so than the commit. A commit
  * writes one hash; a reveal walks up to `numMoves` actions, each of which can
  * touch a zone index. Running out of gas mid-round is not a slow turn, it is a
- * missed reveal, which loses the turn AND blocks the next epoch until it is
+ * missed reveal, which loses the turn AND blocks the next cycle until it is
  * acknowledged. Over-reserving costs a slightly larger first payment.
  */
 const COMMIT_GAS = 100_000n;
@@ -145,7 +145,7 @@ export function resolveWorldConfig(deployments: TypedDeployments): WorldConfig {
 		optionalBigInt(deployments.chain.properties, 'expectedWorstGasPrice') ?? 0n;
 
 	return {
-		epoch: resolveEpochConfig(linkedData),
+		cycle: resolveCycleConfig(linkedData),
 		numMoves: readNumber(linkedData, 'numMoves'),
 		numMissesAllowed: optionalNumber(linkedData, 'numMissesAllowed'),
 		avatarsAddress: readAddress(linkedData, 'avatars'),

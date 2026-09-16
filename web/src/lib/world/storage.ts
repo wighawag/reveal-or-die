@@ -32,6 +32,36 @@ export function roundStorageKey(params: {
 
 type StoredAction = {actionType: number; data: string};
 
+/**
+ * THE ON-DISK SHAPE, AND IT DELIBERATELY STILL SAYS `epoch`.
+ *
+ * This type and `PREFIX` above are a COMPATIBILITY SURFACE with a stake behind
+ * it, which is what makes them the one exception to the `epoch` -> `cycle`
+ * rename that arrived with the framework. A record written by the previous
+ * build is read by this one, and a record this build cannot read is discarded
+ * by `load()` - so renaming the field or the key would orphan a commitment in
+ * flight, losing the secret that opens it. Here that costs the AVATAR, which
+ * is what this game puts at stake: a missed reveal is a miss against
+ * `numMissesAllowed`, and enough of them kill it.
+ *
+ * The failure is silent in the worst way: every suite stays green, because the
+ * tests are renamed alongside the code and nothing here reads a record written
+ * by an older build. It would be found by a player, at their own expense.
+ *
+ * The argument that the ABI was free to rename does NOT transfer here, and in
+ * this repo it does not even arise: these contracts are not inherited and have
+ * not been renamed at all.
+ *
+ * So the in-memory name moved and the serialised name did not, and the two are
+ * mapped explicitly in `load()` and `save()` below. Retiring this belongs with
+ * whatever ports this game's own vocabulary, as a deliberate migrating read -
+ * accept the old shape, write the new, drop the tolerance a release later -
+ * rather than as a side effect of a sweep.
+ *
+ * A MECHANICAL RE-RUN OF THE SWEEP REVERSES THIS, and does it silently. The
+ * exception is a judgement no mapping file encodes. If you are re-running a
+ * rename over this tree, this is the line to look at afterwards.
+ */
 type StoredRound = {
 	epoch: number;
 	actions: StoredAction[];
@@ -70,7 +100,9 @@ export function createRoundStorage(params: {
 					return undefined;
 				}
 				return {
-					epoch: stored.epoch,
+					// `epoch` on disk, `cycleNumber` in memory: see {@link StoredRound}.
+					// The old name is the one a record in flight was written with.
+					cycleNumber: stored.epoch,
 					// `data` is a packed position and can exceed Number.MAX_SAFE_INTEGER
 					// once y is non-zero (it is shifted left 32 bits), so it is stored
 					// as a STRING. JSON has no bigint, and letting it round-trip through
@@ -93,7 +125,9 @@ export function createRoundStorage(params: {
 		save(round) {
 			if (typeof localStorage === 'undefined') return;
 			const stored: StoredRound = {
-				epoch: round.epoch,
+				// Written back under the name the previous build reads. See
+				// {@link StoredRound}: changing it costs a player their avatar.
+				epoch: round.cycleNumber,
 				actions: round.actions.map((a) => ({
 					actionType: a.actionType,
 					data: a.data.toString(),
@@ -114,7 +148,7 @@ export function createRoundStorage(params: {
 				localStorage.removeItem(key);
 			} catch {
 				// Nothing useful to do; a stale entry is handled on load by the round,
-				// which discards anything from a past epoch.
+				// which discards anything from a past cycle.
 			}
 		},
 	};

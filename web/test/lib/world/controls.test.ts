@@ -105,7 +105,7 @@ describe('the two things it refuses', () => {
 		// player did not cause. The HUD disables its own button for the same
 		// reason; a key must not be a way round a disabled button.
 		const {controls, round, planning} = setup({
-			missedReveal: {step: 'Blocked', epoch: 3} as MissedRevealState,
+			missedReveal: {step: 'Blocked', cycleNumber: 3} as MissedRevealState,
 		});
 		controls.handle({type: 'confirm'});
 		expect(round.commit).not.toHaveBeenCalled();

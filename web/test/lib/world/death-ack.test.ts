@@ -33,7 +33,7 @@ const scoped = (storage: AckStorage) =>
 describe('acknowledging a death', () => {
 	it('is unset until acknowledged, and set after', () => {
 		const ack = scoped(memory());
-		const death = {avatarID: 5n, deathEpoch: 12};
+		const death = {avatarID: 5n, deathCycleNumber: 12};
 		expect(ack.isAcknowledged(death)).toBe(false);
 		ack.acknowledge(death);
 		expect(ack.isAcknowledged(death)).toBe(true);
@@ -43,39 +43,43 @@ describe('acknowledging a death', () => {
 		// A SECOND instance over the same storage is what a reload is: the
 		// component is rebuilt and reads what the previous one wrote.
 		const storage = memory();
-		scoped(storage).acknowledge({avatarID: 5n, deathEpoch: 12});
-		expect(scoped(storage).isAcknowledged({avatarID: 5n, deathEpoch: 12})).toBe(
-			true,
-		);
+		scoped(storage).acknowledge({avatarID: 5n, deathCycleNumber: 12});
+		expect(
+			scoped(storage).isAcknowledged({avatarID: 5n, deathCycleNumber: 12}),
+		).toBe(true);
 	});
 
 	it('still shows the news when the SAME avatar dies again', () => {
 		// `lastEpoch` only advances on reveals, so a second death is a strictly
-		// later epoch. Settling the avatar "in general" would swallow it.
+		// later cycle. Settling the avatar "in general" would swallow it.
 		const ack = scoped(memory());
-		ack.acknowledge({avatarID: 5n, deathEpoch: 12});
-		expect(ack.isAcknowledged({avatarID: 5n, deathEpoch: 30})).toBe(false);
-		ack.acknowledge({avatarID: 5n, deathEpoch: 30});
-		expect(ack.isAcknowledged({avatarID: 5n, deathEpoch: 30})).toBe(true);
+		ack.acknowledge({avatarID: 5n, deathCycleNumber: 12});
+		expect(ack.isAcknowledged({avatarID: 5n, deathCycleNumber: 30})).toBe(
+			false,
+		);
+		ack.acknowledge({avatarID: 5n, deathCycleNumber: 30});
+		expect(ack.isAcknowledged({avatarID: 5n, deathCycleNumber: 30})).toBe(true);
 		// and the older acknowledgement is still settled
-		expect(ack.isAcknowledged({avatarID: 5n, deathEpoch: 12})).toBe(true);
+		expect(ack.isAcknowledged({avatarID: 5n, deathCycleNumber: 12})).toBe(true);
 	});
 
 	it('keeps avatars apart', () => {
 		const ack = scoped(memory());
-		ack.acknowledge({avatarID: 5n, deathEpoch: 12});
-		expect(ack.isAcknowledged({avatarID: 6n, deathEpoch: 12})).toBe(false);
+		ack.acknowledge({avatarID: 5n, deathCycleNumber: 12});
+		expect(ack.isAcknowledged({avatarID: 6n, deathCycleNumber: 12})).toBe(
+			false,
+		);
 	});
 
 	it('is scoped per chain and game, like the round storage', () => {
 		const storage = memory();
-		scoped(storage).acknowledge({avatarID: 5n, deathEpoch: 12});
+		scoped(storage).acknowledge({avatarID: 5n, deathCycleNumber: 12});
 		const elsewhere = createDeathAcknowledgement({
 			chainID: 2,
 			gameAddress: '0x00000000000000000000000000000000000000aa',
 			storage,
 		});
-		expect(elsewhere.isAcknowledged({avatarID: 5n, deathEpoch: 12})).toBe(
+		expect(elsewhere.isAcknowledged({avatarID: 5n, deathCycleNumber: 12})).toBe(
 			false,
 		);
 	});
@@ -87,8 +91,12 @@ describe('acknowledging a death', () => {
 			chainID: 1,
 			gameAddress: '0x00000000000000000000000000000000000000aa',
 		});
-		expect(ack.isAcknowledged({avatarID: 5n, deathEpoch: 12})).toBe(false);
-		expect(() => ack.acknowledge({avatarID: 5n, deathEpoch: 12})).not.toThrow();
+		expect(ack.isAcknowledged({avatarID: 5n, deathCycleNumber: 12})).toBe(
+			false,
+		);
+		expect(() =>
+			ack.acknowledge({avatarID: 5n, deathCycleNumber: 12}),
+		).not.toThrow();
 	});
 
 	it('treats an unreadable entry as never acknowledged', () => {
@@ -101,8 +109,8 @@ describe('acknowledging a death', () => {
 			}),
 			'not a number',
 		);
-		expect(scoped(storage).isAcknowledged({avatarID: 5n, deathEpoch: 12})).toBe(
-			false,
-		);
+		expect(
+			scoped(storage).isAcknowledged({avatarID: 5n, deathCycleNumber: 12}),
+		).toBe(false);
 	});
 });

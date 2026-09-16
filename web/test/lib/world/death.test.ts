@@ -11,7 +11,8 @@ import {causeOfDeath, explainDeath} from '$lib/world/death';
  */
 describe('why an avatar died', () => {
 	it('counts the rounds of silence it actually takes, which is one more than the tolerance', () => {
-		// `_getResolvedAvatar` kills it when `epoch > lastEpoch + 1 + M`. With
+		// `_getResolvedAvatar` kills it when `epoch > lastEpoch + 1 + M` - the
+		// contract's own spelling, and this game's contracts are not renamed. With
 		// M = 3 and a last turn in round L, it is dead in L+5, having said nothing
 		// in L+1, L+2, L+3 and L+4: four rounds, not three.
 		expect(causeOfDeath({numMissesAllowed: 3})).toEqual({

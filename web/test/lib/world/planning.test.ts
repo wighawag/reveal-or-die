@@ -48,7 +48,7 @@ const BESIDE_EXIT: Position = {x: 4, y: 5};
 function fakeRound(initial: Action[] = []) {
 	const state = writable<RoundState<Action>>({
 		step: 'Planning',
-		epoch: 1,
+		cycleNumber: 1,
 		actions: initial,
 	} as RoundState<Action>);
 	let value: RoundState<Action> = get(state);
@@ -62,7 +62,7 @@ function fakeRound(initial: Action[] = []) {
 		plan(actions: readonly Action[]) {
 			state.set({
 				step: 'Planning',
-				epoch: 1,
+				cycleNumber: 1,
 				actions: [...actions],
 			} as RoundState<Action>);
 		},

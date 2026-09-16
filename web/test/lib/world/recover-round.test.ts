@@ -56,7 +56,7 @@ const search = (over: Partial<Parameters<typeof searchForTurn>[0]>) =>
 
 describe('every turn the avatar could have committed to', () => {
 	it('offers the EMPTY turn first, because that is the one the client sends by itself', () => {
-		// `commitWhenIdle` commits an empty turn every epoch to keep an idle
+		// `commitWhenIdle` commits an empty turn every cycle to keep an idle
 		// avatar alive, so it is much the most likely single candidate. Trying it
 		// last would spend the whole budget on the commonest case.
 		const first = candidateTurns({from: aFloorCell(), numMoves: 3}).next();
@@ -210,7 +210,7 @@ describe('searching for the turn behind a commitment', () => {
  * and the state it reacts to re-emits constantly.
  */
 describe('searching whenever the chain turns out to hold a lost turn', () => {
-	const LIVE: LiveCommitment = {epoch: 5, hash: '0xabc' as `0x${string}`};
+	const LIVE: LiveCommitment = {cycleNumber: 5, hash: '0xabc' as `0x${string}`};
 
 	function setup(options?: {
 		outcome?: SearchOutcome;
@@ -218,7 +218,7 @@ describe('searching whenever the chain turns out to hold a lost turn', () => {
 		position?: Position;
 	}) {
 		const recoveryState = writable<RecoveryState>(
-			options?.recovery ?? {step: 'Found', epoch: 5},
+			options?.recovery ?? {step: 'Found', cycleNumber: 5},
 		);
 		const offered: unknown[] = [];
 		const runs: unknown[] = [];
@@ -273,7 +273,7 @@ describe('searching whenever the chain turns out to hold a lost turn', () => {
 
 		expect(get(t.state)).toEqual({
 			step: 'AskThePlayer',
-			epoch: 5,
+			cycleNumber: 5,
 			reason: 'gave-up',
 		});
 		expect(t.offered).toEqual([]);
@@ -287,8 +287,8 @@ describe('searching whenever the chain turns out to hold a lost turn', () => {
 		// the worst of both outcomes.
 		const t = setup();
 		await settle();
-		t.recoveryState.set({step: 'Found', epoch: 5});
-		t.recoveryState.set({step: 'Found', epoch: 5});
+		t.recoveryState.set({step: 'Found', cycleNumber: 5});
+		t.recoveryState.set({step: 'Found', cycleNumber: 5});
 		await settle();
 
 		expect(t.runs).toHaveLength(1);
@@ -299,7 +299,7 @@ describe('searching whenever the chain turns out to hold a lost turn', () => {
 		const t = setup({outcome: {step: 'exhausted', tried: 10}});
 		await settle();
 		t.recoveryState.set({step: 'Idle'});
-		t.recoveryState.set({step: 'Found', epoch: 5});
+		t.recoveryState.set({step: 'Found', cycleNumber: 5});
 		await settle();
 
 		expect(t.runs).toHaveLength(1);
@@ -309,7 +309,7 @@ describe('searching whenever the chain turns out to hold a lost turn', () => {
 	it('leaves a candidate the PLAYER is offering alone', async () => {
 		// `Checking` means the player has pressed the button. Starting a search
 		// underneath that would race the answer they are already waiting for.
-		const t = setup({recovery: {step: 'Checking', epoch: 5}});
+		const t = setup({recovery: {step: 'Checking', cycleNumber: 5}});
 		await settle();
 		expect(t.runs).toEqual([]);
 		t.stop();

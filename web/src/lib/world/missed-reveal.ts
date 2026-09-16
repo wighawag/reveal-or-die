@@ -1,8 +1,8 @@
 /**
- * A commitment from a past epoch that was never revealed.
+ * A commitment from a past cycle that was never revealed.
  *
  * This exists because of a guard this repo re-enabled. `_makeCommitment`
- * rejects a commitment left over from an EARLIER epoch with
+ * rejects a commitment left over from an EARLIER cycle with
  * `PreviousCommitmentNotRevealed`, so an avatar that went quiet cannot play
  * again until the player acknowledges it. Without something watching for that,
  * the only symptom is every commit failing with a bare revert.
@@ -16,7 +16,7 @@
  *
  * ONE READ, TWO QUESTIONS, and the second one used to be thrown away. Asking
  * `getCommitment` answers "am I blocked?" - a commitment left over from an
- * EARLIER epoch - and it equally answers "is there a commitment for the round
+ * EARLIER cycle - and it equally answers "is there a commitment for the round
  * in progress that this browser knows nothing about?". The second is the one
  * that costs a turn and, three of them in a row, the avatar; it was being
  * reported as `Clear` and dropped, because blocking was the only thing anyone
@@ -34,10 +34,10 @@ import type {CommitRevealDeps} from './commit-reveal';
 export type MissedRevealState =
 	| {step: 'Unknown'}
 	| {step: 'Clear'}
-	/** An unrevealed commitment from `epoch` is blocking every new commitment. */
-	| {step: 'Blocked'; epoch: number}
-	| {step: 'Acknowledging'; epoch: number}
-	| {step: 'Failed'; epoch: number; error: unknown};
+	/** An unrevealed commitment from `cycleNumber` blocks every new commitment. */
+	| {step: 'Blocked'; cycleNumber: number}
+	| {step: 'Acknowledging'; cycleNumber: number}
+	| {step: 'Failed'; cycleNumber: number; error: unknown};
 
 export type MissedRevealStore = Readable<MissedRevealState> & {
 	readonly value: MissedRevealState;
@@ -46,10 +46,10 @@ export type MissedRevealStore = Readable<MissedRevealState> & {
 	/** Clear the stale commitment so the player can commit again. */
 	acknowledge(): Promise<void>;
 	/**
-	 * The commitment the contract holds for the epoch NOW IN PROGRESS, if any.
+	 * The commitment the contract holds for the cycle NOW IN PROGRESS, if any.
 	 *
 	 * It blocks nothing, which is why the state above says `Clear` beside it.
-	 * What it does say is that a reveal is owed this epoch whatever this browser
+	 * What it does say is that a reveal is owed this cycle whatever this browser
 	 * happens to remember, and `world/recover-round.ts` acts on that.
 	 *
 	 * Undefined whenever the read has not happened, failed, or found nothing: an
@@ -85,11 +85,11 @@ export function createMissedReveal(params: {
 	deps: MissedRevealDeps;
 	/** The avatar being played; undefined when none is chosen. */
 	avatarID: Readable<bigint | undefined>;
-	/** The epoch the game is in now. */
-	currentEpoch: Readable<number>;
+	/** The cycle the game is in now. */
+	currentCycleNumber: Readable<number>;
 	onSettled?: () => void;
 }): MissedRevealStore {
-	const {deps, avatarID, currentEpoch} = params;
+	const {deps, avatarID, currentCycleNumber} = params;
 
 	const state = writable<MissedRevealState>({step: 'Unknown'});
 	const commitment = writable<LiveCommitment | undefined>(undefined);
@@ -112,26 +112,29 @@ export function createMissedReveal(params: {
 				abi: Game.abi,
 				functionName: 'getCommitment',
 				args: [onchainIdentity(id)],
+				// `epoch` IS THE ABI'S COMPONENT NAME for `Commitment`, which this
+				// game's own contracts still use and which this rename did not touch.
+				// A cast naming it `cycleNumber` would read `undefined` silently.
 			})) as {hash: `0x${string}`; epoch: bigint};
 
-			const epoch = Number(onChain.epoch);
-			// epoch 0 means no commitment; one for the CURRENT epoch is the round in
+			const cycleNumber = Number(onChain.epoch);
+			// Cycle 0 means no commitment; one for the CURRENT cycle is the round in
 			// progress and blocks nothing. Only an older one bars the way, which is
 			// exactly the condition `_makeCommitment` tests.
-			if (epoch === 0) {
+			if (cycleNumber === 0) {
 				commitment.set(undefined);
 				state.set({step: 'Clear'});
 				return;
 			}
-			if (epoch === get(currentEpoch)) {
+			if (cycleNumber === get(currentCycleNumber)) {
 				// LIVE, and still worth saying: a reveal is owed for it, and this
 				// browser may have no idea. See the note at the top of the file.
-				commitment.set({epoch, hash: onChain.hash});
+				commitment.set({cycleNumber, hash: onChain.hash});
 				state.set({step: 'Clear'});
 				return;
 			}
 			commitment.set(undefined);
-			state.set({step: 'Blocked', epoch});
+			state.set({step: 'Blocked', cycleNumber});
 		} catch {
 			// A failed read is not evidence of being blocked, and claiming it was
 			// would bar the player from playing because their node hiccuped.
@@ -145,8 +148,8 @@ export function createMissedReveal(params: {
 		if (id === undefined) return;
 		if (current.step !== 'Blocked' && current.step !== 'Failed') return;
 
-		const epoch = current.epoch;
-		state.set({step: 'Acknowledging', epoch});
+		const cycleNumber = current.cycleNumber;
+		state.set({step: 'Acknowledging', cycleNumber});
 		try {
 			const {connection, signerExecutor, deployments} = deps;
 			await connection.ensureConnected();
@@ -180,7 +183,7 @@ export function createMissedReveal(params: {
 			state.set({step: 'Clear'});
 			params.onSettled?.();
 		} catch (error) {
-			state.set({step: 'Failed', epoch, error});
+			state.set({step: 'Failed', cycleNumber, error});
 		}
 	}
 

@@ -174,7 +174,7 @@ export async function searchForTurn(params: {
 	numMoves: number;
 	/** The commitment the chain is holding. */
 	hash: `0x${string}`;
-	/** The secret for this epoch, already derived. Computed ONCE by the caller. */
+	/** The secret for this cycle, already derived. Computed ONCE by the caller. */
 	secret: `0x${string}`;
 	buildCommitment: (params: {
 		actions: readonly Action[];
@@ -216,7 +216,7 @@ export async function searchForTurn(params: {
 export type AutoRecoveryState =
 	/** Nothing to recover, or the round already has it. */
 	| {step: 'Idle'}
-	| {step: 'Searching'; epoch: number}
+	| {step: 'Searching'; cycleNumber: number}
 	/**
 	 * The search is over and did not produce the turn, so the general route is
 	 * what is left. The reason is carried because the three are worth different
@@ -226,7 +226,7 @@ export type AutoRecoveryState =
 	 */
 	| {
 			step: 'AskThePlayer';
-			epoch: number;
+			cycleNumber: number;
 			reason: 'not-searchable' | 'exhausted' | 'gave-up';
 	  };
 
@@ -237,7 +237,7 @@ export type AutoRecoveryState =
  * teardown, the same shape as the board's own refreshers - and testable without
  * an app context, which matters because the thing it must not do is subtle.
  *
- * ONCE PER EPOCH, and that is the whole of the bookkeeping. The recovery state
+ * ONCE PER CYCLE, and that is the whole of the bookkeeping. The recovery state
  * re-emits on every change of the round and of the chain read, and a search
  * costs a second; without this it would restart continuously and never finish,
  * which is the worst of both outcomes - the tab busy and the turn still lost.
@@ -253,7 +253,7 @@ export function recoverByEnumeration(params: {
 	identity: Readable<bigint | undefined>;
 	numMoves: number;
 	makeSecret: (params: {
-		epoch: number;
+		cycleNumber: number;
 		identity: bigint;
 	}) => `0x${string}` | Promise<`0x${string}`>;
 	buildCommitment: (params: {
@@ -269,7 +269,7 @@ export function recoverByEnumeration(params: {
 	const run = params.run ?? searchForTurn;
 
 	const state = writable<AutoRecoveryState>({step: 'Idle'});
-	/** Epochs already searched, successfully or not. */
+	/** Cycles already searched, successfully or not. */
 	const attempted = new Set<number>();
 
 	const stop = recovery.subscribe(($recovery) => {
@@ -281,22 +281,22 @@ export function recoverByEnumeration(params: {
 		// or has just been, which is the player's own attempt. Not ours to
 		// interrupt.
 		if ($recovery.step !== 'Found') return;
-		if (attempted.has($recovery.epoch)) return;
+		if (attempted.has($recovery.cycleNumber)) return;
 
 		const live = get(commitment);
 		const player = get(identity);
 		if (!live || player === undefined) return;
-		attempted.add($recovery.epoch);
+		attempted.add($recovery.cycleNumber);
 
 		const from = get(currentPosition);
-		state.set({step: 'Searching', epoch: $recovery.epoch});
+		state.set({step: 'Searching', cycleNumber: $recovery.cycleNumber});
 
 		void (async () => {
 			try {
 				// ONCE. The secret is a signature, so deriving it per candidate would
 				// be ten thousand signatures for one turn.
 				const secret = await params.makeSecret({
-					epoch: live.epoch,
+					cycleNumber: live.cycleNumber,
 					identity: player,
 				});
 				const outcome = await run({
@@ -317,7 +317,7 @@ export function recoverByEnumeration(params: {
 				}
 				state.set({
 					step: 'AskThePlayer',
-					epoch: live.epoch,
+					cycleNumber: live.cycleNumber,
 					reason: outcome.step,
 				});
 			} catch {
@@ -325,7 +325,7 @@ export function recoverByEnumeration(params: {
 				// player can still re-enter the turn by hand.
 				state.set({
 					step: 'AskThePlayer',
-					epoch: live.epoch,
+					cycleNumber: live.cycleNumber,
 					reason: 'not-searchable',
 				});
 			}

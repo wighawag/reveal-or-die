@@ -18,7 +18,7 @@ describe('what a revealed turn amounts to', () => {
 	});
 
 	it('calls an empty turn what it is', () => {
-		// NOT a corner case: `commitWhenIdle` sends an empty turn every epoch for
+		// NOT a corner case: `commitWhenIdle` sends an empty turn every cycle for
 		// an avatar that is standing still, because the contract kills one that
 		// goes quiet. This is the most common reveal there is.
 		expect(outcomeOf([])).toBe('stayed');
@@ -43,7 +43,7 @@ describe('remembering the turn the round forgot', () => {
 		initial: RoundState<Action>,
 		mine: {
 			lastTurn?: {
-				epoch: number;
+				cycleNumber: number;
 				actions: {
 					type: 'move' | 'enter' | 'exit';
 					to: {x: number; y: number};
@@ -61,10 +61,10 @@ describe('remembering the turn the round forgot', () => {
 	}
 
 	const planning = (actions: Action[]): RoundState<Action> =>
-		({step: 'Planning', epoch: 3, actions}) as RoundState<Action>;
+		({step: 'Planning', cycleNumber: 3, actions}) as RoundState<Action>;
 	const revealing = (actions: Action[]): RoundState<Action> =>
-		({step: 'Revealing', epoch: 3, actions}) as RoundState<Action>;
-	const revealed = {step: 'Revealed', epoch: 3} as RoundState<Action>;
+		({step: 'Revealing', cycleNumber: 3, actions}) as RoundState<Action>;
+	const revealed = {step: 'Revealed', cycleNumber: 3} as RoundState<Action>;
 
 	describe('what the chain says it accepted, in the same words', () => {
 		it('ignores a board copy from a DIFFERENT round', () => {
@@ -72,12 +72,12 @@ describe('remembering the turn the round forgot', () => {
 			// (`world/hold.ts`), so during the reveal window its `lastTurn` is
 			// still the PREVIOUS round's. Taking it because it is merely present
 			// would describe the wrong turn, and confidently: the round says
-			// epoch 3, the board still says 2.
+			// cycle 3, the board still says 2.
 			const {state, mineState, outcome} = round(revealing([move]));
 			const seen: (string | undefined)[] = [];
 			const stop = outcome.subscribe((v) => seen.push(v));
 			mineState.set({
-				lastTurn: {epoch: 2, actions: [{type: 'exit', to: {x: 9, y: 9}}]},
+				lastTurn: {cycleNumber: 2, actions: [{type: 'exit', to: {x: 9, y: 9}}]},
 			});
 			state.set(revealed);
 			expect(seen.at(-1)).toBe('moved');
@@ -93,11 +93,11 @@ describe('remembering the turn the round forgot', () => {
 			const stop = outcome.subscribe((v) => seen.push(v));
 
 			mineState.set({
-				lastTurn: {epoch: 3, actions: [{type: 'move', to: {x: 1, y: 0}}]},
+				lastTurn: {cycleNumber: 3, actions: [{type: 'move', to: {x: 1, y: 0}}]},
 			});
 			expect(seen.at(-1)).toBe('moved');
 
-			mineState.set({lastTurn: {epoch: 3, actions: []}});
+			mineState.set({lastTurn: {cycleNumber: 3, actions: []}});
 			// SOMETHING was revealed and none of it was accepted. "Stayed" is now
 			// the truth about it rather than a restatement of an empty plan.
 			expect(seen.at(-1)).toBe('stayed');
@@ -138,7 +138,7 @@ describe('remembering the turn the round forgot', () => {
 
 		state.set({
 			step: 'Committed',
-			epoch: 3,
+			cycleNumber: 3,
 			actions: [move],
 		} as RoundState<Action>);
 		expect(seen.at(-1)).toBeUndefined();
@@ -146,7 +146,7 @@ describe('remembering the turn the round forgot', () => {
 	});
 
 	it('does not carry an old turn into the next one', () => {
-		// The round goes back to Idle for the new epoch and then reveals again.
+		// The round goes back to Idle for the new cycle and then reveals again.
 		// A remembered outcome that outlived its round would report the previous
 		// turn's story about this one.
 		const {state, outcome} = round(planning([move]));

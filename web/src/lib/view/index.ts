@@ -28,11 +28,11 @@ export type {ViewStateStore, ViewStateValue} from '$lib/game/core/seams';
 export type ViewMerge<TState, TLocal, TView> = (params: {
 	onchain: TState;
 	local: TLocal;
-	epoch: number;
+	cycleNumber: number;
 }) => TView;
 
 export function createViewState<TState, TLocal, TView>(params: {
-	onchainState: OnchainStateStore<TState & {epoch: number}>;
+	onchainState: OnchainStateStore<TState & {cycleNumber: number}>;
 	localState: Readable<TLocal>;
 	merge: ViewMerge<TState, TLocal, TView>;
 }): ViewStateStore<TView> {
@@ -41,15 +41,21 @@ export function createViewState<TState, TLocal, TView>(params: {
 	const _value = derived(
 		[{subscribe: onchainState.subscribe}, localState],
 		([$onchain, $local]): ViewStateValue<TView> => {
-			const state = $onchain as OnchainStateValue<TState & {epoch: number}>;
+			const state = $onchain as OnchainStateValue<
+				TState & {cycleNumber: number}
+			>;
 			if (state.step === 'Unloaded') {
 				return {step: 'Unloaded'};
 			}
-			const epoch = state.epoch;
+			const cycleNumber = state.cycleNumber;
 			return {
 				step: 'Loaded',
-				epoch,
-				...merge({onchain: state as unknown as TState, local: $local, epoch}),
+				cycleNumber,
+				...merge({
+					onchain: state as unknown as TState,
+					local: $local,
+					cycleNumber,
+				}),
 			};
 		},
 	);

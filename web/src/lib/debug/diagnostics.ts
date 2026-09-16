@@ -3,7 +3,7 @@
  *
  * The mechanism and everything the template composes for every app are in
  * `$lib/game/core/diagnostics`: the modal candidates, RPC health and each of
- * its inputs, the signer's balance, the round and the epoch. Read that file
+ * its inputs, the signer's balance, the round and the cycle. Read that file
  * first; it is also where the argument for watching from OUTSIDE rather than
  * instrumenting `core/` lives, and it is the reason this file exists at all
  * rather than log lines in inherited code.

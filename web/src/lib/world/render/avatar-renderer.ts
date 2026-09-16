@@ -49,11 +49,11 @@ export const avatarChanged: Changed<AvatarView> = (previous, next) =>
 	previous.plannedPosition.x !== next.plannedPosition.x ||
 	previous.plannedPosition.y !== next.plannedPosition.y ||
 	previous.planned.length !== next.planned.length ||
-	// The epoch of the last RESOLVED turn, which is what starts a replay. It is
+	// The cycle of the last RESOLVED turn, which is what starts a replay. It is
 	// compared because a turn can arrive without moving the avatar at all - a
 	// step the contract refused, an exit - and `update` is the only place the
 	// object hears about it.
-	previous.lastTurn?.epoch !== next.lastTurn?.epoch;
+	previous.lastTurn?.cycleNumber !== next.lastTurn?.cycleNumber;
 
 export function createAvatarRenderer(params: {
 	viewState: ViewStateStore<WorldView>;

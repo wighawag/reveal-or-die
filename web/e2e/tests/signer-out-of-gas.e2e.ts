@@ -29,7 +29,7 @@ import {
  *
  * It is worth the minutes it costs because of what the failure costs. A move is
  * signed by a local signer the player was never told about, holding only what
- * someone put in it; it can run dry between one epoch and the next. If the
+ * someone put in it; it can run dry between one cycle and the next. If the
  * failure is reported as a generic error, or the remedy is offered for
  * something a top-up cannot fix, or the round does not pick itself back up when
  * the gas lands, the player finds out by losing their bond.
@@ -42,7 +42,7 @@ import {
  */
 describe('A move that runs out of gas', () => {
 	// Its own burner account. The game keys one open commitment per player per
-	// epoch, and this test deliberately fails a commit, so sharing an account
+	// cycle, and this test deliberately fails a commit, so sharing an account
 	// with another suite would have them fighting over the same commitment slot.
 	test.use({walletAccountIndex: 2});
 
@@ -74,7 +74,7 @@ describe('A move that runs out of gas', () => {
 		await drainSignerGas(page);
 
 		// Enough of the play phase left to fail, be told, be topped up, and still
-		// commit inside the same epoch - an uncommitted plan expires when the epoch
+		// commit inside the same cycle - an uncommitted plan expires when the cycle
 		// turns over, and this test is about recovering the round, not losing it.
 		await planOnCanvas(page, {x: -60, y: 40}, 12);
 

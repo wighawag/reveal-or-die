@@ -28,7 +28,7 @@ import {
  * stands - is the one that would catch the round collapsing into a plain move.
  */
 describe('A commit-reveal round', () => {
-	// One open commitment per player per epoch, so this file takes its own burner
+	// One open commitment per player per cycle, so this file takes its own burner
 	// account (the contracts suite uses index 1).
 	test.use({walletAccountIndex: 0});
 
@@ -45,7 +45,7 @@ describe('A commit-reveal round', () => {
 
 		// WHO OWNS AND WHO SENDS ARE DIFFERENT ADDRESSES, and that is the design
 		// rather than an implementation detail. A round is two transactions every
-		// epoch, so sending them from the wallet would prompt twice a round for
+		// cycle, so sending them from the wallet would prompt twice a round for
 		// ever; hence a local signer. But that signer is a key this browser made,
 		// holding nothing and lost with the site data, so it must not BE the
 		// player: the account owns the avatar, and the signer merely acts for it.

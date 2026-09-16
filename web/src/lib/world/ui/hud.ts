@@ -64,7 +64,7 @@ export type HudModel = {
 	secondsLeft: number;
 	/** How far through the countdown, 0..1, for a progress dial. */
 	progress: number;
-	epoch: number;
+	cycleNumber: number;
 	/**
 	 * Set when this build has NO LOCAL SIGNER, so every move has to be signed in
 	 * the wallet. Said once, up front, rather than discovered one prompt at a
@@ -127,17 +127,17 @@ export type HudModel = {
 	 * camera-scoped: a player who panned away would not be told.
 	 */
 	/**
-	 * Carries the ID and the death epoch, not just the label, because the
+	 * Carries the ID and the death cycle, not just the label, because the
 	 * acknowledgement of a death is recorded per DEATH: `lastEpoch` only
 	 * advances on reveals, so the avatar being re-bought and dying again is a
-	 * strictly later epoch, which is what lets one stored acknowledgement settle
+	 * strictly later cycle, which is what lets one stored acknowledgement settle
 	 * an old death while still letting a new one through. See
 	 * `ui/death-ack.ts`.
 	 */
 	died?: {
 		label: string;
 		avatarID: bigint;
-		deathEpoch: number;
+		deathCycleNumber: number;
 		/**
 		 * WHY it died, and the sentence for it.
 		 *
@@ -245,14 +245,14 @@ export function describeRound(
 		case 'Committing':
 			return {label: 'Sending commitment...', tone: 'busy'};
 		case 'Committed':
-			return {label: 'Committed. Reveal is owed this epoch.', tone: 'busy'};
+			return {label: 'Committed. Reveal is owed this cycle.', tone: 'busy'};
 		case 'Revealing':
 			return {label: 'Revealing...', tone: 'busy'};
 		case 'Revealed':
 			// WHAT THE TURN ACTUALLY DID. It said "your avatar has moved" after
 			// every reveal, including the empty ones the round commits by itself to
 			// keep an idle avatar alive, so a player standing still was told they
-			// had moved once an epoch forever - and one who left the world was told
+			// had moved once a cycle forever - and one who left the world was told
 			// the same thing about an avatar that is no longer on the board.
 			//
 			// It describes what was REVEALED rather than what the chain accepted, so
@@ -289,7 +289,7 @@ export function describeRound(
 				// This game bonds nothing per round, so claiming a loss would be a
 				// lie; what it actually costs is the turn AND the next one, until the
 				// commitment is acknowledged. That is the part worth stating.
-				label: `Missed the reveal for epoch ${state.epoch}. Those moves are lost, and the next round is blocked until you acknowledge it.`,
+				label: `Missed the reveal for cycle ${state.cycleNumber}. Those moves are lost, and the next round is blocked until you acknowledge it.`,
 				tone: 'bad',
 			};
 		case 'Error':
@@ -354,21 +354,21 @@ export function describeRecovery(
 	if (auto.step === 'Searching') return undefined;
 	if (auto.step === 'Idle' && recovery.step === 'Found') return undefined;
 
-	const headline = `This browser has lost the moves you committed for epoch ${recovery.epoch}.`;
+	const headline = `This browser has lost the moves you committed for cycle ${recovery.cycleNumber}.`;
 	if (recovery.step === 'Checking') {
 		return {headline, detail: 'Checking...', busy: true, canRecover: false};
 	}
 
 	const detail =
 		recovery.step === 'Refused'
-			? 'Those are not the moves that were committed. Try again: nothing is spent, and the reveal can still be made until this epoch ends.'
+			? 'Those are not the moves that were committed. Try again: nothing is spent, and the reveal can still be made until this cycle ends.'
 			: recovery.step === 'Failed'
 				? // NOT a wrong turn. The app could not ask, which is a different
 					// thing with a different remedy - press again.
 					`Those moves could not be checked: ${recovery.message}. Nothing is lost yet - try again.`
 				: auto.step === 'AskThePlayer' && auto.reason === 'not-searchable'
 					? 'Your avatar was entering the world, and where it was going to appear is not something this browser can work out. Point at the cell you chose and recover the round.'
-					: 'The commitment is still on chain and can still be revealed, but only this epoch. Re-enter the same moves and recover the round.';
+					: 'The commitment is still on chain and can still be revealed, but only this cycle. Re-enter the same moves and recover the round.';
 
 	return {headline, detail, busy: false, canRecover: plannedCount > 0};
 }
@@ -378,7 +378,7 @@ export function describeMissedReveal(
 ): HudModel['missedReveal'] {
 	if (state.step === 'Clear' || state.step === 'Unknown') return undefined;
 
-	const headline = `You never revealed your moves for epoch ${state.epoch}.`;
+	const headline = `You never revealed your moves for cycle ${state.cycleNumber}.`;
 
 	if (state.step === 'Acknowledging') {
 		return {
@@ -546,7 +546,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.deposited,
 			game.activeIdentity,
 			game.currentPosition,
-			game.epochInfo,
+			game.cycleInfo,
 			game.missedReveal,
 			game.setup,
 			game.purchase,
@@ -564,7 +564,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			$deposited,
 			$avatarID,
 			$position,
-			$epoch,
+			$cycle,
 			$missedReveal,
 			$setup,
 			$purchase,
@@ -612,13 +612,14 @@ export function createHud(context: Context): Readable<HudModel> {
 			const avatars =
 				deposited.step === 'Loaded' ? deposited.avatars : ([] as const);
 			const inWorld = $position !== undefined;
-			// `lastEpoch` is when the avatar last acted, so a kill in the epoch just
+			// `lastEpoch` (the contract's name) is when the avatar last acted, so a
+			// kill in the cycle just
 			// resolved only becomes readable once the next one has begun.
 			const casualty = avatars.find(
 				(a) =>
 					a.life === 0 &&
 					a.inGame &&
-					$epoch.currentEpoch >= Number(a.lastEpoch) + 1,
+					$cycle.currentCycleNumber >= Number(a.lastEpoch) + 1,
 			);
 			const plannedCount = $plan.planned.length;
 			const canLeave = $canExit as boolean;
@@ -652,7 +653,7 @@ export function createHud(context: Context): Readable<HudModel> {
 				secondsLeft: Math.max(0, Math.ceil(timeLeft)),
 				progress:
 					duration > 0 ? Math.min(1, Math.max(0, 1 - timeLeft / duration)) : 0,
-				epoch: $epoch.currentEpoch,
+				cycleNumber: $cycle.currentCycleNumber,
 				setup: needsSetup,
 				// `hasLocalSigner` is `TARGET_STEP === 'SignedIn'`, and NOTHING ELSE.
 				// It is not about hosted sign-in: a wallet-only sign-in has no host
@@ -692,7 +693,7 @@ export function createHud(context: Context): Readable<HudModel> {
 						return {
 							label: avatarLabel(avatarID),
 							avatarID,
-							deathEpoch: Number(lastEpoch),
+							deathCycleNumber: Number(lastEpoch),
 							cause,
 							explanation: explainDeath(cause),
 						};

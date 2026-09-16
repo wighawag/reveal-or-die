@@ -3,7 +3,7 @@
  *
  * NOTHING ON CHAIN SAYS WHY, and that is the fact this module exists around.
  * There is no death event and no stored cause: `_getResolvedAvatar` computes
- * `life` from how far `lastEpoch` has fallen behind the epoch being asked
+ * `life` from how far `lastEpoch` has fallen behind the cycle being asked
  * about, so a kill is a CONCLUSION drawn from the same data anyone else can
  * read, not a record of something that happened. The client is therefore the
  * only thing that can ever explain a death, and an explanation it invents is

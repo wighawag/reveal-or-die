@@ -206,7 +206,7 @@ describe('the two clocks', () => {
 		);
 	});
 
-	it('says nothing rather than rendering the epoch', () => {
+	it('says nothing rather than rendering the cycle', () => {
 		expect(formatBroadcastTime(undefined)).toBeNull();
 		expect(formatBlockTime(undefined)).toBeNull();
 		expect(formatBlockTime(0)).toBeNull();

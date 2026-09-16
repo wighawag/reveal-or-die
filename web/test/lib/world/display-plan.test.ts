@@ -55,16 +55,16 @@ function avatar(over: Partial<Avatar> & {avatarID: bigint}): Avatar {
 		owner: PLAYER,
 		inGame: true,
 		position: START,
-		lastEpoch: 6,
+		lastCycleNumber: 6,
 		life: 1,
 		...over,
 	};
 }
 
-function world(...avatars: Avatar[]): WorldState & {epoch: number} {
+function world(...avatars: Avatar[]): WorldState & {cycleNumber: number} {
 	const state = emptyWorld();
 	for (const a of avatars) state.avatars.set(a.avatarID, a);
-	return {...state, epoch: 7};
+	return {...state, cycleNumber: 7};
 }
 
 /** A round whose step can be driven straight from the test. */
@@ -78,7 +78,7 @@ function fakeRound(initial: RoundState<Action> = {step: 'Idle'}) {
 			return value;
 		},
 		plan: (actions: readonly Action[]) =>
-			state.set({step: 'Planning', epoch: 7, actions: [...actions]}),
+			state.set({step: 'Planning', cycleNumber: 7, actions: [...actions]}),
 		commit: async () => {},
 		reveal: async () => {},
 		dismiss: () => {},
@@ -116,22 +116,30 @@ describe('the display copy of a turn', () => {
 
 	it('survives the reveal landing, which is when the round throws the actions away', () => {
 		const {state, holding, display, stop} = setup(START);
-		state.set({step: 'Planning', epoch: 7, actions: [moveTo({x: 0, y: 2})]});
+		state.set({
+			step: 'Planning',
+			cycleNumber: 7,
+			actions: [moveTo({x: 0, y: 2})],
+		});
 		expect(get(display).planned).toHaveLength(1);
 
 		// The round is resolving and the board is holding its outcome back.
 		holding.set(7);
 		// The reveal lands: `Revealed` carries no actions at all.
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({step: 'Revealed', cycleNumber: 7});
 		expect(get(display).planned).toEqual([{type: 'move', to: {x: 0, y: 2}}]);
 		stop();
 	});
 
 	it('clears when the board releases, and not a moment before', () => {
 		const {state, holding, display, stop} = setup(START);
-		state.set({step: 'Planning', epoch: 7, actions: [moveTo({x: 0, y: 2})]});
+		state.set({
+			step: 'Planning',
+			cycleNumber: 7,
+			actions: [moveTo({x: 0, y: 2})],
+		});
 		holding.set(7);
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({step: 'Revealed', cycleNumber: 7});
 		expect(get(display).planned).toHaveLength(1);
 
 		// The round is over: the board is showing what the turn did, so the local
@@ -142,13 +150,17 @@ describe('the display copy of a turn', () => {
 	});
 
 	it('never resurrects a turn from an earlier round', () => {
-		// The player planned nothing this epoch, so there is nothing of theirs to
+		// The player planned nothing this cycle, so there is nothing of theirs to
 		// draw - and `commitWhenIdle` still commits and reveals an empty turn for
-		// them every epoch, which is exactly when a memory with no epoch on it
+		// them every cycle, which is exactly when a memory with no cycle on it
 		// would redraw last round's path.
 		const {state, holding, display, stop} = setup(START);
-		state.set({step: 'Planning', epoch: 7, actions: [moveTo({x: 0, y: 2})]});
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({
+			step: 'Planning',
+			cycleNumber: 7,
+			actions: [moveTo({x: 0, y: 2})],
+		});
+		state.set({step: 'Revealed', cycleNumber: 7});
 		state.set({step: 'Idle'});
 
 		holding.set(8);
@@ -160,12 +172,16 @@ describe('the display copy of a turn', () => {
 		// The last thing the round carried is what the turn WAS. A memory that
 		// only kept non-empty plans would redraw a path the player deleted, for
 		// the whole of the round the empty turn resolves in - and an empty turn is
-		// not a rare case, it is what `commitWhenIdle` sends every epoch a player
+		// not a rare case, it is what `commitWhenIdle` sends every cycle a player
 		// stands still.
 		const {state, holding, display, stop} = setup(START);
-		state.set({step: 'Planning', epoch: 7, actions: [moveTo({x: 0, y: 2})]});
-		state.set({step: 'Planning', epoch: 7, actions: []});
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({
+			step: 'Planning',
+			cycleNumber: 7,
+			actions: [moveTo({x: 0, y: 2})],
+		});
+		state.set({step: 'Planning', cycleNumber: 7, actions: []});
+		state.set({step: 'Revealed', cycleNumber: 7});
 		holding.set(7);
 		expect(get(display).planned).toHaveLength(0);
 		stop();
@@ -177,8 +193,12 @@ describe('the display copy of a turn', () => {
 		// must keep reading the ROUND: a held display copy that reached them
 		// would offer to take back a turn that is already on chain.
 		const {state, planning, holding, display, stop} = setup(START);
-		state.set({step: 'Planning', epoch: 7, actions: [moveTo({x: 0, y: 2})]});
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({
+			step: 'Planning',
+			cycleNumber: 7,
+			actions: [moveTo({x: 0, y: 2})],
+		});
+		state.set({step: 'Revealed', cycleNumber: 7});
 		holding.set(7);
 
 		expect(get(display).planned).toHaveLength(1);
@@ -189,8 +209,12 @@ describe('the display copy of a turn', () => {
 
 	it('is not what the HUD counts', () => {
 		const {state, planning, holding, display, stop} = setup(START);
-		state.set({step: 'Planning', epoch: 7, actions: [moveTo({x: 0, y: 2})]});
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({
+			step: 'Planning',
+			cycleNumber: 7,
+			actions: [moveTo({x: 0, y: 2})],
+		});
+		state.set({step: 'Revealed', cycleNumber: 7});
 		holding.set(7);
 
 		const hud = get(createHud(fakeContext(state, planning)));
@@ -229,7 +253,7 @@ function fakeContext(
 			}),
 			activeIdentity: writable(ME),
 			currentPosition: writable(START),
-			epochInfo: writable({currentEpoch: 7}),
+			cycleInfo: writable({currentCycleNumber: 7}),
 			missedReveal: writable({step: 'Clear'}),
 			recovery: writable({step: 'Idle'}),
 			autoRecovery: writable({step: 'Idle'}),
@@ -247,18 +271,19 @@ function fakeContext(
  * Both halves turn on ONE signal - the board's own `holding` - and this is
  * what pins that: the assertions are over EVERY value the view emits across
  * the release, not over the value it settles on. A version where the overlay
- * clears on its own reading of the round or the epoch settles correctly and
+ * clears on its own reading of the round or the cycle settles correctly and
  * still shows a hole, which is precisely the bug.
  */
 describe('the handover, from the local overlay to the board', () => {
 	function compose(round: RoundStore<GameIdentity, Action>, at?: Position) {
 		const state = writable<
-			{step: 'Unloaded'} | ({step: 'Loaded'} & WorldState & {epoch: number})
+			| {step: 'Unloaded'}
+			| ({step: 'Loaded'} & WorldState & {cycleNumber: number})
 		>({step: 'Unloaded'});
 		const phase = writable<{phase: 'play' | 'wait'}>({phase: 'play'});
-		const epoch = writable(7);
+		const cycleNumber = writable(7);
 		const {board, holding} = holdBoardUntilCycleEnds<
-			WorldState & {epoch: number}
+			WorldState & {cycleNumber: number}
 		>({
 			state: {
 				subscribe: state.subscribe,
@@ -266,7 +291,7 @@ describe('the handover, from the local overlay to the board', () => {
 				update: async () => {},
 			} as never,
 			phase,
-			epoch,
+			cycleNumber,
 			hold: holdResolvingRound,
 		});
 		const planning = livePlan(round, at);
@@ -285,7 +310,7 @@ describe('the handover, from the local overlay to the board', () => {
 			const view = v as {step: string} & WorldView;
 			seen.push(view.step === 'Loaded' ? view.avatars.get(ME) : undefined);
 		});
-		const load = (w: WorldState & {epoch: number}) =>
+		const load = (w: WorldState & {cycleNumber: number}) =>
 			state.set({step: 'Loaded', ...w});
 		return {seen, load, phase, planning, stop};
 	}
@@ -298,7 +323,7 @@ describe('the handover, from the local overlay to the board', () => {
 		const {round, state} = fakeRound();
 		const {seen, load, phase, stop} = compose(round);
 		load(world());
-		state.set({step: 'Planning', epoch: 7, actions: [enterAt(START)]});
+		state.set({step: 'Planning', cycleNumber: 7, actions: [enterAt(START)]});
 		seen.length = 0;
 
 		// The round closes, and the reveal lands: the chain now has the avatar,
@@ -308,12 +333,12 @@ describe('the handover, from the local overlay to the board', () => {
 			world(
 				avatar({
 					avatarID: ME,
-					lastEpoch: 7,
-					lastTurn: {epoch: 7, actions: [enterAt(START)]},
+					lastCycleNumber: 7,
+					lastTurn: {cycleNumber: 7, actions: [enterAt(START)]},
 				}),
 			),
 		);
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({step: 'Revealed', cycleNumber: 7});
 		// The round ends and the board releases it.
 		phase.set({phase: 'play'});
 
@@ -333,7 +358,7 @@ describe('the handover, from the local overlay to the board', () => {
 		load(world(avatar({avatarID: ME})));
 		state.set({
 			step: 'Planning',
-			epoch: 7,
+			cycleNumber: 7,
 			actions: [moveTo({x: 0, y: 2}), moveTo({x: 0, y: 3})],
 		});
 		seen.length = 0;
@@ -344,15 +369,15 @@ describe('the handover, from the local overlay to the board', () => {
 				avatar({
 					avatarID: ME,
 					position: {x: 0, y: 3},
-					lastEpoch: 7,
+					lastCycleNumber: 7,
 					lastTurn: {
-						epoch: 7,
+						cycleNumber: 7,
 						actions: [moveTo({x: 0, y: 2}), moveTo({x: 0, y: 3})],
 					},
 				}),
 			),
 		);
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({step: 'Revealed', cycleNumber: 7});
 		phase.set({phase: 'play'});
 
 		// Every frame shows the turn as one of the two: still planned, or landed
@@ -360,9 +385,9 @@ describe('the handover, from the local overlay to the board', () => {
 		// its old cell with the path rubbed out.
 		for (const drawn of seen) {
 			expect(drawn).toBeDefined();
-			expect(drawn!.planned.length > 0 || drawn!.lastTurn?.epoch === 7).toBe(
-				true,
-			);
+			expect(
+				drawn!.planned.length > 0 || drawn!.lastTurn?.cycleNumber === 7,
+			).toBe(true);
 		}
 		const last = seen[seen.length - 1]!;
 		expect(last.position).toEqual({x: 0, y: 3});
@@ -378,13 +403,13 @@ describe('the handover, from the local overlay to the board', () => {
 		const {round, state} = fakeRound();
 		const {seen, load, phase, stop} = compose(round, EXIT);
 		load(world(avatar({avatarID: ME, position: EXIT})));
-		state.set({step: 'Planning', epoch: 7, actions: [exitAt(EXIT)]});
+		state.set({step: 'Planning', cycleNumber: 7, actions: [exitAt(EXIT)]});
 		seen.length = 0;
 
 		phase.set({phase: 'wait'});
 		// The reveal lands and the avatar is gone from the world.
 		load(world());
-		state.set({step: 'Revealed', epoch: 7});
+		state.set({step: 'Revealed', cycleNumber: 7});
 
 		for (const drawn of seen) {
 			expect(drawn).toBeDefined();

@@ -20,12 +20,12 @@ const PREFIX = '__world_death_ack_';
 export type Death = {
 	avatarID: bigint;
 	/**
-	 * The epoch of the reveal the avatar died in: its `lastEpoch` at the time.
+	 * The cycle of the reveal the avatar died in: its `lastEpoch` at the time.
 	 *
 	 * This is what makes the acknowledgement about ONE death rather than the
 	 * avatar in general - see the module comment.
 	 */
-	deathEpoch: number;
+	deathCycleNumber: number;
 };
 
 /** The minimum of a storage the acknowledgement keeps. */
@@ -74,13 +74,13 @@ export function createDeathAcknowledgement(params: {
 			try {
 				// NOTHING STORED AND NOTHING READABLE BOTH READ AS "NOT
 				// ACKNOWLEDGED", and the comparison already says so without a
-				// guard: `Number(null)` is 0, which is below every epoch (the
+				// guard: `Number(null)` is 0, which is below every cycle (the
 				// contract starts them at 2), and anything unparseable is NaN,
 				// which is below nothing at all. An old or corrupt entry must
 				// never swallow a new death's notice, and this is the direction
 				// the arithmetic already fails in.
 				const stored = Number(storage.getItem(keyOf(death.avatarID)));
-				return stored >= death.deathEpoch;
+				return stored >= death.deathCycleNumber;
 			} catch {
 				return false;
 			}
@@ -89,7 +89,7 @@ export function createDeathAcknowledgement(params: {
 		acknowledge(death) {
 			if (!storage) return;
 			try {
-				storage.setItem(keyOf(death.avatarID), String(death.deathEpoch));
+				storage.setItem(keyOf(death.avatarID), String(death.deathCycleNumber));
 			} catch {
 				// A full or disabled storage means the notice may come back after a
 				// reload. Annoying, and the honest failure: there is nowhere to

@@ -16,7 +16,7 @@ function recordingSigner() {
 }
 
 describe('a derived commit secret', () => {
-	it('names the chain, the contract, the identity and the epoch', async () => {
+	it('names the chain, the contract, the identity and the cycle', async () => {
 		const {sign, messages} = recordingSigner();
 		const makeSecret = createDerivedSecret({
 			sign,
@@ -24,7 +24,7 @@ describe('a derived commit secret', () => {
 			contract: CONTRACT,
 		});
 
-		await makeSecret({epoch: 7, identity: 42n});
+		await makeSecret({cycleNumber: 7, identity: 42n});
 
 		expect(messages).toEqual([
 			`Commit:31337:0x1234567890abcdef1234567890abcdef12345678:42:7`,
@@ -46,8 +46,8 @@ describe('a derived commit secret', () => {
 			contract: CONTRACT,
 		});
 
-		expect(await a({epoch: 7, identity: 42n})).toBe(
-			await b({epoch: 7, identity: 42n}),
+		expect(await a({cycleNumber: 7, identity: 42n})).toBe(
+			await b({cycleNumber: 7, identity: 42n}),
 		);
 	});
 
@@ -60,13 +60,13 @@ describe('a derived commit secret', () => {
 		const base = {chainId: 31337, contract: CONTRACT};
 		const makeSecret = createDerivedSecret({sign, ...base});
 
-		const secret = await makeSecret({epoch: 7, identity: 42n});
+		const secret = await makeSecret({cycleNumber: 7, identity: 42n});
 
-		expect(await makeSecret({epoch: 8, identity: 42n})).not.toBe(secret);
-		expect(await makeSecret({epoch: 7, identity: 43n})).not.toBe(secret);
+		expect(await makeSecret({cycleNumber: 8, identity: 42n})).not.toBe(secret);
+		expect(await makeSecret({cycleNumber: 7, identity: 43n})).not.toBe(secret);
 		expect(
 			await createDerivedSecret({sign, ...base, chainId: 1})({
-				epoch: 7,
+				cycleNumber: 7,
 				identity: 42n,
 			}),
 		).not.toBe(secret);
@@ -75,7 +75,7 @@ describe('a derived commit secret', () => {
 				sign,
 				chainId: 31337,
 				contract: '0x0000000000000000000000000000000000000001',
-			})({epoch: 7, identity: 42n}),
+			})({cycleNumber: 7, identity: 42n}),
 		).not.toBe(secret);
 	});
 
@@ -96,8 +96,8 @@ describe('a derived commit secret', () => {
 			contract: CONTRACT.toLowerCase() as `0x${string}`,
 		});
 
-		expect(await checksummed({epoch: 3, identity: 1n})).toBe(
-			await lowercased({epoch: 3, identity: 1n}),
+		expect(await checksummed({cycleNumber: 3, identity: 1n})).toBe(
+			await lowercased({cycleNumber: 3, identity: 1n}),
 		);
 		expect(messages[0]).toBe(messages[1]);
 	});
@@ -113,7 +113,7 @@ describe('a derived commit secret', () => {
 		});
 
 		await makeSecret({
-			epoch: 1,
+			cycleNumber: 1,
 			identity: '0xAAbBCcDdEeFf00112233445566778899aabbccdd',
 		});
 
@@ -132,7 +132,7 @@ describe('a derived commit secret', () => {
 			contract: CONTRACT,
 		});
 
-		const secret = await makeSecret({epoch: 2, identity: 5n});
+		const secret = await makeSecret({cycleNumber: 2, identity: 5n});
 
 		expect(secret).toMatch(/^0x[0-9a-f]{64}$/);
 	});
@@ -153,8 +153,8 @@ describe('a derived commit secret', () => {
 			contract: CONTRACT,
 		});
 
-		expect(await onePlace({epoch: 9, identity: 1n})).toBe(
-			await another({epoch: 9, identity: 1n}),
+		expect(await onePlace({cycleNumber: 9, identity: 1n})).toBe(
+			await another({cycleNumber: 9, identity: 1n}),
 		);
 	});
 });

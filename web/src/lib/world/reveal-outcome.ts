@@ -1,12 +1,12 @@
 /**
  * What the turn that just resolved actually DID.
  *
- * The round reports `{step: 'Revealed', epoch}` and nothing else, so the HUD
+ * The round reports `{step: 'Revealed', cycleNumber}` and nothing else, so the HUD
  * used to say "Revealed. Your avatar has moved." after every reveal - after a
  * turn that entered the world, after one that left it, and after the empty
  * turns the round commits by itself to keep an idle avatar alive
  * (`commitWhenIdle`). A player standing still watched their avatar be told it
- * had moved, once an epoch, forever.
+ * had moved, once a cycle, forever.
  *
  * The actions are on the round state right up to the reveal (`Revealing`
  * carries them) and gone the moment it succeeds, so something has to have been
@@ -42,7 +42,7 @@ export type RevealOutcome =
 	 * It did nothing, which is different from not having acted:
 	 *
 	 * - NOTHING WAS REVEALED. Not a dull case: it is what an idle avatar does
-	 *   every single epoch, because `commitWhenIdle` keeps committing empty turns
+	 *   every single cycle, because `commitWhenIdle` keeps committing empty turns
 	 *   so the contract does not kill it for going quiet.
 	 * - SOMETHING WAS REVEALED and none of it was accepted - a turn of steps into
 	 *   walls. Only the chain's own account of the turn can say that, which is
@@ -110,18 +110,18 @@ export function createRevealOutcome(
 		([$round, $mine, $remembered]): RevealOutcome | undefined => {
 			if ($round.step !== 'Revealed') return undefined;
 			// THE BOARD'S ACCOUNT OF THE ROUND THAT WAS JUST REVEALED, matched by
-			// epoch rather than merely taken when present. The board holds the
+			// cycle rather than merely taken when present. The board holds the
 			// resolving round back until it is over (`world/hold.ts`), so during
 			// the reveal window `lastTurn` is still the PREVIOUS round's, and
 			// using it would describe the wrong turn confidently. Once the round
-			// ends the epochs line up and the accepted prefix takes over.
-			if ($mine?.lastTurn?.epoch === $round.epoch) {
+			// ends the cycles line up and the accepted prefix takes over.
+			if ($mine?.lastTurn?.cycleNumber === $round.cycleNumber) {
 				return outcomeOfResolved($mine.lastTurn.actions);
 			}
-			// MATCHED BY EPOCH, which the local copy of this memory never was: a
+			// MATCHED BY CYCLE, which the local copy of this memory never was: a
 			// turn remembered from an earlier round would otherwise describe the
 			// one being reported now.
-			return $remembered?.epoch === $round.epoch
+			return $remembered?.cycleNumber === $round.cycleNumber
 				? outcomeOf($remembered.actions)
 				: undefined;
 		},

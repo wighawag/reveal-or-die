@@ -10,7 +10,7 @@ function avatar(over: Partial<Avatar> & {avatarID: bigint}): Avatar {
 		owner: OTHER,
 		inGame: true,
 		position: {x: 0, y: 0},
-		lastEpoch: 1,
+		lastCycleNumber: 1,
 		life: 1,
 		...over,
 	};
@@ -29,17 +29,17 @@ describe('mergeWorldView', () => {
 		const view = mergeWorldView({
 			onchain: world(avatar({avatarID: 1n}), avatar({avatarID: 2n})),
 			local: noPlan,
-			epoch: 5,
+			cycleNumber: 5,
 		});
 		expect([...view.avatars.keys()]).toEqual([1n, 2n]);
-		expect(view.epoch).toEqual(5);
+		expect(view.cycleNumber).toEqual(5);
 	});
 
 	it('marks only the active avatar as the player, on the entity', () => {
 		const view = mergeWorldView({
 			onchain: world(avatar({avatarID: 1n}), avatar({avatarID: 2n})),
 			local: {activeAvatarID: 2n, player: PLAYER, planned: []},
-			epoch: 5,
+			cycleNumber: 5,
 		});
 		// on the ENTITY, because the stateful renderer only re-draws entities its
 		// diff says changed. Held outside, "this one is mine" is applied once and
@@ -60,7 +60,7 @@ describe('mergeWorldView', () => {
 					{type: 'move', to: {x: 0, y: 3}},
 				],
 			},
-			epoch: 5,
+			cycleNumber: 5,
 		});
 		const a = view.avatars.get(1n)!;
 		// where it IS, unchanged: the chain has not moved it
@@ -72,7 +72,7 @@ describe('mergeWorldView', () => {
 
 	it('invents the avatar when the player has planned to enter', () => {
 		// nothing on chain yet: a player who picks a spawn and sees nothing until
-		// the reveal lands an epoch later cannot tell the click registered.
+		// the reveal lands a cycle later cannot tell the click registered.
 		const view = mergeWorldView({
 			onchain: emptyWorld(),
 			local: {
@@ -80,7 +80,7 @@ describe('mergeWorldView', () => {
 				player: PLAYER,
 				planned: [{type: 'enter', to: {x: 0, y: 1}}],
 			},
-			epoch: 5,
+			cycleNumber: 5,
 		});
 		const a = view.avatars.get(7n)!;
 		expect(a.entering).toBe(true);
@@ -98,7 +98,7 @@ describe('mergeWorldView', () => {
 				player: PLAYER,
 				planned: [{type: 'move', to: {x: 0, y: 2}}],
 			},
-			epoch: 6,
+			cycleNumber: 6,
 		});
 		expect(view.avatars.get(7n)!.entering).toBe(false);
 	});
@@ -114,7 +114,7 @@ describe('mergeWorldView', () => {
 				player: PLAYER,
 				planned: [{type: 'move', to: {x: 9, y: 9}}],
 			},
-			epoch: 5,
+			cycleNumber: 5,
 		});
 		const stored = onchain.avatars.get(1n)! as Avatar & {planned?: unknown};
 		expect(stored.planned).toBeUndefined();
@@ -125,7 +125,7 @@ describe('mergeWorldView', () => {
 		const view = mergeWorldView({
 			onchain: world(avatar({avatarID: 1n})),
 			local: {planned: [{type: 'move', to: {x: 5, y: 5}}]},
-			epoch: 5,
+			cycleNumber: 5,
 		});
 		expect(view.activeAvatarID).toBeUndefined();
 		expect(view.avatars.get(1n)!.plannedPosition).toEqual({x: 0, y: 0});
@@ -145,7 +145,7 @@ describe('the turn the chain resolved', () => {
 				avatar({
 					avatarID: 1n,
 					lastTurn: {
-						epoch: 7,
+						cycleNumber: 7,
 						// Move to (1,0), then Exit named at the same cell.
 						actions: [
 							{actionType: 1, data: 1n},
@@ -155,10 +155,10 @@ describe('the turn the chain resolved', () => {
 				}),
 			),
 			local: noPlan,
-			epoch: 7,
+			cycleNumber: 7,
 		});
 		expect(view.avatars.get(1n)?.lastTurn).toEqual({
-			epoch: 7,
+			cycleNumber: 7,
 			actions: [
 				{type: 'move', to: {x: 1, y: 0}},
 				{type: 'exit', to: {x: 1, y: 0}},
@@ -172,7 +172,7 @@ describe('the turn the chain resolved', () => {
 		const view = mergeWorldView({
 			onchain: world(avatar({avatarID: 1n})),
 			local: noPlan,
-			epoch: 7,
+			cycleNumber: 7,
 		});
 		expect(view.avatars.get(1n)?.lastTurn).toBeUndefined();
 	});
@@ -186,11 +186,11 @@ describe('the turn the chain resolved', () => {
 				avatar({
 					avatarID: 2n,
 					owner: OTHER,
-					lastTurn: {epoch: 7, actions: [{actionType: 1, data: 1n}]},
+					lastTurn: {cycleNumber: 7, actions: [{actionType: 1, data: 1n}]},
 				}),
 			),
 			local: {planned: [], activeAvatarID: 1n, player: PLAYER},
-			epoch: 7,
+			cycleNumber: 7,
 		});
 		const other = view.avatars.get(2n);
 		expect(other?.isPlayer).toBe(false);

@@ -20,7 +20,7 @@ import {createWalk, type Walk} from './walk';
 /**
  * How long one cell of a replayed turn takes, and the whole turn at most.
  *
- * The reveal window is short and the next epoch does not wait, so an animation
+ * The reveal window is short and the next cycle does not wait, so an animation
  * that outlasts it would draw a board one turn behind the chain.
  */
 const SECONDS_PER_STEP = 0.18;
@@ -46,14 +46,14 @@ export class AvatarObject extends Container {
 	private readonly deadCross: Graphics;
 	private entering: AnimatedSprite | undefined;
 	/**
-	 * The turn being replayed, and which epoch's turn it is.
+	 * The turn being replayed, and which cycle's turn it is.
 	 *
-	 * The epoch is what makes it play ONCE: the state store re-reads every few
+	 * The cycle is what makes it play ONCE: the state store re-reads every few
 	 * seconds and hands the same resolved turn back each time until the next
-	 * epoch resolves.
+	 * cycle resolves.
 	 */
 	private walk: Walk | undefined;
-	private walkedEpoch: number | undefined;
+	private walkedCycleNumber: number | undefined;
 	/**
 	 * Where the chain says this avatar stands, kept so a finished walk can land
 	 * on it exactly.
@@ -108,7 +108,7 @@ export class AvatarObject extends Container {
 		// on a page load, on an account switch, and every time one is panned into
 		// view. Marking that turn as already seen is what makes the animation mean
 		// "this just happened".
-		this.walkedEpoch = entity.lastTurn?.epoch;
+		this.walkedCycleNumber = entity.lastTurn?.cycleNumber;
 		this.destination = entity.position;
 
 		this.update(entity);
@@ -146,8 +146,8 @@ export class AvatarObject extends Container {
 	 */
 	private updateWalk(entity: AvatarView) {
 		const turn = entity.lastTurn;
-		if (!turn || turn.epoch === this.walkedEpoch) return;
-		this.walkedEpoch = turn.epoch;
+		if (!turn || turn.cycleNumber === this.walkedCycleNumber) return;
+		this.walkedCycleNumber = turn.cycleNumber;
 
 		// Only the steps. An Enter names the cell the avatar appeared on and an
 		// Exit names the one it left from, and neither is a journey: the entering
@@ -163,7 +163,7 @@ export class AvatarObject extends Container {
 		// next poll - the position lands first and this turn lands a poll later,
 		// when the avatar is already drawn where the walk would end. Replaying
 		// from there would run BACKWARDS through the path and forward again,
-		// which is worse than not replaying at all. `walkedEpoch` was already
+		// which is worse than not replaying at all. `walkedCycleNumber` was already
 		// set above, so the turn is not retried either: the moment for it has
 		// passed.
 		const drawnAt: Position = {

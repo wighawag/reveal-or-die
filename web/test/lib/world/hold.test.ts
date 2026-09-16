@@ -20,23 +20,24 @@ function avatar(over: Partial<Avatar> & {avatarID: bigint}): Avatar {
 		owner: OWNER,
 		inGame: true,
 		position: {x: 0, y: 0},
-		lastEpoch: 6,
+		lastCycleNumber: 6,
 		life: 1,
 		...over,
 	};
 }
 
-function world(...avatars: Avatar[]): WorldState & {epoch: number} {
+function world(...avatars: Avatar[]): WorldState & {cycleNumber: number} {
 	const state = emptyWorld();
 	for (const a of avatars) state.avatars.set(a.avatarID, a);
-	return {...state, epoch: 7};
+	return {...state, cycleNumber: 7};
 }
 
 /**
  * `lastEpoch` AND `lastTurn` TOGETHER, because the chain cannot produce one
  * without the other: `_resolveActions` ends every resolved turn with
- * `_avatars[avatarID].lastEpoch = epoch`, and the log it emits carries the same
- * epoch. A fixture that advanced only the log described an avatar that cannot
+ * `_avatars[avatarID].lastEpoch = epoch` - the contract's own spelling, since
+ * this game's contracts are not renamed - and the log it emits carries the same
+ * cycle. A fixture that advanced only the log described an avatar that cannot
  * exist, which is why these two helpers now set both.
  *
  * The reverse IS producible, and has its own tests below: the entity read
@@ -46,24 +47,24 @@ const movedThisRound = (id: bigint, to: {x: number; y: number}) =>
 	avatar({
 		avatarID: id,
 		position: to,
-		lastEpoch: 7,
+		lastCycleNumber: 7,
 		lastTurn: {
-			epoch: 7,
+			cycleNumber: 7,
 			actions: [{actionType: ActionType.Move, data: xyToBigIntID(to.x, to.y)}],
 		},
 	});
 
 /** The same turn as the chain reports it when the log read came back empty. */
 const movedThisRoundWithoutItsLog = (id: bigint, to: {x: number; y: number}) =>
-	avatar({avatarID: id, position: to, lastEpoch: 7});
+	avatar({avatarID: id, position: to, lastCycleNumber: 7});
 
 const enteredThisRound = (id: bigint, at: {x: number; y: number}) =>
 	avatar({
 		avatarID: id,
 		position: at,
-		lastEpoch: 7,
+		lastCycleNumber: 7,
 		lastTurn: {
-			epoch: 7,
+			cycleNumber: 7,
 			actions: [{actionType: ActionType.Enter, data: xyToBigIntID(at.x, at.y)}],
 		},
 	});
@@ -74,7 +75,7 @@ describe('holding the round being resolved', () => {
 		const held = holdResolvingRound({
 			shown,
 			latest: world(movedThisRound(1n, {x: 3, y: 0})),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 		expect(held.avatars.get(1n)?.position).toEqual({x: 0, y: 0});
 	});
@@ -87,12 +88,12 @@ describe('holding the round being resolved', () => {
 		const older = avatar({
 			avatarID: 1n,
 			position: {x: 9, y: 9},
-			lastTurn: {epoch: 5, actions: []},
+			lastTurn: {cycleNumber: 5, actions: []},
 		});
 		const held = holdResolvingRound({
 			shown,
 			latest: world(older),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 		expect(held.avatars.get(1n)?.position).toEqual({x: 9, y: 9});
 	});
@@ -103,7 +104,7 @@ describe('holding the round being resolved', () => {
 		const held = holdResolvingRound({
 			shown: emptyWorld(),
 			latest: world(avatar({avatarID: 2n, position: {x: 4, y: 4}})),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 		expect(held.avatars.get(2n)?.position).toEqual({x: 4, y: 4});
 	});
@@ -114,7 +115,7 @@ describe('holding the round being resolved', () => {
 		const held = holdResolvingRound({
 			shown: emptyWorld(),
 			latest: world(enteredThisRound(3n, {x: 1, y: 1})),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 		expect(held.avatars.has(3n)).toBe(false);
 	});
@@ -126,7 +127,7 @@ describe('holding the round being resolved', () => {
 		const held = holdResolvingRound({
 			shown: emptyWorld(),
 			latest: world(movedThisRound(4n, {x: 2, y: 2})),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 		expect(held.avatars.get(4n)?.position).toEqual({x: 2, y: 2});
 	});
@@ -141,14 +142,14 @@ describe('holding the round being resolved', () => {
 		const held = holdResolvingRound({
 			shown,
 			latest: world(movedThisRoundWithoutItsLog(1n, {x: 3, y: 0})),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 		expect(held.avatars.get(1n)?.position).toEqual({x: 0, y: 0});
 	});
 
 	it('shows an avatar panned onto mid-round when no log can say what it did', () => {
 		// The deliberate default when the log is missing, and the reason it is not
-		// the cautious-looking one: every avatar reveals every epoch now (the
+		// the cautious-looking one: every avatar reveals every cycle now (the
 		// client commits empty turns to keep them alive), so "revealed this round"
 		// describes almost the whole board, and hiding on a missing log would blank
 		// most of it the moment a player panned during a reveal window. The risk
@@ -156,7 +157,7 @@ describe('holding the round being resolved', () => {
 		const held = holdResolvingRound({
 			shown: emptyWorld(),
 			latest: world(movedThisRoundWithoutItsLog(4n, {x: 2, y: 2})),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 		expect(held.avatars.get(4n)?.position).toEqual({x: 2, y: 2});
 	});
@@ -172,14 +173,14 @@ describe('holding the round being resolved', () => {
 				avatar({
 					avatarID: 5n,
 					position: {x: 2, y: 2},
-					lastEpoch: 7,
+					lastCycleNumber: 7,
 					lastTurn: {
-						epoch: 6,
+						cycleNumber: 6,
 						actions: [{actionType: ActionType.Enter, data: xyToBigIntID(2, 2)}],
 					},
 				}),
 			),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
 		expect(held.avatars.get(5n)?.position).toEqual({x: 2, y: 2});
 	});
@@ -188,21 +189,22 @@ describe('holding the round being resolved', () => {
 		const held = holdResolvingRound({
 			shown: emptyWorld(),
 			latest: world(avatar({avatarID: 1n})),
-			resolvingEpoch: 7,
+			resolvingCycleNumber: 7,
 		});
-		expect(held.epoch).toEqual(7);
+		expect(held.cycleNumber).toEqual(7);
 	});
 });
 
 describe('the board store the renderer reads', () => {
 	function setup(initialPhase: 'play' | 'wait') {
 		const state = writable<
-			{step: 'Unloaded'} | ({step: 'Loaded'} & WorldState & {epoch: number})
+			| {step: 'Unloaded'}
+			| ({step: 'Loaded'} & WorldState & {cycleNumber: number})
 		>({step: 'Unloaded'});
 		const phase = writable<{phase: 'play' | 'wait'}>({phase: initialPhase});
-		const epoch = writable(7);
+		const cycleNumber = writable(7);
 		const {board, holding} = holdBoardUntilCycleEnds<
-			WorldState & {epoch: number}
+			WorldState & {cycleNumber: number}
 		>({
 			state: {
 				subscribe: state.subscribe,
@@ -210,7 +212,7 @@ describe('the board store the renderer reads', () => {
 				update: async () => {},
 			} as never,
 			phase,
-			epoch,
+			cycleNumber,
 			// THIS GAME'S RULE, handed to the framework's wrapper. The second
 			// describe is an integration test of the pair on purpose: the generic
 			// half is pinned upstream against a made-up board, and what cannot be
@@ -218,9 +220,9 @@ describe('the board store the renderer reads', () => {
 			// is the input this game is allowed to fail to fetch.
 			hold: holdResolvingRound,
 		});
-		const load = (world: WorldState & {epoch: number}) =>
+		const load = (world: WorldState & {cycleNumber: number}) =>
 			state.set({step: 'Loaded', ...world});
-		return {board, holding, phase, epoch, load, state};
+		return {board, holding, phase, cycleNumber, load, state};
 	}
 
 	const positionOf = (

@@ -50,7 +50,7 @@
 <div
 	class="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-3"
 >
-	<!-- Phase and epoch -->
+	<!-- Phase and cycle -->
 	<div
 		class="pointer-events-auto flex w-fit items-center gap-3 rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"
 	>
@@ -63,7 +63,9 @@
 		<div>
 			<div class="flex items-baseline gap-2">
 				<span class="text-sm font-semibold">{$hud.phaseLabel}</span>
-				<span class="text-xs text-muted-foreground">round {$hud.epoch}</span>
+				<span class="text-xs text-muted-foreground"
+					>round {$hud.cycleNumber}</span
+				>
 			</div>
 			{#if $hud.avatarLine}
 				<!-- One finished line from the model: what it says depends on whether

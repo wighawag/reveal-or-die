@@ -49,22 +49,22 @@ describe('boardIsBehindClock', () => {
 	it('is behind when the board was fetched for an older cycle', () => {
 		expect(
 			boardIsBehindClock({
-				board: {step: 'Loaded', epoch: 6},
-				currentEpoch: 7,
+				board: {step: 'Loaded', cycleNumber: 6},
+				currentCycleNumber: 7,
 			}),
 		).toBe(true);
 	});
 
 	it('has caught up once a fetch for this cycle has landed', () => {
-		// STAMPED WITH THE EPOCH THE FETCH WAS FOR, which is what makes this end
+		// STAMPED WITH THE CYCLE THE FETCH WAS FOR, which is what makes this end
 		// within one fetch. Comparing against a block past the boundary instead
 		// makes the catch-up wait for the next transaction on a node that mines
 		// on transactions, which was measured at 15-20 seconds of waiting for a
 		// COUNTER while the data had already arrived.
 		expect(
 			boardIsBehindClock({
-				board: {step: 'Loaded', epoch: 7},
-				currentEpoch: 7,
+				board: {step: 'Loaded', cycleNumber: 7},
+				currentCycleNumber: 7,
 			}),
 		).toBe(false);
 	});
@@ -74,23 +74,23 @@ describe('boardIsBehindClock', () => {
 		// catch-up over the first paint of every session - a state the player
 		// cannot act on, announced before there is anything to be late for.
 		expect(
-			boardIsBehindClock({board: {step: 'Unloaded'}, currentEpoch: 7}),
+			boardIsBehindClock({board: {step: 'Unloaded'}, currentCycleNumber: 7}),
 		).toBe(false);
-		// Loaded without an epoch is the same case: nothing to compare.
-		expect(boardIsBehindClock({board: {step: 'Loaded'}, currentEpoch: 7})).toBe(
-			false,
-		);
+		// Loaded without a cycle is the same case: nothing to compare.
+		expect(
+			boardIsBehindClock({board: {step: 'Loaded'}, currentCycleNumber: 7}),
+		).toBe(false);
 	});
 
 	it('is not behind when the board is somehow AHEAD', () => {
 		// Reachable at a boundary: the poller can land a fetch stamped for the new
-		// epoch a moment before the local clock ticks over. Treating that as
+		// cycle a moment before the local clock ticks over. Treating that as
 		// behind would flash the catch-up at the start of every cycle, which is
 		// the opposite of what it is for.
 		expect(
 			boardIsBehindClock({
-				board: {step: 'Loaded', epoch: 8},
-				currentEpoch: 7,
+				board: {step: 'Loaded', cycleNumber: 8},
+				currentCycleNumber: 7,
 			}),
 		).toBe(false);
 	});

@@ -73,7 +73,7 @@ export const EXPIRY_MARGIN_SECONDS = 120;
  *
  * Zero is not a deadline, it is the absence of one, and treating a falsy value
  * as absent is precisely the bug the vectors in @etherplay/delegation pin
- * against (the smallest non-zero deadline, one second past the epoch, is long
+ * against (the smallest non-zero deadline, one second past the cycle, is long
  * expired and must NOT read as "never expires").
  */
 export function credentialExpired(

@@ -30,9 +30,11 @@ function stores(initial: 'play' | 'wait' = 'play') {
 	return {
 		phase: writable<{phase: 'play' | 'wait'}>({phase: initial}),
 		clock: writable(7),
-		board: writable<{step: 'Unloaded'} | {step: 'Loaded'; epoch: number}>({
-			step: 'Unloaded',
-		}),
+		board: writable<{step: 'Unloaded'} | {step: 'Loaded'; cycleNumber: number}>(
+			{
+				step: 'Unloaded',
+			},
+		),
 	};
 }
 
@@ -70,7 +72,7 @@ describe('canTakeTurnNow', () => {
  * WHAT THE CHAIN DECIDES ON ITS OWN, and how the client hears about it.
  *
  * `_getResolvedAvatar` computes `life` from how far `lastEpoch` has fallen
- * behind the epoch being asked about, so an avatar is killed by the passage of
+ * behind the cycle being asked about, so an avatar is killed by the passage of
  * rounds with nobody sending anything. The account read used to be refreshed
  * only when something this client did SUCCEEDED, which is exactly the wrong
  * condition for hearing about a death: a death is what happens when this
@@ -79,44 +81,44 @@ describe('canTakeTurnNow', () => {
  */
 describe('onEachNewRound', () => {
 	it('runs on the turnover, once per round', () => {
-		const epochInfo = writable({currentEpoch: 7});
+		const cycleInfo = writable({currentCycleNumber: 7});
 		const run = vi.fn();
-		const stop = onEachNewRound({epochInfo, run});
+		const stop = onEachNewRound({cycleInfo, run});
 
-		epochInfo.set({currentEpoch: 8});
+		cycleInfo.set({currentCycleNumber: 8});
 		expect(run).toHaveBeenCalledTimes(1);
-		epochInfo.set({currentEpoch: 9});
+		cycleInfo.set({currentCycleNumber: 9});
 		expect(run).toHaveBeenCalledTimes(2);
 		stop();
 	});
 
 	it('does not run on the first emission, which is not a turnover', () => {
-		// `start()` has just done the initial reads; treating "the epoch became
+		// `start()` has just done the initial reads; treating "the cycle became
 		// known" as a round change would double every one of them on load.
-		const epochInfo = writable({currentEpoch: 7});
+		const cycleInfo = writable({currentCycleNumber: 7});
 		const run = vi.fn();
-		const stop = onEachNewRound({epochInfo, run});
+		const stop = onEachNewRound({cycleInfo, run});
 		expect(run).not.toHaveBeenCalled();
 		stop();
 	});
 
 	it('does not run on a re-emission of the same round', () => {
-		// The epoch store ticks with the clock: without this it would be a read
+		// The cycle store ticks with the clock: without this it would be a read
 		// per second rather than one per round.
-		const epochInfo = writable({currentEpoch: 7});
+		const cycleInfo = writable({currentCycleNumber: 7});
 		const run = vi.fn();
-		const stop = onEachNewRound({epochInfo, run});
-		epochInfo.set({currentEpoch: 7});
-		epochInfo.set({currentEpoch: 7});
+		const stop = onEachNewRound({cycleInfo, run});
+		cycleInfo.set({currentCycleNumber: 7});
+		cycleInfo.set({currentCycleNumber: 7});
 		expect(run).not.toHaveBeenCalled();
 		stop();
 	});
 
 	it('stops when it is unsubscribed', () => {
-		const epochInfo = writable({currentEpoch: 7});
+		const cycleInfo = writable({currentCycleNumber: 7});
 		const run = vi.fn();
-		onEachNewRound({epochInfo, run})();
-		epochInfo.set({currentEpoch: 8});
+		onEachNewRound({cycleInfo, run})();
+		cycleInfo.set({currentCycleNumber: 8});
 		expect(run).not.toHaveBeenCalled();
 	});
 });

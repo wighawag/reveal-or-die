@@ -8,7 +8,7 @@ function view(over: Partial<AvatarView> = {}): AvatarView {
 		owner: '0x1111111111111111111111111111111111111111',
 		inGame: true,
 		position: {x: 1, y: 2},
-		lastEpoch: 3,
+		lastCycleNumber: 3,
 		life: 1,
 		isPlayer: false,
 		planned: [],
@@ -86,9 +86,9 @@ describe('avatarChanged', () => {
 	});
 
 	it('ignores fields that do not affect the picture', () => {
-		// lastEpoch and inGame are not drawn, so a change in them must not cost a
-		// redraw of every avatar on the board.
-		expect(avatarChanged(view(), view({lastEpoch: 99}))).toBe(false);
+		// lastCycleNumber and inGame are not drawn, so a change in them must not
+		// cost a redraw of every avatar on the board.
+		expect(avatarChanged(view(), view({lastCycleNumber: 99}))).toBe(false);
 		expect(avatarChanged(view(), view({inGame: false}))).toBe(false);
 	});
 });
@@ -100,8 +100,8 @@ describe('a resolved turn arriving', () => {
 	 * fact that can arrive without moving the avatar: a step the contract
 	 * refused, or an exit, leaves every other field where it was.
 	 */
-	const turn = (epoch: number) => ({
-		epoch,
+	const turn = (cycleNumber: number) => ({
+		cycleNumber,
 		actions: [{type: 'move' as const, to: {x: 1, y: 2}}],
 	});
 
@@ -114,7 +114,7 @@ describe('a resolved turn arriving', () => {
 
 	it('is not a change when the same turn is re-read', () => {
 		// The poller re-reads every few seconds and hands back the same turn until
-		// the next epoch resolves. Treating that as a change would restart the
+		// the next cycle resolves. Treating that as a change would restart the
 		// animation on every poll.
 		expect(
 			avatarChanged(view({lastTurn: turn(4)}), view({lastTurn: turn(4)})),

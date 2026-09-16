@@ -244,9 +244,9 @@ export type Context = {
 	 * `Context` type are the only change a descendant needs in this file, which is
 	 * why they are imports rather than inline shapes.
 	 */
-	onchainState: OnchainStateStore<WorldState & {epoch: number}>;
+	onchainState: OnchainStateStore<WorldState & {cycleNumber: number}>;
 	viewState: ViewStateStore<WorldView>;
-	/** The commit-reveal game: epochs, the round, what is at stake. */
+	/** The commit-reveal game: cycles, the round, what is at stake. */
 	game: Game;
 	/** The render surface and the camera that scopes what is loaded. */
 	render: Render;

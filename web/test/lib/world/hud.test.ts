@@ -36,7 +36,7 @@ const idle = (): State => ({step: 'Idle'});
 const failed = (during: 'commit' | 'reveal', error: unknown): State => ({
 	step: 'Error',
 	during,
-	epoch: 3,
+	cycleNumber: 3,
 	actions: [action],
 	message: (error as Error).message,
 	error,
@@ -116,18 +116,18 @@ describe('what a missed reveal actually costs, in this game', () => {
 	 */
 	it('reports being blocked, not a forfeit', () => {
 		const {label, tone} = describeRound(
-			{step: 'Missed', epoch: 7} as unknown as State,
+			{step: 'Missed', cycleNumber: 7} as unknown as State,
 			inTheWorld,
 		);
-		expect(label).toMatch(/epoch 7/);
+		expect(label).toMatch(/cycle 7/);
 		expect(label).not.toMatch(/bond|forfeit/i);
 		expect(label).toMatch(/blocked until you acknowledge it/);
 		expect(tone).toBe('bad');
 	});
 
 	it('says the same about the commitment the chain is still holding', () => {
-		const blocked = describeMissedReveal({step: 'Blocked', epoch: 4});
-		expect(blocked?.headline).toMatch(/epoch 4/);
+		const blocked = describeMissedReveal({step: 'Blocked', cycleNumber: 4});
+		expect(blocked?.headline).toMatch(/cycle 4/);
 		expect(blocked?.detail).not.toMatch(/bond|forfeit/i);
 		expect(blocked?.detail).toMatch(/refuse every new commitment/);
 		expect(blocked?.canAcknowledge).toBe(true);
@@ -139,7 +139,7 @@ describe('what a missed reveal actually costs, in this game', () => {
 		// gas to learn nothing.
 		const state = describeMissedReveal({
 			step: 'Failed',
-			epoch: 4,
+			cycleNumber: 4,
 			error: new Error('nope'),
 		});
 		expect(state?.canAcknowledge).toBe(true);
@@ -214,7 +214,7 @@ function fakeContext(
 		avatars?: DepositedAvatar[];
 		activeIdentity?: bigint;
 		currentPosition?: {x: number; y: number};
-		currentEpoch?: number;
+		currentCycleNumber?: number;
 		setup?: {step: 'sign-in' | 'authorise' | 'deposit'};
 		purchase?: {step: string; message?: string; authorisation?: string};
 		canExit?: boolean;
@@ -246,7 +246,9 @@ function fakeContext(
 			}),
 			activeIdentity: writable(overrides.activeIdentity ?? 1n),
 			currentPosition: writable(overrides.currentPosition),
-			epochInfo: writable({currentEpoch: overrides.currentEpoch ?? 3}),
+			cycleInfo: writable({
+				currentCycleNumber: overrides.currentCycleNumber ?? 3,
+			}),
 			missedReveal: writable({step: 'Clear'}),
 			recovery: writable(overrides.recovery ?? {step: 'Idle'}),
 			autoRecovery: writable(overrides.autoRecovery ?? {step: 'Idle'}),
@@ -375,7 +377,7 @@ describe('an avatar that is not in the world', () => {
 	it('calls a planned entry what it is', () => {
 		const planning = {
 			step: 'Planning',
-			epoch: 3,
+			cycleNumber: 3,
 			actions: [action],
 		} as unknown as State;
 		expect(describeRound(planning, {inWorld: false}).label).toMatch(
@@ -491,10 +493,10 @@ describe('what the reveal actually did', () => {
 	 * It said "Revealed. Your avatar has moved." after EVERY reveal. The round
 	 * that commits itself when nothing is planned - which is how an idle avatar
 	 * stays alive - therefore told a player standing still that they had moved,
-	 * once an epoch, forever. So did the turn that left the world, about an
+	 * once a cycle, forever. So did the turn that left the world, about an
 	 * avatar that is no longer on the board.
 	 */
-	const revealed = {step: 'Revealed', epoch: 3} as unknown as State;
+	const revealed = {step: 'Revealed', cycleNumber: 3} as unknown as State;
 
 	it('names each outcome, and claims movement only for a turn that moved', () => {
 		const label = (outcome: RevealOutcome) =>
@@ -536,7 +538,7 @@ describe('a killed avatar', () => {
 							avatar({avatarID: 2n}),
 						],
 						activeIdentity: 2n,
-						currentEpoch: 3,
+						currentCycleNumber: 3,
 					},
 				),
 			),
@@ -555,7 +557,7 @@ describe('a killed avatar', () => {
 					{step: 'Idle'},
 					{
 						avatars: [avatar({life: 0, inGame: true, lastEpoch: 2n})],
-						currentEpoch: 3,
+						currentCycleNumber: 3,
 						numMissesAllowed: 3,
 					},
 				),
@@ -565,16 +567,16 @@ describe('a killed avatar', () => {
 		expect(model.died?.explanation).toMatch(/4 rounds in a row/);
 	});
 
-	it('is not reported until the epoch it died in has passed', () => {
+	it('is not reported until the cycle it died in has passed', () => {
 		// `lastEpoch` is when it last acted, so the kill is only readable from the
-		// next epoch onwards; reporting sooner would announce a death mid-round.
+		// next cycle onwards; reporting sooner would announce a death mid-round.
 		const model = get(
 			createHud(
 				fakeContext(
 					{step: 'Idle'},
 					{
 						avatars: [avatar({life: 0, inGame: true, lastEpoch: 3n})],
-						currentEpoch: 3,
+						currentCycleNumber: 3,
 					},
 				),
 			),
@@ -721,7 +723,7 @@ describe('buying an avatar, through the HUD', () => {
  * asking outright, and this game can usually answer it.
  */
 describe('a lost turn the chain still holds', () => {
-	const found = {step: 'Found' as const, epoch: 7};
+	const found = {step: 'Found' as const, cycleNumber: 7};
 
 	it('says nothing at all when there is nothing to recover', () => {
 		expect(get(createHud(fakeContext(idle()))).recovery).toBeUndefined();
@@ -732,7 +734,7 @@ describe('a lost turn the chain still holds', () => {
 			createHud(
 				fakeContext(idle(), {
 					recovery: found,
-					autoRecovery: {step: 'Searching', epoch: 7},
+					autoRecovery: {step: 'Searching', cycleNumber: 7},
 				}),
 			),
 		);
@@ -756,11 +758,15 @@ describe('a lost turn the chain still holds', () => {
 			createHud(
 				fakeContext(idle(), {
 					recovery: found,
-					autoRecovery: {step: 'AskThePlayer', epoch: 7, reason: 'gave-up'},
+					autoRecovery: {
+						step: 'AskThePlayer',
+						cycleNumber: 7,
+						reason: 'gave-up',
+					},
 				}),
 			),
 		);
-		expect(model.recovery?.headline).toContain('epoch 7');
+		expect(model.recovery?.headline).toContain('cycle 7');
 		expect(model.recovery?.detail).toMatch(/can still be revealed/i);
 		expect(model.recovery?.detail).not.toMatch(/lost|dead|forfeit/i);
 	});
@@ -775,7 +781,7 @@ describe('a lost turn the chain still holds', () => {
 					recovery: found,
 					autoRecovery: {
 						step: 'AskThePlayer',
-						epoch: 7,
+						cycleNumber: 7,
 						reason: 'not-searchable',
 					},
 				}),
@@ -787,13 +793,13 @@ describe('a lost turn the chain still holds', () => {
 	it('tells a REFUSED turn apart from a check that could not be made', () => {
 		const asked = {
 			step: 'AskThePlayer' as const,
-			epoch: 7,
+			cycleNumber: 7,
 			reason: 'exhausted' as const,
 		};
 		const refused = get(
 			createHud(
 				fakeContext(idle(), {
-					recovery: {step: 'Refused', epoch: 7},
+					recovery: {step: 'Refused', cycleNumber: 7},
 					autoRecovery: asked,
 				}),
 			),
@@ -805,7 +811,7 @@ describe('a lost turn the chain still holds', () => {
 		const failed = get(
 			createHud(
 				fakeContext(idle(), {
-					recovery: {step: 'Failed', epoch: 7, message: 'no signer'},
+					recovery: {step: 'Failed', cycleNumber: 7, message: 'no signer'},
 					autoRecovery: asked,
 				}),
 			),

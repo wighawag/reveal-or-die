@@ -28,12 +28,12 @@ function fakeRound(initial: RoundState<Placement> = {step: 'Idle'}) {
 		commit: async () => {},
 		reveal: async () => {},
 		dismiss: () => {},
-		adopt: (round: {epoch: number; actions: readonly Placement[]}) => {
+		adopt: (round: {cycleNumber: number; actions: readonly Placement[]}) => {
 			adopted.push(round);
 			if (accept) {
 				state.set({
 					step: 'Committed',
-					epoch: round.epoch,
+					cycleNumber: round.cycleNumber,
 					actions: round.actions,
 				});
 			}
@@ -78,7 +78,7 @@ function setup(options?: {
 }
 
 const committed: LiveCommitment = {
-	epoch: 5,
+	cycleNumber: 5,
 	hash: '0xsecret:1,2' as `0x${string}`,
 };
 
@@ -90,7 +90,7 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 
 	it('reports a live commitment this browser cannot open', () => {
 		const {recovery} = setup({live: committed});
-		expect(get(recovery)).toEqual({step: 'Found', epoch: 5});
+		expect(get(recovery)).toEqual({step: 'Found', cycleNumber: 5});
 	});
 
 	it('says nothing when the round already accounts for it', () => {
@@ -99,21 +99,21 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 		// lost round in front of a player whose round is fine.
 		const {recovery} = setup({
 			live: committed,
-			round: {step: 'Committed', epoch: 5, actions: [{cellID: 1n}]},
+			round: {step: 'Committed', cycleNumber: 5, actions: [{cellID: 1n}]},
 		});
 		expect(get(recovery)).toEqual({step: 'Idle'});
 	});
 
-	it('still reports it when the round is merely PLANNING the same epoch', () => {
+	it('still reports it when the round is merely PLANNING the same cycle', () => {
 		// This is the trap. The chain says a commitment exists and the round says
 		// the player is still choosing, so the player is halfway to re-entering
 		// their turn without being told that is what they are doing - and a plain
 		// commit would replace the commitment they are trying to open.
 		const {recovery} = setup({
 			live: committed,
-			round: {step: 'Planning', epoch: 5, actions: [{cellID: 1n}]},
+			round: {step: 'Planning', cycleNumber: 5, actions: [{cellID: 1n}]},
 		});
-		expect(get(recovery)).toEqual({step: 'Found', epoch: 5});
+		expect(get(recovery)).toEqual({step: 'Found', cycleNumber: 5});
 	});
 
 	it('adopts a plan that opens the commitment, and sends nothing', async () => {
@@ -124,7 +124,7 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 		expect(ok).toBe(true);
 		expect(adopted).toEqual([
 			{
-				epoch: 5,
+				cycleNumber: 5,
 				actions: [{cellID: 1n}, {cellID: 2n}],
 				secret: '0xsecret',
 				committed: true,
@@ -143,7 +143,7 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 
 		expect(ok).toBe(false);
 		expect(adopted).toEqual([]);
-		expect(get(recovery)).toEqual({step: 'Refused', epoch: 5});
+		expect(get(recovery)).toEqual({step: 'Refused', cycleNumber: 5});
 	});
 
 	it('lets a refused player try again, and then goes quiet', async () => {
@@ -158,11 +158,11 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 
 		expect(await recovery.offer([{cellID: 1n}, {cellID: 2n}])).toBe(true);
 		expect(get(recovery)).toEqual({step: 'Idle'});
-		expect(get(state)).toMatchObject({step: 'Committed', epoch: 5});
+		expect(get(state)).toMatchObject({step: 'Committed', cycleNumber: 5});
 	});
 
 	it('does not report a refusal the player did not cause', async () => {
-		// The round declined the adoption - the epoch turned over while they were
+		// The round declined the adoption - the cycle turned over while they were
 		// clicking, or a commit of their own is in flight. Neither is a wrong
 		// plan, and saying "that is not what you committed" would send them
 		// looking for a mistake they did not make.
@@ -173,7 +173,7 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 
 		expect(ok).toBe(false);
 		expect(adopted).toHaveLength(1);
-		expect(get(recovery)).toEqual({step: 'Found', epoch: 5});
+		expect(get(recovery)).toEqual({step: 'Found', cycleNumber: 5});
 	});
 
 	it('forgets a refusal once the chain moves on', async () => {
@@ -183,7 +183,7 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 		await recovery.offer([{cellID: 9n}]);
 		expect(get(recovery)).toMatchObject({step: 'Refused'});
 
-		commitment.set({epoch: 6, hash: '0xsecret:4' as `0x${string}`});
-		expect(get(recovery)).toEqual({step: 'Found', epoch: 6});
+		commitment.set({cycleNumber: 6, hash: '0xsecret:4' as `0x${string}`});
+		expect(get(recovery)).toEqual({step: 'Found', cycleNumber: 6});
 	});
 });

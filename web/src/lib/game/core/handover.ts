@@ -36,7 +36,7 @@
  * `hold` callback below, because it is a statement about the game's own entity
  * shape; the second is whatever the game merges into its view. The seam falls
  * where it does everywhere else on this template: the framework owns the
- * consequences of its own model (a cycle with phases, a board with an epoch),
+ * consequences of its own model (a cycle with phases, a board with a cycle),
  * and the game owns its content.
  */
 import {derived, type Readable} from 'svelte/store';
@@ -50,7 +50,7 @@ import type {OnchainStateStore, OnchainStateValue} from './seams';
  * TWO VIEWS OF ONE COMPUTATION, which is the point of returning them together.
  * Whatever draws local intent has to stay on screen until the exact moment the
  * board lets the cycle's outcome out, and "roughly then" - a second reading of
- * the cycle, of the epoch, or of the phase - is how the two end up disagreeing
+ * the cycle, of the cycle, or of the phase - is how the two end up disagreeing
  * by a frame or a poll, which is the class of bug this file exists to avoid.
  */
 export type HeldBoard<TState> = {
@@ -91,7 +91,7 @@ export type HoldResolvingCycle<TState> = (params: {
 	/** What the chain says now. */
 	latest: TState;
 	/** The cycle whose reveals are landing. */
-	resolvingEpoch: number;
+	resolvingCycleNumber: number;
 }) => TState;
 
 /**
@@ -112,22 +112,22 @@ export type HoldResolvingCycle<TState> = (params: {
  * consistent and there is never a frame with neither on screen.
  */
 export function holdBoardUntilCycleEnds<
-	TState extends {epoch: number},
+	TState extends {cycleNumber: number},
 >(params: {
 	state: OnchainStateStore<TState>;
 	/** `play` is the move window; `wait` is the lock and the reveal. */
 	phase: Readable<PlayWindow>;
-	/** The clock's epoch, which during the wait is the cycle being resolved. */
-	epoch: Readable<number>;
+	/** The clock's cycle, which during the wait is the cycle being resolved. */
+	cycleNumber: Readable<number>;
 	/** What this game holds back. See {@link HoldResolvingCycle}. */
 	hold: HoldResolvingCycle<TState>;
 }): HeldBoard<TState> {
-	const {state, phase, epoch, hold} = params;
+	const {state, phase, cycleNumber, hold} = params;
 	let shown: TState | undefined;
 
 	const held = derived(
-		[{subscribe: state.subscribe}, phase, epoch],
-		([$state, $phase, $epoch]): {
+		[{subscribe: state.subscribe}, phase, cycleNumber],
+		([$state, $phase, $cycleNumber]): {
 			value: OnchainStateValue<TState>;
 			holding: number | undefined;
 		} => {
@@ -150,11 +150,11 @@ export function holdBoardUntilCycleEnds<
 				return {value: loaded(shown), holding: undefined};
 			}
 
-			const resolvingEpoch = $epoch as number;
-			shown = hold({shown, latest, resolvingEpoch});
+			const resolvingCycleNumber = $cycleNumber as number;
+			shown = hold({shown, latest, resolvingCycleNumber});
 			return {
 				value: loaded(shown),
-				holding: resolvingEpoch,
+				holding: resolvingCycleNumber,
 			};
 		},
 	);
@@ -191,7 +191,7 @@ function loaded<TState>(state: TState): OnchainStateValue<TState> {
 
 /** A turn the round was carrying, and which round it belonged to. */
 export type RememberedTurn<TAction> = {
-	epoch: number;
+	cycleNumber: number;
 	actions: readonly TAction[];
 };
 
@@ -215,7 +215,7 @@ export function rememberTurn<TAction>(
 	let last: RememberedTurn<TAction> | undefined;
 	return derived(round, ($round) => {
 		if ('actions' in $round) {
-			last = {epoch: $round.epoch, actions: $round.actions};
+			last = {cycleNumber: $round.cycleNumber, actions: $round.actions};
 		}
 		return last;
 	});
@@ -229,7 +229,7 @@ export function rememberTurn<TAction>(
  * exactly as long as the board is withholding the cycle that turn belongs to,
  * and with nothing before or after.
  *
- * MATCHED BY EPOCH rather than merely taken when present, or a turn remembered
+ * MATCHED BY CYCLE rather than merely taken when present, or a turn remembered
  * from an earlier cycle is resurrected over a cycle in which the player
  * planned nothing at all.
  *
@@ -258,7 +258,7 @@ export function heldTurnUntilBoardReleases<TAction>(params: {
 		[remembered, params.holding],
 		([$remembered, $holding]): readonly TAction[] | undefined => {
 			if ($holding === undefined) return undefined;
-			if ($remembered?.epoch !== $holding) return undefined;
+			if ($remembered?.cycleNumber !== $holding) return undefined;
 			return $remembered.actions;
 		},
 	);

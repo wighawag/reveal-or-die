@@ -15,7 +15,7 @@ import {
  * The situation is the ordinary one rather than an exotic mode: a cleared
  * browser, a second device, a private window, a reinstall and a storage write
  * that silently failed all produce the identical state. The contract holds a
- * commitment, a reveal is owed this epoch, and the client knows nothing about
+ * commitment, a reveal is owed this cycle, and the client knows nothing about
  * it. Unhandled, the turn is lost and three of those in a row kill the avatar.
  *
  * WHAT THIS GAME DOES THAT THE TEMPLATE'S CANNOT. A turn here is a walk of at
@@ -30,14 +30,14 @@ import {
  * step is found within a handful of candidates; the thousands only get
  * enumerated when the answer is not there at all.
  *
- * IT ALL HAS TO HAPPEN INSIDE ONE EPOCH, which shapes the test: a commitment is
- * recoverable only while the epoch it belongs to is running, and one tick later
+ * IT ALL HAS TO HAPPEN INSIDE ONE CYCLE, which shapes the test: a commitment is
+ * recoverable only while the cycle it belongs to is running, and one tick later
  * it is a missed reveal, which is a different suite's subject.
  */
 describe('A turn the chain holds and this browser has lost', () => {
 	// Its own burner account: this test deliberately leaves a commitment that
 	// nothing can open for a few seconds, and one open commitment exists per
-	// player per epoch. 2 is the signer-out-of-gas suite's.
+	// player per cycle. 2 is the signer-out-of-gas suite's.
 	test.use({walletAccountIndex: 4});
 
 	test('is found by searching, and revealed without asking the player', async ({
@@ -123,7 +123,7 @@ describe('A turn the chain holds and this browser has lost', () => {
 		// THE WHOLE POINT. Nothing below touches the page: no click, no key, no
 		// button. The app reads the chain, finds a commitment it has no round for,
 		// recomputes the secret and searches the maze for the walk that hashes to
-		// it. If the search were broken this would sit at `Idle` until the epoch
+		// it. If the search were broken this would sit at `Idle` until the cycle
 		// turned over and the suite would fail here.
 		await expect
 			.poll(async () => (await boardState(page)).step, {

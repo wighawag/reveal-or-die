@@ -86,7 +86,7 @@ export type CommitRevealDeps = Pick<
  * by itself; if the failed send burned a nonce, the retry can never mine, and a
  * turn that was recoverable is lost to a stuck `Committing` instead. Worse here
  * than in the template it came from: a reveal that never lands also blocks the
- * NEXT epoch until `acknowledgeMissedReveal` is called.
+ * NEXT cycle until `acknowledgeMissedReveal` is called.
  *
  * DELIBERATELY NARROW, and an assertion about the app rather than about the
  * chain. It fires only when the balance the player is ALREADY being shown says
@@ -177,7 +177,7 @@ export function createWorldCommitReveal(params: {
 	 * thrown is read by the player and should say what to do about it.
 	 *
 	 * This game needs it for the unrevealed-commitment case. `_makeCommitment`
-	 * rejects a commitment left over from an earlier epoch with
+	 * rejects a commitment left over from an earlier cycle with
 	 * `PreviousCommitmentNotRevealed`, and the remedy is to call
 	 * `acknowledgeMissedReveal` first, which the player has to be told about
 	 * rather than left to discover through a bare revert after paying gas.

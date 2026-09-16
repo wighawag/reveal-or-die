@@ -4,21 +4,21 @@
  * NOT a storage feature, which is the thing to get right before reading any of
  * it. A cleared browser, a second device, a second browser, a private window, a
  * reinstall and a storage write that silently failed all produce the same
- * state: the contract is holding a commitment, the reveal is owed this epoch,
+ * state: the contract is holding a commitment, the reveal is owed this cycle,
  * and nothing here knows about it. A second device is not a mode, so this is
  * not a mode's feature - and left unhandled it costs the stake, in silence,
  * which is the most expensive thing this app can do to someone.
  *
  * THE CHAIN READ IS ALREADY THERE. `./missed-reveal.ts` asks `getCommitment`
- * on every epoch turn to find out whether the player is BLOCKED, and until now
- * it threw the live answer away: a commitment for the current epoch is not
+ * on every cycle turn to find out whether the player is BLOCKED, and until now
+ * it threw the live answer away: a commitment for the current cycle is not
  * blocking anything, so it reported `Clear` and returned. That branch is the
  * silent forfeit. Nothing extra is fetched for any of this.
  *
  * THE SECRET COMES BACK ON ITS OWN, because it is derived from the local
  * signer rather than stored (`game/core/secret.ts`), and the signer is itself
  * derived from a signature the wallet produces deterministically. So the same
- * account signing in anywhere recomputes the same secret for the same epoch.
+ * account signing in anywhere recomputes the same secret for the same cycle.
  * That is the prerequisite this rests on and it landed first.
  *
  * WHAT DOES NOT COME BACK IS THE PLAN, because the chain holds only a hash.
@@ -35,12 +35,12 @@
  * adopt - and the two ways of getting that subtly wrong, which are both
  * silent.
  *
- * TOO LATE IS NOT A CASE. `epochDuration = commitPhaseDuration +
+ * TOO LATE IS NOT A CASE. `cycleDuration = commitPhaseDuration +
  * revealPhaseDuration` with no trailing segment, so a commitment in the
- * CURRENT epoch is always still openable: the player is either in the commit
- * phase or in the reveal phase. Once the reveal window shuts the epoch has
+ * CURRENT cycle is always still openable: the player is either in the commit
+ * phase or in the reveal phase. Once the reveal window shuts the cycle has
  * advanced, and the game's missed-reveal path reports it and offers the
- * settlement the player presses for themselves. Only the live epoch was ever
+ * settlement the player presses for themselves. Only the live cycle was ever
  * missing.
  *
  * **D10 SCOPED THE FRAMEWORK TO ONE METHOD AND THAT WAS TOO TIGHT**, which was
@@ -55,9 +55,9 @@ import {derived, get, writable, type Readable} from 'svelte/store';
 import type {RoundState, RoundStore} from './round';
 import type {PlayerIdentity} from './seams';
 
-/** A commitment the contract is holding for the epoch now in progress. */
+/** A commitment the contract is holding for the cycle now in progress. */
 export type LiveCommitment = {
-	epoch: number;
+	cycleNumber: number;
 	/** `bytes24`, as the contract stores it. */
 	hash: `0x${string}`;
 };
@@ -66,10 +66,10 @@ export type RecoveryState =
 	/** Nothing to recover: no live commitment, or the round already has it. */
 	| {step: 'Idle'}
 	/** The chain holds a commitment this browser cannot open yet. */
-	| {step: 'Found'; epoch: number}
-	| {step: 'Checking'; epoch: number}
+	| {step: 'Found'; cycleNumber: number}
+	| {step: 'Checking'; cycleNumber: number}
 	/** A candidate plan was offered and it is not what was committed. */
-	| {step: 'Refused'; epoch: number}
+	| {step: 'Refused'; cycleNumber: number}
 	/**
 	 * The check could not be made - recomputing the secret needs the signer, and
 	 * the signer needs a connection.
@@ -77,9 +77,9 @@ export type RecoveryState =
 	 * A SEPARATE STATE from `Refused`, and the distinction is the whole reason
 	 * it exists: telling a player their plan was wrong when the app simply could
 	 * not ask sends them looking for a mistake they did not make, and they have
-	 * one epoch to find it.
+	 * one cycle to find it.
 	 */
-	| {step: 'Failed'; epoch: number; message: string};
+	| {step: 'Failed'; cycleNumber: number; message: string};
 
 /**
  * THERE IS NO `Recovered` STATE, and its absence is the design rather than an
@@ -105,14 +105,14 @@ export type RecoveryStore<TAction> = Readable<RecoveryState> & {
 /**
  * Whether the round already accounts for the commitment the chain is holding.
  *
- * `Planning` deliberately does NOT count, even for the same epoch. It means
+ * `Planning` deliberately does NOT count, even for the same cycle. It means
  * the player has clicked some cells and nothing has been sent, while the chain
  * says a commitment exists - so this browser has lost the round and the player
  * is halfway to re-entering it without being told that is what they are doing.
  */
 function roundAccountsFor<TAction>(
 	state: RoundState<TAction>,
-	epoch: number,
+	cycleNumber: number,
 ): boolean {
 	switch (state.step) {
 		case 'Committing':
@@ -120,7 +120,7 @@ function roundAccountsFor<TAction>(
 		case 'Revealing':
 		case 'Revealed':
 		case 'Error':
-			return state.epoch === epoch;
+			return state.cycleNumber === cycleNumber;
 		default:
 			return false;
 	}
@@ -159,7 +159,7 @@ export function createRoundRecovery<
 	 * refusal with no symptom and no error.
 	 */
 	makeSecret: (params: {
-		epoch: number;
+		cycleNumber: number;
 		identity: TIdentity;
 	}) => `0x${string}` | Promise<`0x${string}`>;
 	/** The same hashing the adapter commits with, for the same reason. */
@@ -177,19 +177,19 @@ export function createRoundRecovery<
 		[round, commitment, attempt],
 		([$round, $commitment, $attempt]): RecoveryState => {
 			if (!$commitment) return {step: 'Idle'};
-			if (roundAccountsFor($round, $commitment.epoch)) {
+			if (roundAccountsFor($round, $commitment.cycleNumber)) {
 				// Includes the round this store just handed over: once adopted, the
 				// round IS the answer and there is nothing left to report.
 				return {step: 'Idle'};
 			}
 			if (
 				$attempt &&
-				'epoch' in $attempt &&
-				$attempt.epoch === $commitment.epoch
+				'cycleNumber' in $attempt &&
+				$attempt.cycleNumber === $commitment.cycleNumber
 			) {
 				return $attempt;
 			}
-			return {step: 'Found', epoch: $commitment.epoch};
+			return {step: 'Found', cycleNumber: $commitment.cycleNumber};
 		},
 	);
 
@@ -210,12 +210,15 @@ export function createRoundRecovery<
 			return false;
 		}
 
-		attempt.set({step: 'Checking', epoch: live.epoch});
+		attempt.set({step: 'Checking', cycleNumber: live.cycleNumber});
 		try {
-			const secret = await makeSecret({epoch: live.epoch, identity: player});
+			const secret = await makeSecret({
+				cycleNumber: live.cycleNumber,
+				identity: player,
+			});
 			const {hash} = buildCommitment({actions, secret});
 			if (!sameHash(hash, live.hash)) {
-				attempt.set({step: 'Refused', epoch: live.epoch});
+				attempt.set({step: 'Refused', cycleNumber: live.cycleNumber});
 				return false;
 			}
 
@@ -223,13 +226,13 @@ export function createRoundRecovery<
 			// was the ability to open it, and that is now local knowledge. The
 			// round reveals it on the phase change like any other.
 			const adopted = round.adopt({
-				epoch: live.epoch,
+				cycleNumber: live.cycleNumber,
 				actions,
 				secret,
 				committed: true,
 			});
 			if (!adopted) {
-				// The epoch turned over while the player was typing, or a commit of
+				// The cycle turned over while the player was typing, or a commit of
 				// their own is mid-flight. Neither is a wrong plan, so it must not be
 				// reported as one: the missed-reveal path picks the first up on its
 				// next check and the round itself owns the second.
@@ -243,10 +246,10 @@ export function createRoundRecovery<
 		} catch (error) {
 			// REPORTED, not thrown. This is called straight from a button, so a
 			// throw here is an unhandled rejection and a player who is told nothing
-			// at all - during the one epoch in which the stake can still be saved.
+			// at all - during the one cycle in which the stake can still be saved.
 			attempt.set({
 				step: 'Failed',
-				epoch: live.epoch,
+				cycleNumber: live.cycleNumber,
 				message: error instanceof Error ? error.message : String(error),
 			});
 			return false;

@@ -16,13 +16,13 @@ import type {CoreServices} from './core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
 import {
-	createTimedEpochTrackers,
+	createTimedCycleTrackers,
 	createThreePhase,
-	staticEpochConfig,
-	type EpochInfoStore,
+	staticCycleConfig,
+	type CycleInfoStore,
 	type ThreePhase,
 	type TwoPhase,
-} from '$lib/game/core/epoch';
+} from '$lib/game/core/cycle';
 import {
 	createRound,
 	type RoundStorage,
@@ -150,8 +150,8 @@ export type Game = {
 	activeIdentity: ActiveAvatarStore;
 	/** Chain-synced wall clock. NOT `clock`, which is only a UI ticker. */
 	chainTime: ChainTimeStore;
-	/** Which epoch we are in, and how far through its phases. */
-	epochInfo: EpochInfoStore;
+	/** Which cycle we are in, and how far through its phases. */
+	cycleInfo: CycleInfoStore;
 	/** Player-facing phases: play / commit / reveal. */
 	threePhase: Readable<ThreePhase>;
 	/** The same, collapsed to play / wait. */
@@ -203,14 +203,14 @@ export type Game = {
 	 */
 	purchase: AcquisitionStore;
 	/**
-	 * An unrevealed commitment from a past epoch, which blocks all further play
+	 * An unrevealed commitment from a past cycle, which blocks all further play
 	 * until the player acknowledges it.
 	 */
 	missedReveal: MissedRevealStore;
 	/**
 	 * A commitment the chain holds for the round in progress that this browser
 	 * has no memory of - a cleared browser, a second device, a private window.
-	 * The turn is still revealable while the epoch lasts.
+	 * The turn is still revealable while the cycle lasts.
 	 */
 	recovery: RecoveryStore<Action>;
 	/**
@@ -268,13 +268,13 @@ export type SetupAction = 'authorise' | 'buy';
 /**
  * The four parts of a round, as the player experiences them.
  *
- * An epoch is: a window to plan and commit in, a lock while those commits land,
+ * A cycle is: a window to plan and commit in, a lock while those commits land,
  * the reveal in which every planned move resolves, and - at the boundary - a
  * moment while the board fetches the state the new round assumes. The old
  * two-phase model folded the middle two into one "wait", which is fine to
  * play on and useless to debug against, and had no slot at all for the fourth.
  *
- * `catching-up` lasts until the board's own epoch catches up with the clock's,
+ * `catching-up` lasts until the board's own cycle catches up with the clock's,
  * which is however long the chain takes to mine past the boundary (see
  * `settleBoardWhenCycleStarts` for why the clock is ahead of the chain there),
  * and it disappears the moment a fetch lands the new round's data. The
@@ -321,7 +321,7 @@ export type Render = {
 };
 
 export type GameContext = {
-	onchainState: OnchainStateStore<WorldState & {epoch: number}>;
+	onchainState: OnchainStateStore<WorldState & {cycleNumber: number}>;
 	viewState: ViewStateStore<WorldView>;
 	game: Game;
 	render: Render;
@@ -342,7 +342,7 @@ export type GameContext = {
  * already made: asking the player to notice the failure, top up, and then also
  * remember to press retry is three chances to lose their turn. Worse here than
  * in the template, because a reveal that never lands also BLOCKS the next
- * epoch until `acknowledgeMissedReveal` is called.
+ * cycle until `acknowledgeMissedReveal` is called.
  *
  * Its own function, taking only the two stores it reads, because it is the one
  * piece of wiring here that SPENDS the player's gas without being asked. That
@@ -443,10 +443,10 @@ export function setupNeeded(params: {
 /**
  * Run something once per round, on the turnover.
  *
- * `epochInfo` re-emits on every tick of the clock, so the trigger is the
+ * `cycleInfo` re-emits on every tick of the clock, so the trigger is the
  * CHANGE and not the value; without that, anything hung off it runs once a
  * second forever. The first emission is deliberately not a change either:
- * `start()` has just done the initial reads, and treating "the epoch became
+ * `start()` has just done the initial reads, and treating "the cycle became
  * known" as a turnover would double every one of them on load.
  *
  * Its own function, like the two below, because it is wiring that acts
@@ -454,14 +454,18 @@ export function setupNeeded(params: {
  * should not need an app context.
  */
 export function onEachNewRound(params: {
-	epochInfo: Readable<{currentEpoch: number}>;
+	cycleInfo: Readable<{currentCycleNumber: number}>;
 	run: () => void;
 }): () => void {
-	const {epochInfo, run} = params;
-	let lastEpoch: number | undefined;
-	return epochInfo.subscribe(($epoch) => {
-		if (lastEpoch !== undefined && $epoch.currentEpoch !== lastEpoch) run();
-		lastEpoch = $epoch.currentEpoch;
+	const {cycleInfo, run} = params;
+	let lastCycleNumber: number | undefined;
+	return cycleInfo.subscribe(($cycle) => {
+		if (
+			lastCycleNumber !== undefined &&
+			$cycle.currentCycleNumber !== lastCycleNumber
+		)
+			run();
+		lastCycleNumber = $cycle.currentCycleNumber;
 	});
 }
 
@@ -522,17 +526,20 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 	// THE TIMED TRACKER, DELIBERATELY, AND NOT THE POLICY DISPATCHER THE
 	// TEMPLATE WIRES. Contracts are not inherited in this tree, and this game's
-	// have not adopted the epoch policy: there is no `advanceRound` and no
-	// `getRound` to ask, so the epoch here IS what the clock says and asking
+	// have not adopted the cycle policy: there is no `advanceCycle` and no
+	// `getCycle` to ask, so the cycle here IS what the clock says and asking
 	// would be calling a function that does not exist. The framework half is
-	// inherited and ready; switching to `createEpochTrackers` belongs in the
+	// inherited and ready; switching to `createCycleTrackers` belongs in the
 	// same change as the contract that gives it something to read.
-	const {epochInfo, twoPhase} = createTimedEpochTrackers({
+	const {cycleInfo, twoPhase} = createTimedCycleTrackers({
 		chainTime,
-		config: staticEpochConfig(config.epoch),
+		config: staticCycleConfig(config.cycle),
 	});
-	const threePhase = createThreePhase(epochInfo);
-	const currentEpoch = derived(epochInfo, ($epoch) => $epoch.currentEpoch);
+	const threePhase = createThreePhase(cycleInfo);
+	const currentCycleNumber = derived(
+		cycleInfo,
+		($cycle) => $cycle.currentCycleNumber,
+	);
 
 	const {camera, cameraControl} = createCamera(config.camera);
 	const eventEmitter = createCanvasEventEmitter();
@@ -541,7 +548,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		publicClient: core.publicClient,
 		deployments,
 		camera,
-		epochInfo,
+		cycleInfo,
 		chainTime,
 		// A turn's worth of travel beyond the camera, because the same zones scope
 		// the reveal logs and an avatar's log is filed under the zone it ended in.
@@ -563,14 +570,14 @@ export function createGameContext(core: CoreServices): GameContext {
 	 */
 	const settle = settleBoardWhenCycleStarts({
 		phase: twoPhase,
-		epoch: currentEpoch,
+		cycleNumber: currentCycleNumber,
 		// One cast, at the one place the mismatch is: the store's value is the
 		// full `OnchainStateValue<WorldState>`, and svelte's store typing is
 		// contravariant in the subscriber, so a store of a WIDER value does not
 		// satisfy `Readable` of the narrower one even though every value it emits
-		// has the `epoch` this reads. The Loaded branch always carries it.
+		// has the `cycleNumber` this reads. The Loaded branch always carries it.
 		state: onchainState as unknown as Readable<
-			{step: 'Unloaded'} | {step: 'Loaded'; epoch: number}
+			{step: 'Unloaded'} | {step: 'Loaded'; cycleNumber: number}
 		>,
 		refresh: () => onchainState.update(),
 	});
@@ -584,11 +591,11 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * reads. The rule and the trap underneath it are `boardIsBehindClock`.
 	 */
 	const boardBehindClock = derived(
-		[currentEpoch, onchainState],
-		([$epoch, $state]) =>
+		[currentCycleNumber, onchainState],
+		([$cycle, $state]) =>
 			boardIsBehindClock({
-				board: $state as {step: string; epoch?: number},
-				currentEpoch: $epoch,
+				board: $state as {step: string; cycleNumber?: number},
+				currentCycleNumber: $cycle,
 			}),
 	);
 
@@ -668,7 +675,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	const missedReveal = createMissedReveal({
 		deps: core,
 		avatarID: activeIdentity,
-		currentEpoch,
+		currentCycleNumber,
 		// Acknowledging changes what the contract holds for this avatar, so the
 		// deposited read is no longer current.
 		onSettled: () => void deposited.update(),
@@ -730,7 +737,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	const round = createRound<GameIdentity, Action>({
-		epochInfo,
+		cycleInfo,
 		/**
 		 * DERIVED, not random, so a cleared browser does not cost the avatar.
 		 *
@@ -753,7 +760,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			deps: core,
 			// Refuse to commit while an unrevealed commitment is in the way, and say
 			// so in words the player can act on. `_makeCommitment` rejects one left
-			// over from an earlier epoch with `PreviousCommitmentNotRevealed`, so
+			// over from an earlier cycle with `PreviousCommitmentNotRevealed`, so
 			// without this the only symptom is every commit failing with a bare
 			// revert. Acknowledging is never done on their behalf: see
 			// `$lib/world/missed-reveal`.
@@ -772,7 +779,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		 *
 		 * `_getResolvedAvatar` says it in as many words: "we force character to
 		 * continuously commit+reveal". With `numMissesAllowed = 3`, an avatar whose
-		 * `lastEpoch` falls more than four epochs behind is set to `life = 0`.
+		 * `lastEpoch` falls more than four cycles behind is set to `life = 0`.
 		 * `lastEpoch` only advances on a REVEAL, so a player who watches a few
 		 * rounds without moving loses the avatar they paid for, having done nothing
 		 * wrong and been warned by nothing.
@@ -856,12 +863,14 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * health - keeps reading the raw store, because those are about what the
 	 * chain says and this is about what the player is shown.
 	 */
-	const heldBoard = holdBoardUntilCycleEnds<WorldState & {epoch: number}>({
-		state: onchainState,
-		phase: twoPhase,
-		epoch: currentEpoch,
-		hold: holdResolvingRound,
-	});
+	const heldBoard = holdBoardUntilCycleEnds<WorldState & {cycleNumber: number}>(
+		{
+			state: onchainState,
+			phase: twoPhase,
+			cycleNumber: currentCycleNumber,
+			hold: holdResolvingRound,
+		},
+	);
 
 	const viewState = createViewState({
 		onchainState: heldBoard.board,
@@ -958,7 +967,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * silently.
 	 *
 	 * Letting someone plan a turn they cannot commit is worse than not letting
-	 * them start, and this is the same principle one epoch in: the moves look
+	 * them start, and this is the same principle one cycle in: the moves look
 	 * accepted, and the failure only arrives when it is too late to matter.
 	 */
 	const readyToPlay = derived([setup, phase], ([$setup, $phase]) =>
@@ -1044,8 +1053,8 @@ export function createGameContext(core: CoreServices): GameContext {
 		// window that is every second and a half, because another player's move
 		// is invisible from here; at the commit phase's start it is a settle that
 		// retries until the board has actually caught up, because the client's
-		// clock crosses the epoch boundary ahead of the chain and a fetch that
-		// gives up into backoff leaves the new round playing on last epoch's
+		// clock crosses the cycle boundary ahead of the chain and a fetch that
+		// gives up into backoff leaves the new round playing on last cycle's
 		// board.
 		const stopSettleWatch = settle.watch();
 		const stopRevealRefresh = refreshDuringReveal({
@@ -1064,19 +1073,19 @@ export function createGameContext(core: CoreServices): GameContext {
 
 		// Ask the chain about this ACCOUNT again whenever the round turns over.
 		//
-		// Both of these are questions about the CURRENT EPOCH rather than fixed
+		// Both of these are questions about the CURRENT CYCLE rather than fixed
 		// properties, which is what makes a per-round re-read the right cadence
 		// rather than a poll bolted on.
 		//
 		// Whether a commitment counts as MISSED changes by itself: the very same
-		// commitment is live in the epoch it was made and blocking in the next one.
+		// commitment is live in the cycle it was made and blocking in the next one.
 		// Checking only on load and on account change means a tab that was open
 		// across the boundary answers "nothing is wrong" once and never revisits
 		// it, leaving the player silently blocked with no idea why committing does
 		// nothing.
 		//
 		// And so does whether an avatar is still ALIVE. `_getResolvedAvatar`
-		// computes `life` from how far `lastEpoch` has fallen behind the epoch
+		// computes `life` from how far `lastEpoch` has fallen behind the cycle
 		// being asked about, so a kill happens on the chain's clock with nobody
 		// sending anything. `deposited` used to be re-read only when something this
 		// client did succeeded - a reveal, a purchase, an acknowledgement - which
@@ -1087,8 +1096,8 @@ export function createGameContext(core: CoreServices): GameContext {
 		// until the page was reloaded, and everything downstream inherited that -
 		// no death notice, a corpse still selected as the active avatar, and the
 		// missed-reveal panel demanding an acknowledgement for it.
-		const unsubscribeEpoch = onEachNewRound({
-			epochInfo,
+		const unsubscribeCycle = onEachNewRound({
+			cycleInfo,
 			run: () => {
 				void missedReveal.check();
 				void deposited.update();
@@ -1101,7 +1110,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			unsubscribeAccount();
 			unsubscribeAvatar();
 			unsubscribeRound();
-			unsubscribeEpoch();
+			unsubscribeCycle();
 			unsubscribeGas();
 			unsubscribePurchase();
 			stopSettleWatch();
@@ -1121,7 +1130,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			identity: account,
 			activeIdentity,
 			chainTime,
-			epochInfo,
+			cycleInfo,
 			threePhase,
 			twoPhase,
 			round,
