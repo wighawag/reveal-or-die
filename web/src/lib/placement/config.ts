@@ -94,8 +94,8 @@ type GameLinkedData = DeclaredValues & {
  *
  * Deliberately generous, and the reveal more so than the commit. A commit
  * writes one hash; a reveal walks every placement, each of which can touch a
- * zone index. Running out of gas mid-round is not a slow turn, it is a missed
- * reveal, which loses the bond AND blocks the next cycle until it is
+ * zone index. Running out of gas mid-submission is not a slow turn, it is a
+ * missed reveal, which loses the bond AND blocks the next cycle until it is
  * acknowledged. Over-reserving costs a slightly larger first payment.
  */
 const COMMIT_GAS = 100_000n;
@@ -106,8 +106,8 @@ const REVEAL_GAS = 2_000_000n;
  *
  * The whole point of the stipend is that a player who has just staked can play
  * for a while without thinking about gas at all. When it does run out the
- * top-up flow is the remedy (and `resumeWhenGasArrives` picks the round back up
- * by itself), so this is a starting float rather than a budget.
+ * top-up flow is the remedy (and `resumeWhenGasArrives` picks the submission
+ * back up by itself), so this is a starting float rather than a budget.
  */
 const TURNS_OF_GAS = 100n;
 

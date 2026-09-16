@@ -1,11 +1,11 @@
 /**
- * WHAT THIS GAME KEYS A ROUND BY.
+ * WHAT THIS GAME KEYS A SUBMISSION BY.
  *
- * The framework never names a concrete identity: `createRound`,
- * `CommitRevealAdapter`, `createDerivedSecret` and `createRoundRecovery` are
- * all generic over `TIdentity extends PlayerIdentity`, deliberately, because
- * the games this template exists for disagree about what a player IS. An
- * account-keyed game plays as an address; reveal-or-die and bomber-world
+ * The framework never names a concrete identity: `createSubmission`,
+ * `CommitRevealAdapter`, `createDerivedSecret` and `createSubmissionRecovery`
+ * are all generic over `TIdentity extends PlayerIdentity`, deliberately,
+ * because the games this template exists for disagree about what a player IS.
+ * An account-keyed game plays as an address; reveal-or-die and bomber-world
  * commit per ERC721 token; conquest commits per owner-derived empire id.
  *
  * So SOMETHING has to say which one this app chose, and this module is it.
@@ -25,9 +25,9 @@
  *   address in every game and every configuration. `Game.identity` is that,
  *   and so are `acquire`'s `owner`, the reserve's `payer` and everything in
  *   `onchain/delegation.ts`.
- * - the GAME IDENTITY is who PLAYS. The round, the commitment, the secret's
- *   domain separation, the stake and the round's storage key are all keyed by
- *   it, and it is what changes shape between games.
+ * - the GAME IDENTITY is who PLAYS. The submission, the commitment, the
+ *   secret's domain separation, the stake and the submission's storage key are
+ *   all keyed by it, and it is what changes shape between games.
  *
  * ON `main` THEY HOLD THE SAME VALUE, because the template is deliberately an
  * address game. ON THIS BRANCH THEY DO NOT, and that is the whole point: an

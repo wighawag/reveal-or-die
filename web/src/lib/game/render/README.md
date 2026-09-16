@@ -127,7 +127,7 @@ Same shape as `gestures.ts`, twice more: a pure recogniser that turns raw input 
 | `keys.ts`    | `recognizeKey(sample)`                                        | `attachKeys(target, onIntent)` |
 | `gamepad.ts` | `createGamepadRecognizer().poll(pads)`                        | `attachGamepad(onIntent)`      |
 
-**The mapping from an intent to a game action stays in the game.** Directional / confirm / cancel input is generic to any board game on this template; "step north" and "commit the round" are not. That is the whole line, and it is what lets one mapping serve a keyboard, a gamepad and an on-screen d-pad without three copies of the game's rules.
+**The mapping from an intent to a game action stays in the game.** Directional / confirm / cancel input is generic to any board game on this template; "step north" and "commit the round" are not - both are what a PARTICULAR GAME calls a control, which is why `round` here is the word `CONTEXT.md` reserves for games rather than one a vocabulary sweep missed (`intents.ts` quotes the same pair for the same reason). That is the whole line, and it is what lets one mapping serve a keyboard, a gamepad and an on-screen d-pad without three copies of the game's rules.
 
 The recognisers are pure for the reason `gestures.ts` gives: the interesting cases are the ones a human cannot reliably perform. A held key repeating thirty times a second, a modifier chord, a controller that reports six buttons instead of seventeen, a stick rolled from left to up without passing the centre. Each is one function call in the node test project and a fight in a browser.
 

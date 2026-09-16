@@ -50,9 +50,10 @@ new, and extend it when your game settles a word of its own.
 is deliberate and it is how you should read a grep.
 
 In the template (`template-commit-reveal`) the rename has landed: `cycle` is the
-interval, `cycleNumber` is its index, and apart from the three exceptions below
-`epoch` appears nowhere in `web/src` or `contracts/src`. If you find another one
-there, it is drift and it is worth fixing.
+interval, `cycleNumber` is its index, one player's pass through a cycle is a
+`submission`, and apart from the two exceptions below `epoch` appears nowhere in
+`web/src` or `contracts/src`. If you find another one there, it is drift and it
+is worth fixing.
 
 In a GAME repo built from this template, `epoch` is expected and means the game
 has not been ported yet. Contracts are not inherited here, so each game carries
@@ -60,12 +61,23 @@ its own and is ported one at a time; a descendant full of `epoch` is a schedule,
 not a stale glossary. What a game must not do is use `cycle` for something that
 is not the framework's interval.
 
-Three files keep the old word on purpose, and all three are different cases.
+Three files keep an old word on purpose, and all three are different cases. Two
+keep `epoch`; the third keeps `round`, which is the other word this rename
+moved (the shared interval became `cycle`, one player's pass became a
+`submission`, and `round` and `turn` went back to being a game's own words).
 
-`web/src/lib/placement/storage.ts` still writes an `epoch` field under
-`__placement_round__`. That is a serialised shape with a stake behind it: a
-record the previous build wrote must stay readable, or a player loses the secret
-that opens a commitment in flight. The reason is written at the line.
+**There used to be a third**, and what happened to it is worth a sentence,
+because the reasoning was wrong rather than merely spent.
+`web/src/lib/placement/storage.ts` kept an `epoch` field under
+`__placement_round__` on the grounds that a serialised shape is a compatibility
+surface with a stake behind it. The hazard is real (see the storage rule below)
+and there was nothing for it to act on: template-commit-reveal had no committed
+deployment records when this rename landed, so nothing was deployed and no
+record could be in flight, and a game built FROM this template starts at its own
+first deploy and cannot hold a record written by a previous build of the
+template. The key and the field were renamed outright. **The general lesson is
+that "nothing is deployed yet" is a claim you can CHECK, in one command, per
+repo** - check it before building compatibility for it.
 
 `web/src/lib/core/transaction/in-flight.ts` says `ms since epoch`, and that is
 the UNIX epoch - a wall-clock origin, not this project's interval, so it was
@@ -81,15 +93,29 @@ until it is ported, so the citation is only correct while it spells the name
 that repo actually uses. A sweep rewrote it to `_cycleNumber()` once, naming a
 function that exists in no repo.
 
+`web/test/svelte-conventions-boundary.test.ts` cites `game/core/round.ts` and
+`RoundState` as a DESCENDANT'S file that failed a rune check. Same shape as the
+bomber-world citation above: it is a record of what that repo called it at the
+time, so the citation is only correct while it spells that name. It is also
+byte-identical to jolly-roger's, and it is INHERITED from `template-svelte`
+where the same rule is enforced - so it is catalogued here rather than annotated
+at the line, because a comment in the file would diverge something every sibling
+shares in order to record something only this repo knows. If it ever needs
+saying in the code, it gets said upstream and comes back down.
+
+That is also the general answer for this whole list: **a file identical to the
+stem's does not get a local comment explaining why it is identical.** Write it
+here, where a sweeper is told to look and where it cascades to the games.
+
 The reasoning, the rejected alternatives and the migration order are in ADR-0001
 (template-commit-reveal `work`).
 
 ## Commit-reveal rules
 
-This template exists to build simultaneous-turn games. Two rules follow from
-that, and both are easy to break by accident.
+This template exists to build simultaneous-turn games. Three rules follow from
+that, and every one of them is easy to break by accident.
 
-- **A reveal must not branch on state another reveal in the same epoch could
+- **A reveal must not branch on state another reveal in the same cycle could
   have changed.** Reveals arrive in whatever order the mempool delivers them,
   so the board after a set of commitments must not depend on that order. If it
   does, whoever pays the most gas decides the outcome, and committing bought
@@ -116,6 +142,28 @@ that, and both are easy to break by accident.
   `acknowledgeMissedReveal`. A game may gate differently (custody of an NFT, for
   instance); what the framework needs is only that _something_ is lost by not
   revealing.
+
+- **Renaming a persisted key or field forfeits the stake of every player who
+  has one in flight, and every suite stays green while it happens.** The secret
+  that opens a commitment lives in the browser, in your game's own submission
+  storage (`placement/storage.ts` here), and nowhere else. `load()` discards
+  any record it cannot read, so a record written by the previous build under
+  the old name is not a migration problem, it is a player who can no longer
+  reveal: the commitment stands, the reveal never comes, and
+  `acknowledgeMissedReveal` takes what was bonded.
+
+  **Nothing catches this.** The tests are renamed alongside the code, no test
+  reads a record written by an older build, and the type checker sees a rename
+  rather than a break. It is found by a player, at their own expense, and only
+  after you ship.
+
+  So once your game has users, the storage key and every field name in the
+  record are a WIRE, not an identifier: treat a change to either the way you
+  would treat a change to the ABI. If you must, read both shapes for a release
+  and write the new one, and delete the tolerance once no in-flight record can
+  predate it. Before your first deploy this costs nothing, which is exactly when
+  to get the names right - and "nothing is deployed yet" is a claim to check
+  (`git ls-files contracts/deployments`) rather than assume.
 
 ## Where the plan and the handoff live: the `work` branch
 

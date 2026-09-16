@@ -128,8 +128,8 @@ export function createBoardReader(params: {
 			// asked for. This used to require an exact match, which turned a
 			// two-clock disagreement of SECONDS into a failed read: the client's
 			// clock interpolates from the wall clock between blocks, so it crosses
-			// a round boundary before the chain has mined a block past it, and the
-			// contract answers from its latest block with the previous round.
+			// a cycle boundary before the chain has mined a block past it, and the
+			// contract answers from its latest block with the previous cycle.
 			// Refusing that ran the framework's catch-up budget out and turned it
 			// into exponential backoff behind an RPC-health banner, over a board
 			// that was a moment behind and nothing worse.
@@ -155,7 +155,7 @@ export function createBoardReader(params: {
 		// arrived. Nothing the board reads can change in that gap: a reveal mined
 		// after the boundary is refused (`InCommitmentPhase`) and a commit places
 		// nothing, so a fetch landing after the clock ticks already holds the new
-		// round in full.
+		// cycle in full.
 		return {cells: byID, cycleNumber: expectedCycleNumber};
 	};
 }

@@ -87,8 +87,8 @@ describe('Transaction inspector', () => {
 	 * game's commit is the wrong instrument for that - it depends on the cycle
 	 * phase, keys one open commitment per player, and auto-commits as the phase
 	 * closes, so a suite that only wants "a transaction happened" would be racing
-	 * the round for no reason. `addToReserve` is a plain account-sent write that
-	 * exists on the deployed Game and needs no set-up, which is why
+	 * the submission for no reason. `addToReserve` is a plain account-sent write
+	 * that exists on the deployed Game and needs no set-up, which is why
 	 * contracts.e2e.ts uses it too.
 	 *
 	 * It also sends from the ACCOUNT rather than the local signer, so no

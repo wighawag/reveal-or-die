@@ -17,13 +17,13 @@
  * stake is the single most important thing this app can have to say to someone.
  * So it is surfaced, explained, and waits for a deliberate press.
  *
- * The chain is the authority here, not the local round: clearing site data or
- * playing from another browser loses the local memory of the round, while the
- * contract still holds the commitment.
+ * The chain is the authority here, not the local submission: clearing site data
+ * or playing from another browser loses the local memory of the submission,
+ * while the contract still holds the commitment.
  *
  * ONE READ, TWO QUESTIONS, and the second one used to be thrown away. Asking
  * `getCommitment` answers "am I blocked?" - a commitment left over from an
- * EARLIER cycle - and it equally answers "is there a commitment for the round
+ * EARLIER cycle - and it equally answers "is there a commitment for the cycle
  * in progress that this browser knows nothing about?". That second answer is
  * the one that costs the stake, and it was being reported as `Clear` and
  * dropped, because blocking was the only thing anyone had ever asked. It is
@@ -134,7 +134,7 @@ export function createMissedReveal(params: {
 			// be revealed, the contract lets it be replaced, and acknowledging it
 			// would revert with `CanStillReveal`. It is still worth SAYING, because
 			// a reveal is owed for it and this browser may have no idea: publishing
-			// it here is the whole of the chain half of recovering a lost round.
+			// it here is the whole of the chain half of recovering a lost submission.
 			if (onChain.cycleNumber === currentCycleNumber) {
 				commitment.set({
 					cycleNumber: Number(onChain.cycleNumber),

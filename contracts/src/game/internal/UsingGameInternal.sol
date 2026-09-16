@@ -514,8 +514,8 @@ abstract contract UsingGameInternal is
     /// @notice WHO THE CALLER IS ACTING FOR, having checked that they may.
     /// @param sender The account or key that sent the transaction.
     /// @param id The identity, as the client named it.
-    /// @return player The identity this round is filed under, which is what
-    ///         every mapping in {UsingGameStore} is keyed by.
+    /// @return player The identity this submission is filed under, which is
+    ///         what every mapping in {UsingGameStore} is keyed by.
     /// @dev THE SEAM. `virtual` and nothing else in this contract is, which is
     ///      deliberate: a game that keys by a token overrides this ONE function
     ///      and touches no store, no route and no other internal. The precedent

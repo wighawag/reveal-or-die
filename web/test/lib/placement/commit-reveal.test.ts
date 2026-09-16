@@ -146,18 +146,18 @@ describe('the game move boundary', () => {
 	});
 
 	it('passes an unrelated failure through untouched', async () => {
-		// The round shows `message` for anything it cannot name, so an error that
-		// arrives rewrapped would be reported as the wrong problem.
+		// The submission shows `message` for anything it cannot name, so an error
+		// that arrives rewrapped would be reported as the wrong problem.
 		const other = new Error('nonce too low');
 
 		await expect(sendThrowing(other)).rejects.toBe(other);
 	});
 
 	it('throws on a reverted receipt rather than reporting success', async () => {
-		// `writeContract` resolves on BROADCAST. Without this the round would call
-		// itself Committed on a commitment that never landed, and the only symptom
-		// would be `NothingToReveal` a phase later. Not an out-of-gas failure: the
-		// transaction was paid for and mined.
+		// `writeContract` resolves on BROADCAST. Without this the submission would
+		// call itself Committed on a commitment that never landed, and the only
+		// symptom would be `NothingToReveal` a phase later. Not an out-of-gas
+		// failure: the transaction was paid for and mined.
 		const deps = {
 			publicClient: {
 				waitForTransactionReceipt: async () => ({status: 'reverted'}),
@@ -318,9 +318,10 @@ describe('a signer with nothing in it never reaches the node', () => {
 	 * will never reach, gets a hash, and is never mined.
 	 *
 	 * The cost lands on the remedy rather than the fault. The player tops up, the
-	 * round retries, and the retry hangs in `Committing` forever, so a stake that
-	 * was recoverable is lost. That is precisely what `out-of-gas.e2e.ts` exists
-	 * to prevent, and it was reaching it through the fix instead of the failure.
+	 * submission retries, and the retry hangs in `Committing` forever, so a stake
+	 * that was recoverable is lost. That is precisely what `out-of-gas.e2e.ts`
+	 * exists to prevent, and it was reaching it through the fix instead of the
+	 * failure.
 	 */
 	function sendWithBalance(balance: {step: string; value?: bigint}) {
 		let reachedTheNode = false;
