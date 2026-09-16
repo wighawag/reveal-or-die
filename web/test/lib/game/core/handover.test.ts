@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {get, writable, type Readable} from 'svelte/store';
 import {
 	heldTurnUntilBoardReleases,
-	holdBoardUntilRoundEnds,
+	holdBoardUntilCycleEnds,
 	rememberTurn,
 } from '$lib/game/core/handover';
 import type {RoundState} from '$lib/game/core/round';
@@ -48,7 +48,7 @@ function setup(initial: OnchainStateValue<Board>) {
 	const board = fakeBoard(initial);
 	const phase = writable<PlayWindow>({phase: 'play'});
 	const epoch = writable(2);
-	const held = holdBoardUntilRoundEnds<Board>({
+	const held = holdBoardUntilCycleEnds<Board>({
 		state: board.state,
 		phase,
 		epoch,
@@ -63,8 +63,8 @@ function setup(initial: OnchainStateValue<Board>) {
 	return {...board, phase, epoch, held, seen, holding};
 }
 
-describe('holding the board until the round is over', () => {
-	it('passes the chain straight through while the round is playable', () => {
+describe('holding the board until the cycle is over', () => {
+	it('passes the chain straight through while the cycle is playable', () => {
 		const t = setup(loaded(2, {a: 1}));
 		t.set(loaded(2, {a: 3}));
 
@@ -75,12 +75,12 @@ describe('holding the board until the round is over', () => {
 		expect(get(t.held.holding)).toBeUndefined();
 	});
 
-	it('withholds what the resolving round changed, and lets it out together', () => {
+	it('withholds what the resolving cycle changed, and lets it out together', () => {
 		const t = setup(loaded(2, {a: 1, b: 1}));
 		t.phase.set({phase: 'wait'});
 
 		// Two reveals land, one at a time, which is the whole problem: drawn as
-		// they arrive they show a simultaneous round playing out in payment order.
+		// they arrive they show a simultaneous cycle playing out in payment order.
 		t.set(loaded(2, {a: 5, b: 1}));
 		expect(get(t.held.board)).toMatchObject({
 			marks: new Map([
@@ -96,7 +96,7 @@ describe('holding the board until the round is over', () => {
 			]),
 		});
 
-		// The round ends. Everything appears at once.
+		// The cycle ends. Everything appears at once.
 		t.phase.set({phase: 'play'});
 		expect(get(t.held.board)).toMatchObject({
 			marks: new Map([
@@ -106,7 +106,7 @@ describe('holding the board until the round is over', () => {
 		});
 	});
 
-	it('publishes WHICH round it is holding, so the overlay releases in the same propagation', () => {
+	it('publishes WHICH cycle it is holding, so the overlay releases in the same propagation', () => {
 		const t = setup(loaded(2, {a: 1}));
 		expect(get(t.held.holding)).toBeUndefined();
 
@@ -140,12 +140,12 @@ describe('holding the board until the round is over', () => {
 		expect(get(t.held.board)).toMatchObject({marks: new Map([['a', 1]])});
 	});
 
-	it('hands the game the board on screen, the chain, and the round being resolved', () => {
+	it('hands the game the board on screen, the chain, and the cycle being resolved', () => {
 		const calls: unknown[] = [];
 		const board = fakeBoard(loaded(2, {a: 1}));
 		const phase = writable<PlayWindow>({phase: 'play'});
 		const epoch = writable(7);
-		const held = holdBoardUntilRoundEnds<Board>({
+		const held = holdBoardUntilCycleEnds<Board>({
 			state: board.state,
 			phase,
 			epoch,
@@ -173,7 +173,7 @@ describe('holding the board until the round is over', () => {
 		let sawStep: unknown = 'not called';
 		const board = fakeBoard(loaded(2, {a: 1}));
 		const phase = writable<PlayWindow>({phase: 'play'});
-		const held = holdBoardUntilRoundEnds<Board>({
+		const held = holdBoardUntilCycleEnds<Board>({
 			state: board.state,
 			phase,
 			epoch: writable(2),
@@ -210,7 +210,7 @@ describe('the turn the round no longer carries', () => {
 
 		// A player who plans a path and then CLEARS it has planned nothing. A
 		// memory that only took non-empty turns would redraw the path they
-		// deleted for the whole of the round it resolves in.
+		// deleted for the whole of the cycle it resolves in.
 		set({step: 'Committed', epoch: 2, actions: []});
 		expect(get(remembered)).toEqual({epoch: 2, actions: []});
 
@@ -231,7 +231,7 @@ describe('the turn the round no longer carries', () => {
 		expect(get(held)).toBeUndefined();
 
 		// The reveal lands. The round drops the actions; the board withholds what
-		// they did until the round is over. Without the bridge there is a window
+		// they did until the cycle is over. Without the bridge there is a window
 		// here in which the player is shown NEITHER copy of their own turn.
 		holding.set(2);
 		set({step: 'Revealed', epoch: 2});
@@ -241,8 +241,8 @@ describe('the turn the round no longer carries', () => {
 		expect(get(held)).toBeUndefined();
 	});
 
-	it('refuses a turn remembered from an EARLIER round', () => {
-		// Otherwise a turn from a previous round is resurrected over a round in
+	it('refuses a turn remembered from an EARLIER cycle', () => {
+		// Otherwise a turn from a previous cycle is resurrected over a cycle in
 		// which the player planned nothing at all.
 		const {round, set} = fakeRound();
 		const holding = writable<number | undefined>(undefined);

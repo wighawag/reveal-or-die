@@ -17,8 +17,8 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     }
 
     /// @inheritdoc IGameGetters
-    function getRound() external view returns (Round memory round) {
-        return _round();
+    function getCycle() external view returns (Cycle memory cycle) {
+        return _cycle();
     }
 
     /// @inheritdoc IGameGetters

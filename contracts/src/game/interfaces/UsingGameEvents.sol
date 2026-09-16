@@ -62,13 +62,13 @@ interface UsingGameEvents is UsingGameTypes {
     ///         not imply anyone lost it.
     event Placed(uint256 indexed player, uint64 indexed cellID, uint256 stake);
 
-    /// @notice The round moved because somebody pushed it, rather than because
+    /// @notice The cycle moved because somebody pushed it, rather than because
     ///         the clock said so.
-    /// @dev Emitted ONLY by {IGameReveal-advanceRound}, which is its own
+    /// @dev Emitted ONLY by {IGameReveal-advanceCycle}, which is its own
     ///      transaction and never a rider on the last reveal. A clock-driven
     ///      turnover emits nothing, because nothing happened on chain: that is
     ///      the difference this event exists to make visible.
-    event RoundAdvanced(
+    event CycleAdvanced(
         uint64 indexed cycleNumber,
         bool commiting,
         address pushedBy

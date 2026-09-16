@@ -1,5 +1,5 @@
 /**
- * Epochs: the commit-reveal round clock.
+ * Epochs: the commit-reveal cycle clock.
  *
  * This is framework, not a seam. Four independently written games (this one,
  * conquest, reveal-or-die, bomber-world and stratagems) compute the epoch the
@@ -15,7 +15,7 @@
  *
  * - `timed` follows the chain clock and nothing else, which is what a deployed
  *   game does. The formula above IS the answer.
- * - `manual` has no clock at all: the round moves when the players have all
+ * - `manual` has no clock at all: the cycle moves when the players have all
  *   acted and someone pushes it, so the only way to know where it is is to ask.
  * - `hybrid` (timed with early advance) has the clock as a DEADLINE, with
  *   unanimity able to bring the next phase forward. The formula is then a
@@ -33,7 +33,7 @@ import {derived, get, type Readable} from 'svelte/store';
 import type {ChainTimeStore} from './chain-time';
 
 /**
- * How the round advances. The client's half of `UsingGameTypes.CyclePolicy`.
+ * How the cycle advances. The client's half of `UsingGameTypes.CyclePolicy`.
  *
  * DECLARED BY THE DEPLOYMENT, never inferred. It used to be inferred, on both
  * sides: a game whose two phase durations were zero was a manual game, and was
@@ -52,7 +52,7 @@ export type EpochConfig = {
 	 * new moves, so a commit still has time to land before the phase closes.
 	 */
 	commitTimeAllowance: number;
-	/** How the round advances. See {@link EpochPolicy}. */
+	/** How the cycle advances. See {@link EpochPolicy}. */
 	policy: EpochPolicy;
 };
 
@@ -239,13 +239,13 @@ function twoPhaseFrom(info: ClockedEpochInfo): TwoPhase {
 }
 
 /**
- * WHERE THE CHAIN SAYS THE ROUND IS. The contract's `getRound`, as read.
+ * WHERE THE CHAIN SAYS THE CYCLE IS. The contract's `getCycle`, as read.
  *
  * `phaseStart` and `phaseEnd` are chain time. They are what make a prediction
- * possible at all: the pair says which grid the round is currently on, and
+ * possible at all: the pair says which grid the cycle is currently on, and
  * under `hybrid` that grid moves when somebody advances early.
  */
-export type RoundReading = {
+export type CycleReading = {
 	epoch: number;
 	isCommitPhase: boolean;
 	phaseStart: number;
@@ -256,24 +256,24 @@ export type RoundReading = {
  * Which of two readings is FURTHER ON.
  *
  * The ordering is (epoch, then commit before reveal), and it is total because a
- * round only ever moves one way. Used to combine what the chain last said with
+ * cycle only ever moves one way. Used to combine what the chain last said with
  * what the clock has since predicted, and the direction matters: the prediction
  * is a floor, so the answer is whichever is later. Reversing it would let a
  * stale reading pull a phase backwards on screen - and a board that says
  * "commit phase" after the chain has closed it invites a player to plan a turn
  * that cannot be sent.
  */
-function laterReading(a: RoundReading, b: RoundReading): RoundReading {
+function laterReading(a: CycleReading, b: CycleReading): CycleReading {
 	if (a.epoch !== b.epoch) return a.epoch > b.epoch ? a : b;
 	if (a.isCommitPhase === b.isCommitPhase) return a;
 	return a.isCommitPhase ? b : a;
 }
 
 /**
- * Roll a known round forward on the clock alone.
+ * Roll a known cycle forward on the clock alone.
  *
  * PURE, AND DELIBERATELY BLIND TO EARLY ADVANCE: an advance is a transaction,
- * so nothing here can know about one. What this produces is the round the chain
+ * so nothing here can know about one. What this produces is the cycle the chain
  * would be in if nobody pushed it, which is the FLOOR that {@link laterReading}
  * combines with the last real answer.
  *
@@ -282,11 +282,11 @@ function laterReading(a: RoundReading, b: RoundReading): RoundReading {
  * arithmetic run from the deployment would answer for a schedule the chain has
  * already left.
  */
-export function predictRound(
-	reading: RoundReading,
+export function predictCycle(
+	reading: CycleReading,
 	now: number,
 	config: EpochConfig,
-): RoundReading {
+): CycleReading {
 	const epochDuration = config.commitPhaseDuration + config.revealPhaseDuration;
 	const epochStart = reading.isCommitPhase
 		? reading.phaseStart
@@ -311,9 +311,9 @@ export function predictRound(
 	};
 }
 
-/** The timings a countdown needs, from a round the chain has confirmed. */
+/** The timings a countdown needs, from a cycle the chain has confirmed. */
 export function timingsOf(
-	reading: RoundReading,
+	reading: CycleReading,
 	now: number,
 	config: EpochConfig,
 ): EpochTimings {
@@ -357,8 +357,8 @@ export function timingsOf(
 export function createHybridEpochTrackers(params: {
 	chainTime: ChainTimeStore;
 	config: EpochConfigStore;
-	/** Reads the round from the game contract. */
-	readRound: () => Promise<RoundReading>;
+	/** Reads the cycle from the game contract. */
+	readCycle: () => Promise<CycleReading>;
 	/** How often to re-read. Defaults to one second. */
 	pollInterval?: number;
 }): {
@@ -366,17 +366,17 @@ export function createHybridEpochTrackers(params: {
 	twoPhase: Readable<TwoPhase>;
 	refresh: () => Promise<void>;
 } {
-	const {chainTime, config, readRound} = params;
+	const {chainTime, config, readCycle} = params;
 	const pollInterval = params.pollInterval ?? 1000;
 
 	/**
-	 * The furthest-on round anyone has established, from either source.
+	 * The furthest-on cycle anyone has established, from either source.
 	 *
 	 * Kept as a floor rather than replaced, so a lagging RPC node answering for
-	 * a block behind cannot walk the round backwards. The chain is monotone;
+	 * a block behind cannot walk the cycle backwards. The chain is monotone;
 	 * the answers about it are not always.
 	 */
-	let known: RoundReading | undefined;
+	let known: CycleReading | undefined;
 
 	const subscribers = new Set<(value: EpochInfo) => void>();
 	let timer: ReturnType<typeof setInterval> | undefined;
@@ -391,7 +391,7 @@ export function createHybridEpochTrackers(params: {
 			const timed = calculateEpochInfo(time, $config);
 			return {...timed, type: 'hybrid'};
 		}
-		const reading = laterReading(known, predictRound(known, time, $config));
+		const reading = laterReading(known, predictCycle(known, time, $config));
 		return {
 			type: 'hybrid',
 			currentEpoch: reading.epoch,
@@ -407,7 +407,7 @@ export function createHybridEpochTrackers(params: {
 	}
 
 	async function refresh() {
-		const reading = await readRound();
+		const reading = await readCycle();
 		known = known ? laterReading(known, reading) : reading;
 		publish();
 	}
@@ -548,7 +548,7 @@ export function resolveEpochConfig(linkedData: {
 }): EpochConfig {
 	// READ, not coerced. `Number(undefined)` is `NaN`, and a NaN phase duration
 	// makes every comparison against the clock false, so the epoch simply stops
-	// advancing and nothing is ever raised: the app sits on one round forever
+	// advancing and nothing is ever raised: the app sits on one cycle forever
 	// with no error to go on. See `./linked-data.ts`.
 	const values = linkedData as DeclaredValues;
 	const revealPhaseDuration = readNumber(values, 'revealPhaseDuration');
@@ -570,7 +570,7 @@ export function resolveEpochConfig(linkedData: {
  *
  * A DEPLOYMENT THAT DECLARES NONE IS OLDER THAN THE PARAMETER, and what it ran
  * is a fact rather than a guess: there was one rule, and it read the policy off
- * the durations - both zero meant the round had to be pushed, anything else
+ * the durations - both zero meant the cycle had to be pushed, anything else
  * meant the clock decided. Reproducing that is the honest answer for such a
  * deployment, and it is the one thing here that may NOT be tidied into "assume
  * timed": a manual deployment read as timed would divide by a zero epoch and
@@ -643,13 +643,13 @@ export function currentEpochOf(store: EpochInfoStore): number {
  * decision an app should be making: the deployment already made it, and a game
  * that picked its own would be drawing a clock the chain is not running.
  *
- * `readRound` is only used by the policies that need it. The timed one asks the
+ * `readCycle` is only used by the policies that need it. The timed one asks the
  * chain nothing at all, which is the point of it.
  */
 export function createEpochTrackers(params: {
 	chainTime: ChainTimeStore;
 	config: EpochConfigStore;
-	readRound: () => Promise<RoundReading>;
+	readCycle: () => Promise<CycleReading>;
 	pollInterval?: number;
 }): {epochInfo: EpochInfoStore; twoPhase: Readable<TwoPhase>} {
 	switch (params.config.current.policy) {
@@ -658,8 +658,8 @@ export function createEpochTrackers(params: {
 				config: params.config,
 				pollInterval: params.pollInterval,
 				readEpoch: async () => {
-					const round = await params.readRound();
-					return {epoch: round.epoch, committing: round.isCommitPhase};
+					const cycle = await params.readCycle();
+					return {epoch: cycle.epoch, committing: cycle.isCommitPhase};
 				},
 			});
 		case 'hybrid':

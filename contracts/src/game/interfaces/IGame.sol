@@ -77,7 +77,7 @@ interface IGameReveal is UsingGameTypes {
     ///         puts at stake.
     function acknowledgeMissedReveal(uint256 player) external;
 
-    /// @notice Move the round on, if the rules already permit it.
+    /// @notice Move the cycle on, if the rules already permit it.
     /// @return cycleNumber The epoch after the move.
     /// @return commiting Which phase it is now in.
     /// @dev PERMISSIONLESS AND STRICTLY CONDITIONAL. Anyone may call it, and it
@@ -89,11 +89,11 @@ interface IGameReveal is UsingGameTypes {
     ///
     ///      IT IS ITS OWN TRANSACTION AND NEVER A RIDER ON THE LAST REVEAL,
     ///      which is what keeps `reveal` meaning the same thing whoever sends
-    ///      it and whenever it lands. See {UsingGameInternal-_advanceRound}.
+    ///      it and whenever it lands. See {UsingGameInternal-_advanceCycle}.
     ///
     ///      On a purely timed game it always reverts, because the epoch is
     ///      whatever the clock says and no transaction can change that.
-    function advanceRound()
+    function advanceCycle()
         external
         returns (uint64 cycleNumber, bool commiting);
 }
@@ -104,14 +104,14 @@ interface IGameGetters is UsingGameTypes {
         view
         returns (uint64 cycleNumber, bool commiting);
 
-    /// @notice Where the round is, and until when.
+    /// @notice Where the cycle is, and until when.
     /// @dev THE ONE A CLIENT SHOULD READ. A client can compute the epoch from
     ///      the clock and the deployment's durations, and under a policy that
     ///      allows early advance that computation is a FLOOR rather than an
     ///      answer: an advance is a transaction, and no amount of arithmetic
     ///      predicts one. Reading this and predicting forward from it is the
     ///      shape that stays correct under all three policies.
-    function getRound() external view returns (Round memory round);
+    function getCycle() external view returns (Cycle memory cycle);
 
     /// @notice Who the epoch is waiting for, and how many have acted.
     function getAttendance()

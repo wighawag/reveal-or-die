@@ -23,7 +23,7 @@ import type {EpochInfoStore} from '$lib/game/core/epoch';
 import type {OnchainStateStore} from '$lib/game/core/seams';
 import {
 	refreshDuringReveal,
-	settleBoardWhenRoundStarts,
+	settleBoardWhenCycleStarts,
 	type BoardEpochState,
 	type PlayWindow,
 } from '$lib/game/core/refresh';
@@ -262,7 +262,7 @@ export function createPollingOnchainState<TState>(params: {
 				: {step: 'Unloaded'},
 	);
 
-	const settle = settleBoardWhenRoundStarts({
+	const settle = settleBoardWhenCycleStarts({
 		phase,
 		epoch,
 		state: boardEpoch,
