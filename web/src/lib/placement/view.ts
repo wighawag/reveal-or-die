@@ -15,7 +15,7 @@ import {positionOf, type Position} from './cells';
 
 export type CellView = Cell & {
 	position: Position;
-	/** The player has planned a placement here this epoch. */
+	/** The player has planned a placement here this cycle. */
 	planned: boolean;
 };
 
@@ -24,7 +24,7 @@ export type BoardView = {
 };
 
 export type LocalPlan = {
-	/** Cells the player has clicked this epoch, in the order they picked them. */
+	/** Cells the player has clicked this cycle, in the order they picked them. */
 	planned: readonly bigint[];
 };
 

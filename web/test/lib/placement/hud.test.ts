@@ -24,7 +24,7 @@ const idle = (): State => ({step: 'Idle'});
 const failed = (during: 'commit' | 'reveal', error: unknown): State => ({
 	step: 'Error',
 	during,
-	epoch: 3,
+	cycleNumber: 3,
 	actions: [{cellID: 1n}],
 	message: (error as Error).message,
 	error,
@@ -82,10 +82,10 @@ describe('what the HUD says about a failed round', () => {
 	it('says what a missed reveal cost, rather than that something went wrong', () => {
 		const {label, tone} = describeRound({
 			step: 'Missed',
-			epoch: 7,
+			cycleNumber: 7,
 			actions: [{cellID: 1n}],
 		} as unknown as State);
-		expect(label).toBe('Missed the reveal for epoch 7. The bond is forfeit.');
+		expect(label).toBe('Missed the reveal for cycle 7. The bond is forfeit.');
 		expect(tone).toBe('bad');
 	});
 });
@@ -110,7 +110,7 @@ function fakeContext(round: State, hasLocalSigner = true) {
 			planning: {count: writable(1)},
 			cost: writable(0n),
 			reserve: writable({step: 'Loaded', amount: 100n}),
-			epochInfo: writable({currentEpoch: 3}),
+			cycleInfo: writable({currentCycleNumber: 3}),
 			missedReveal: writable({step: 'Clear'}),
 			setup: writable(undefined),
 			acquisition: writable({step: 'Idle'}),
@@ -197,7 +197,7 @@ describe('what the HUD says when there is no local signer', () => {
  * The most time-critical thing this HUD ever says.
  *
  * A commitment the chain holds and this browser cannot open is recoverable for
- * exactly one epoch, so the sentence has to carry three things: that a
+ * exactly one cycle, so the sentence has to carry three things: that a
  * commitment exists, that it can still be opened, and that only the same turn
  * will open it. It must NOT say the stake is lost - it is not, yet, which is
  * the entire reason for showing anything.
@@ -212,11 +212,11 @@ describe('a round the chain holds and this browser has lost', () => {
 		const context = fakeContext(idle());
 		(context.game as unknown as {recovery: Writable<unknown>}).recovery.set({
 			step: 'Found',
-			epoch: 3,
+			cycleNumber: 3,
 		});
 		const model = get(createHud(context));
 
-		expect(model.recovery?.headline).toContain('epoch 3');
+		expect(model.recovery?.headline).toContain('cycle 3');
 		expect(model.recovery?.detail).toMatch(/can still be revealed/i);
 		// The one thing it must never say while the stake is still savable.
 		expect(model.recovery?.detail).not.toMatch(/forfeit|lost/i);
@@ -228,7 +228,7 @@ describe('a round the chain holds and this browser has lost', () => {
 		const context = fakeContext(idle());
 		(context.game as unknown as {recovery: Writable<unknown>}).recovery.set({
 			step: 'Found',
-			epoch: 3,
+			cycleNumber: 3,
 		});
 		(
 			context.game as unknown as {planning: {count: Writable<number>}}
@@ -240,18 +240,18 @@ describe('a round the chain holds and this browser has lost', () => {
 	it('tells a REFUSED plan apart from a check that could not be made', () => {
 		// The two look identical from the button and mean opposite things: one
 		// says "that is not your turn", the other says "we could not ask". Read
-		// the wrong way round, a player spends the only epoch they have looking
+		// the wrong way round, a player spends the only cycle they have looking
 		// for a mistake they did not make.
 		const context = fakeContext(idle());
 		const recovery = (context.game as unknown as {recovery: Writable<unknown>})
 			.recovery;
 
-		recovery.set({step: 'Refused', epoch: 3});
+		recovery.set({step: 'Refused', cycleNumber: 3});
 		expect(get(createHud(context)).recovery?.detail).toMatch(
 			/not the placements that were committed/i,
 		);
 
-		recovery.set({step: 'Failed', epoch: 3, message: 'no signer'});
+		recovery.set({step: 'Failed', cycleNumber: 3, message: 'no signer'});
 		const failed = get(createHud(context)).recovery?.detail ?? '';
 		expect(failed).toContain('no signer');
 		expect(failed).not.toMatch(/not the placements/i);

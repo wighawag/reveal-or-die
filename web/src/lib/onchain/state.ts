@@ -19,12 +19,12 @@ import type {
 import {createPollingStore} from '$lib/core/connection/polling-store';
 import type {CameraWatcher} from '$lib/game/render/camera';
 import type {ChainTimeStore} from '$lib/game/core/chain-time';
-import type {EpochInfoStore} from '$lib/game/core/epoch';
+import type {CycleInfoStore} from '$lib/game/core/cycle';
 import type {OnchainStateStore} from '$lib/game/core/seams';
 import {
 	refreshDuringReveal,
 	settleBoardWhenCycleStarts,
-	type BoardEpochState,
+	type BoardCycleState,
 	type PlayWindow,
 } from '$lib/game/core/refresh';
 import {derived, type Readable} from 'svelte/store';
@@ -39,15 +39,15 @@ export type {
  * Reads state for a set of zones.
  *
  * A game implements this against its own getters: `getAvatarsInZone`,
- * `getStarSystems`, whatever it has. The framework only needs the epoch back,
+ * `getStarSystems`, whatever it has. The framework only needs the cycle back,
  * so it can tell whether the answer is current.
  */
 export type ZonesReader<TState> = (params: {
 	zones: readonly bigint[];
 	fromBlock: number;
 	toBlock: number;
-	expectedEpoch: number;
-}) => Promise<(TState & {epoch: number}) | undefined>;
+	expectedCycleNumber: number;
+}) => Promise<(TState & {cycleNumber: number}) | undefined>;
 
 /** Maps a camera box to the zones a game wants loaded for it. */
 export type ZonesForCamera = (camera: {
@@ -60,30 +60,30 @@ export type ZonesForCamera = (camera: {
 /**
  * What the current fetch is scoped to.
  *
- * The epoch is part of the identity because the contract answers per-epoch: the
- * same zones at a new epoch is a different question, and the answer to the old
+ * The cycle is part of the identity because the contract answers per-cycle: the
+ * same zones at a new cycle is a different question, and the answer to the old
  * one is stale.
  */
 type FetchScope = {
 	zones: bigint[];
-	epoch: number;
+	cycleNumber: number;
 	averageBlockTime: number;
 };
 
 /** Stable identity, so panning inside the same zones does not refetch. */
 function scopeKey(scope: FetchScope): string {
-	return `${scope.epoch}:${scope.zones.join(',')}`;
+	return `${scope.cycleNumber}:${scope.zones.join(',')}`;
 }
 
 /**
- * How long to keep waiting for the node to reach the epoch we asked for.
+ * How long to keep waiting for the node to reach the cycle we asked for.
  *
- * At an epoch boundary the client's clock crosses over before the node has
- * mined a block on the other side, so a read for the new epoch legitimately
+ * At a cycle boundary the client's clock crosses over before the node has
+ * mined a block on the other side, so a read for the new cycle legitimately
  * comes back as "not yet". That is normal, not a fault: letting it reach the
  * polling store as an error would start exponential backoff (10s, 20s, 40s...)
  * that nothing cancels until the scope changes, and feed the RPC-health banner
- * a false outage. The player would see a blank board every epoch until they
+ * a false outage. The player would see a blank board every cycle until they
  * happened to pan. Conquest hit exactly this; the budget scales with block time
  * so a slow chain gets proportionally longer.
  */
@@ -117,8 +117,8 @@ const readableTrue: Readable<boolean> = {
 /**
  * The polling implementation of the state seam.
  *
- * What is fetched follows the camera and the epoch, so both are folded into the
- * polling store's `source`: a pan or an epoch tick triggers an immediate
+ * What is fetched follows the camera and the cycle, so both are folded into the
+ * polling store's `source`: a pan or a cycle tick triggers an immediate
  * refetch, and the interval is only a safety net.
  *
  * Every precondition (chain time pinned, camera sized, gate open) lives in the
@@ -131,7 +131,7 @@ export function createPollingOnchainState<TState>(params: {
 	publicClient: TypedPublicClient;
 	deployments: TypedDeployments;
 	camera: CameraWatcher;
-	epochInfo: EpochInfoStore;
+	cycleInfo: CycleInfoStore;
 	chainTime: ChainTimeStore;
 	zonesForCamera: ZonesForCamera;
 	read: ZonesReader<TState>;
@@ -152,7 +152,7 @@ export function createPollingOnchainState<TState>(params: {
 		publicClient,
 		deployments,
 		camera,
-		epochInfo,
+		cycleInfo,
 		chainTime,
 		zonesForCamera,
 		read,
@@ -163,16 +163,16 @@ export function createPollingOnchainState<TState>(params: {
 		commitPhaseDuration: unknown;
 		revealPhaseDuration: unknown;
 	};
-	const epochDuration =
+	const cycleDuration =
 		Number(linkedData.commitPhaseDuration) +
 		Number(linkedData.revealPhaseDuration);
 
 	const scope = derived<
-		[CameraWatcher, EpochInfoStore, ChainTimeStore, Readable<boolean>],
+		[CameraWatcher, CycleInfoStore, ChainTimeStore, Readable<boolean>],
 		FetchScope | undefined
 	>(
-		[camera, epochInfo, chainTime, params.fetchGate ?? readableTrue],
-		([$camera, $epochInfo, $chainTime, $gate]) => {
+		[camera, cycleInfo, chainTime, params.fetchGate ?? readableTrue],
+		([$camera, $cycleInfo, $chainTime, $gate]) => {
 			if (!$gate) return undefined;
 			// Chain time has to be pinned to a block before a span of seconds can
 			// become a span of blocks. It lands a few hundred ms after startup.
@@ -181,7 +181,7 @@ export function createPollingOnchainState<TState>(params: {
 			if ($camera.width <= 0 || $camera.height <= 0) return undefined;
 			return {
 				zones: zonesForCamera($camera),
-				epoch: $epochInfo.currentEpoch,
+				cycleNumber: $cycleInfo.currentCycleNumber,
 				averageBlockTime: $chainTime.lastSync.averageBlockTime,
 			};
 		},
@@ -195,12 +195,12 @@ export function createPollingOnchainState<TState>(params: {
 				Date.now() + nodeCatchupBudgetMs(currentScope.averageBlockTime);
 
 			for (;;) {
-				// The contract answers over a block range; ask for roughly two epochs'
+				// The contract answers over a block range; ask for roughly two cycles'
 				// worth, doubled, so late blocks cannot hide an event. Re-read per
 				// attempt, since the point of retrying is that the chain moves on.
 				const toBlock = Number(await publicClient.getBlockNumber());
 				const span = Math.floor(
-					(4 * epochDuration) / currentScope.averageBlockTime,
+					(4 * cycleDuration) / currentScope.averageBlockTime,
 				);
 				const fromBlock = Math.max(0, toBlock - span);
 
@@ -208,18 +208,18 @@ export function createPollingOnchainState<TState>(params: {
 					zones: currentScope.zones,
 					fromBlock,
 					toBlock,
-					expectedEpoch: currentScope.epoch,
+					expectedCycleNumber: currentScope.cycleNumber,
 				});
 
 				if (result) return result;
 
-				// The node has not reached this epoch yet. Wait it out briefly rather
+				// The node has not reached this cycle yet. Wait it out briefly rather
 				// than reporting a failure (see nodeCatchupBudgetMs); if it persists
 				// past the budget then something really is wrong and the error is
 				// allowed through to the health banner and the backoff.
 				if (Date.now() >= deadline) {
 					throw new Error(
-						`node did not reach epoch ${currentScope.epoch} in time`,
+						`node did not reach cycle ${currentScope.cycleNumber} in time`,
 					);
 				}
 				await delay(NODE_CATCHUP_RETRY_MS);
@@ -237,7 +237,7 @@ export function createPollingOnchainState<TState>(params: {
 
 	// ---- the refresh policy at the two edges of a round ---------------------
 	//
-	// INSIDE THE POLLER, not left to each app to wire. The epoch model is the
+	// INSIDE THE POLLER, not left to each app to wire. The cycle model is the
 	// framework's, so both of these consequences of it are too: every game on
 	// this template would otherwise discover the same two faults for itself,
 	// from play, which is how they were found the first time.
@@ -245,27 +245,34 @@ export function createPollingOnchainState<TState>(params: {
 	const policy = params.config?.refreshPolicy;
 
 	// The reveal window, as these policies see it. `isCommitPhase` is the honest
-	// reading for both kinds of epoch: a timed chain and a manually advanced one
+	// reading for both kinds of cycle: a timed chain and a manually advanced one
 	// both answer it, where only a timed one has a countdown.
-	const phase = derived(epochInfo, ($epochInfo): PlayWindow => ({
-		phase: $epochInfo.isCommitPhase ? 'play' : 'wait',
+	const phase = derived(cycleInfo, ($cycleInfo): PlayWindow => ({
+		phase: $cycleInfo.isCommitPhase ? 'play' : 'wait',
 	}));
-	const epoch = derived(epochInfo, ($epochInfo) => $epochInfo.currentEpoch);
+	const cycleNumber = derived(
+		cycleInfo,
+		($cycleInfo) => $cycleInfo.currentCycleNumber,
+	);
 	// The store's own value, read as "is it loaded, and for which round". The
-	// reader stamps every loaded value with the epoch the fetch was FOR, which is
+	// reader stamps every loaded value with the cycle the fetch was FOR, which is
 	// what makes "has the board caught up" answerable at all.
-	const boardEpoch = derived(
+	const boardCycleNumber = derived(
 		{subscribe: store.subscribe},
-		($value): BoardEpochState =>
+		($value): BoardCycleState =>
 			$value.step === 'Loaded'
-				? {step: 'Loaded', epoch: ($value as unknown as {epoch: number}).epoch}
+				? {
+						step: 'Loaded',
+						cycleNumber: ($value as unknown as {cycleNumber: number})
+							.cycleNumber,
+					}
 				: {step: 'Unloaded'},
 	);
 
 	const settle = settleBoardWhenCycleStarts({
 		phase,
-		epoch,
-		state: boardEpoch,
+		cycleNumber,
+		state: boardCycleNumber,
 		refresh: update,
 		...(policy && policy.settleRetryMs !== undefined
 			? {retryMs: policy.settleRetryMs}

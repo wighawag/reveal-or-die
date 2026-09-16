@@ -9,7 +9,7 @@
  * Here the board is cells with an accumulated stake and a claimant count, and
  * during a reveal window the only thing on chain that touches either is a
  * reveal of the cycle being resolved. A commitment places nothing - it is a
- * hash - and the contract refuses a reveal once the epoch has turned over. So
+ * hash - and the contract refuses a reveal once the cycle has turned over. So
  * "what this cycle changed" is simply "whatever changed", and the rule is that
  * a cell already on screen keeps the value it had when the cycle began.
  *
@@ -37,7 +37,7 @@
 import type {HoldResolvingCycle} from '$lib/game/core/handover';
 import type {BoardState} from './state';
 
-export type HeldBoardState = BoardState & {epoch: number};
+export type HeldBoardState = BoardState & {cycleNumber: number};
 
 export const holdResolvingCycle: HoldResolvingCycle<HeldBoardState> = ({
 	shown,
@@ -57,8 +57,8 @@ export const holdResolvingCycle: HoldResolvingCycle<HeldBoardState> = ({
 		if (previous) cells.set(id, previous);
 	}
 
-	// The epoch is the BOARD's own stamp and is not part of the outcome: it says
+	// The cycle is the BOARD's own stamp and is not part of the outcome: it says
 	// which cycle the fetch was for, and everything that watches for the board
 	// catching up reads it.
-	return {cells, epoch: latest.epoch};
+	return {cells, cycleNumber: latest.cycleNumber};
 };

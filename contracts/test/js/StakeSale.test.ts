@@ -161,15 +161,17 @@ describe('StakeSale', function () {
 			Game,
 			StakeSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycleNumber,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const {price, amount} = saleConfig(StakeSale);
 		const player = unnamedAccounts[6];
-		const {epoch: startEpoch} = getEpoch(await getTimestamp());
-		await advanceToEpoch(startEpoch + 2, true);
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
 
 		await env.execute(StakeSale, {
 			account: player,

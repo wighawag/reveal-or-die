@@ -3,7 +3,7 @@
  *
  * The mechanism and everything the template composes for every app are in
  * `$lib/game/core/diagnostics`: the modal candidates, RPC health and its
- * inputs, the signer's balance, the round and the epoch. Read that file first;
+ * inputs, the signer's balance, the round and the cycle. Read that file first;
  * it is also where the argument for watching from OUTSIDE rather than
  * instrumenting `core/` lives, and it is the reason a descendant can keep this
  * file without inheriting a merge conflict.
@@ -47,7 +47,7 @@ export function startDiagnostics(context: Context): () => void {
 	);
 
 	// The chain holding a commitment this browser cannot open is the most
-	// time-critical state the app has, and it lasts one epoch. Traced beside the
+	// time-critical state the app has, and it lasts one cycle. Traced beside the
 	// round because the question is always what the round was doing when it
 	// appeared.
 	stops.push(

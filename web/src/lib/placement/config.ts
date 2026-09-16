@@ -7,7 +7,7 @@
  * the UI describing a different game from the one on chain.
  */
 import type {TypedDeployments} from '$lib/core/connection/types';
-import {resolveEpochConfig, type EpochConfig} from '$lib/game/core/epoch';
+import {resolveCycleConfig, type CycleConfig} from '$lib/game/core/cycle';
 import {
 	optionalBigInt,
 	readAddress,
@@ -16,7 +16,7 @@ import {
 } from '$lib/game/core/linked-data';
 
 export type PlacementConfig = {
-	epoch: EpochConfig;
+	cycle: CycleConfig;
 	/** What one placement costs, taken from the player's reserve on reveal. */
 	placementCost: bigint;
 	/** The ERC20 the reserve is denominated in. */
@@ -88,7 +88,7 @@ type GameLinkedData = DeclaredValues & {
  * Deliberately generous, and the reveal more so than the commit. A commit
  * writes one hash; a reveal walks every placement, each of which can touch a
  * zone index. Running out of gas mid-round is not a slow turn, it is a missed
- * reveal, which loses the bond AND blocks the next epoch until it is
+ * reveal, which loses the bond AND blocks the next cycle until it is
  * acknowledged. Over-reserving costs a slightly larger first payment.
  */
 const COMMIT_GAS = 100_000n;
@@ -121,7 +121,7 @@ export function resolvePlacementConfig(
 		optionalBigInt(deployments.chain.properties, 'expectedWorstGasPrice') ?? 0n;
 
 	return {
-		epoch: resolveEpochConfig(linkedData),
+		cycle: resolveCycleConfig(linkedData),
 		placementCost: readBigInt(linkedData, 'placementCost'),
 		tokenAddress: readAddress(linkedData, 'tokens'),
 		sale: {

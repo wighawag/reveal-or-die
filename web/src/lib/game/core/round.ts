@@ -2,7 +2,7 @@
  * The commit-reveal round.
  *
  * This is framework, not a seam. It owns the part every game on this template
- * shares: what the player has planned for this epoch, when that stops being
+ * shares: what the player has planned for this cycle, when that stops being
  * changeable, keeping the secret until it is time to disclose it, and getting
  * the reveal out. What it does NOT know is how to call the contract - that is
  * the `CommitRevealAdapter` the game supplies.
@@ -30,7 +30,7 @@
  */
 import {get, writable, type Readable} from 'svelte/store';
 import type {CommitRevealAdapter, PlayerIdentity} from './seams';
-import {revealPhaseStartTime, type EpochInfoStore} from './epoch';
+import {revealPhaseStartTime, type CycleInfoStore} from './cycle';
 
 /**
  * What has to survive a reload.
@@ -40,7 +40,7 @@ import {revealPhaseStartTime, type EpochInfoStore} from './epoch';
  * way to lose a secret.
  */
 export type PersistedRound<TAction> = {
-	epoch: number;
+	cycleNumber: number;
 	actions: readonly TAction[];
 	secret: `0x${string}`;
 	/** Set once the commit transaction has been submitted. */
@@ -61,24 +61,24 @@ export type RoundStorage<TAction> = {
 };
 
 export type RoundState<TAction> =
-	/** No player, or nothing planned yet this epoch. */
+	/** No player, or nothing planned yet this cycle. */
 	| {step: 'Idle'}
 	/** Actions chosen, still changeable. */
-	| {step: 'Planning'; epoch: number; actions: readonly TAction[]}
-	| {step: 'Committing'; epoch: number; actions: readonly TAction[]}
-	/** The commitment is in; the reveal is owed this epoch. */
-	| {step: 'Committed'; epoch: number; actions: readonly TAction[]}
-	| {step: 'Revealing'; epoch: number; actions: readonly TAction[]}
-	| {step: 'Revealed'; epoch: number}
+	| {step: 'Planning'; cycleNumber: number; actions: readonly TAction[]}
+	| {step: 'Committing'; cycleNumber: number; actions: readonly TAction[]}
+	/** The commitment is in; the reveal is owed this cycle. */
+	| {step: 'Committed'; cycleNumber: number; actions: readonly TAction[]}
+	| {step: 'Revealing'; cycleNumber: number; actions: readonly TAction[]}
+	| {step: 'Revealed'; cycleNumber: number}
 	/**
-	 * A commitment from an earlier epoch was never revealed. Whatever the game
+	 * A commitment from an earlier cycle was never revealed. Whatever the game
 	 * put at stake has been lost by its own rules (a burnt bond, a demoted
 	 * character); the round cannot undo it, only report it.
 	 */
-	| {step: 'Missed'; epoch: number}
+	| {step: 'Missed'; cycleNumber: number}
 	| {
 			step: 'Error';
-			epoch: number;
+			cycleNumber: number;
 			during: 'commit' | 'reveal';
 			message: string;
 			/**
@@ -97,7 +97,7 @@ export type RoundStore<TIdentity extends PlayerIdentity, TAction> = Readable<
 	RoundState<TAction>
 > & {
 	readonly value: RoundState<TAction>;
-	/** Replace what is planned for this epoch. Ignored once committed. */
+	/** Replace what is planned for this cycle. Ignored once committed. */
 	plan(actions: readonly TAction[]): void;
 	/** Send the commitment now, rather than waiting for the phase to close. */
 	commit(): Promise<void>;
@@ -121,7 +121,7 @@ export type RoundStore<TIdentity extends PlayerIdentity, TAction> = Readable<
 	 * implementation for what it refuses and why.
 	 */
 	adopt(round: PersistedRound<TAction>): boolean;
-	/** Begin watching the epoch. Returns the teardown. */
+	/** Begin watching the cycle. Returns the teardown. */
 	start(): () => void;
 };
 
@@ -148,7 +148,7 @@ function randomSecret(): `0x${string}` {
 }
 
 export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
-	epochInfo: EpochInfoStore;
+	cycleInfo: CycleInfoStore;
 	adapter: CommitRevealAdapter<TIdentity, TAction>;
 	storage: RoundStorage<TAction>;
 	/** Who is playing, or undefined when nobody is connected. */
@@ -161,7 +161,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	/**
 	 * Whether a turn with NOTHING planned should still be committed and revealed.
 	 *
-	 * Default false, which is right for a game where a quiet epoch simply passes:
+	 * Default false, which is right for a game where a quiet cycle simply passes:
 	 * committing an empty round would spend gas to say nothing.
 	 *
 	 * It is wrong, and expensively so, for a game that PUNISHES SILENCE. Where
@@ -180,7 +180,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * An entity waiting to enter play has no clock running against it, and
 	 * committing empty rounds for it would burn gas for nothing.
 	 *
-	 * It has to live here rather than in the game because the round owns the epoch
+	 * It has to live here rather than in the game because the round owns the cycle
 	 * loop, the secret and the storage, and a game cannot express "commit nothing"
 	 * from outside: `plan([])` means "nothing is pending", not "send an empty
 	 * turn".
@@ -214,7 +214,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 *
 	 * A game on a 23h/1h commit/reveal split cannot expect anyone to be at the
 	 * keyboard for the reveal hour, which is why stratagems and catacombs schedule
-	 * it; a game whose epoch is minutes long can just do it here. Both remain the
+	 * it; a game whose cycle is minutes long can just do it here. Both remain the
 	 * player's to trigger by hand.
 	 */
 	autoReveal?: 'immediately' | 'fallback' | 'never';
@@ -224,13 +224,13 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 */
 	fallbackRevealAfter?: number;
 	/**
-	 * Produce the secret for an epoch. Defaults to 32 random bytes.
+	 * Produce the secret for a cycle. Defaults to 32 random bytes.
 	 *
 	 * A game overrides this to DERIVE the secret from a key the player already
 	 * holds, which makes a round recoverable after local storage is lost. See
 	 * `randomSecret` above and `createDerivedSecret` in `./secret.ts`.
 	 *
-	 * IT IS HANDED THE IDENTITY, not only the epoch, and a derivation that
+	 * IT IS HANDED THE IDENTITY, not only the cycle, and a derivation that
 	 * ignores it is wrong wherever one account can hold several. Two identities
 	 * deriving the same secret means either can open the other's commitment by
 	 * enumerating a small action space against the published hash, so the hiding
@@ -238,7 +238,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * cheapest correct derivation is also the obvious one.
 	 */
 	makeSecret?: (params: {
-		epoch: number;
+		cycleNumber: number;
 		identity: TIdentity;
 	}) => `0x${string}` | Promise<`0x${string}`>;
 	/**
@@ -253,7 +253,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 */
 	onSettled?: () => void | Promise<void>;
 }): RoundStore<TIdentity, TAction> {
-	const {epochInfo, adapter, storage, identity} = params;
+	const {cycleInfo, adapter, storage, identity} = params;
 	const autoCommit = params.autoCommit ?? true;
 	const commitWhenIdle = params.commitWhenIdle ?? (() => false);
 	const autoReveal = params.autoReveal ?? 'immediately';
@@ -291,7 +291,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	}
 
 	/**
-	 * Whether the round owes NOTHING for the epoch now closing, which is the
+	 * Whether the round owes NOTHING for the cycle now closing, which is the
 	 * question `commitWhenIdle` is asked about.
 	 *
 	 * Not the same as `step === 'Idle'`, and reading it that way stopped the
@@ -299,34 +299,36 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * on `Revealed` - there is nothing to put it back to `Idle`, and nothing
 	 * should, since the HUD reports the outcome from it - so a player who moved
 	 * once and then stood still committed nothing ever again, and lost what they
-	 * held a few epochs later to the very silence this option exists to prevent.
+	 * held a few cycles later to the very silence this option exists to prevent.
 	 * Found in play, not in review.
 	 *
-	 * A FINISHED round from an EARLIER epoch is nothing pending. The epoch
-	 * comparison is what makes that safe: a round revealed in the epoch still
-	 * running has already had its commitment, and a second one for the same epoch
+	 * A FINISHED round from an EARLIER cycle is nothing pending. The cycle
+	 * comparison is what makes that safe: a round revealed in the cycle still
+	 * running has already had its commitment, and a second one for the same cycle
 	 * is not something to send.
 	 */
-	function nothingPendingFor(currentEpoch: number): boolean {
+	function nothingPendingFor(currentCycleNumber: number): boolean {
 		if ($state.step === 'Idle') return true;
 		if ($state.step === 'Revealed' || $state.step === 'Missed') {
-			return $state.epoch < currentEpoch;
+			return $state.cycleNumber < currentCycleNumber;
 		}
 		return false;
 	}
 
 	/**
-	 * The epoch a plan made right now would be committed in.
+	 * The cycle a plan made right now would be committed in.
 	 *
-	 * During the commit phase that is this epoch. During the REVEAL phase the
+	 * During the commit phase that is this cycle. During the REVEAL phase the
 	 * commit window has closed, so anything planned now is for the next one.
 	 * Stamping it that way is what stops it being thrown away as stale the moment
-	 * the epoch turns over: a player who keeps clicking while the round resolves
+	 * the cycle turns over: a player who keeps clicking while the round resolves
 	 * is planning ahead, not making a mistake.
 	 */
-	function epochBeingPlannedFor(): number {
-		const info = epochInfo.now();
-		return info.isCommitPhase ? info.currentEpoch : info.currentEpoch + 1;
+	function cycleNumberBeingPlannedFor(): number {
+		const info = cycleInfo.now();
+		return info.isCommitPhase
+			? info.currentCycleNumber
+			: info.currentCycleNumber + 1;
 	}
 
 	function plan(actions: readonly TAction[]) {
@@ -339,7 +341,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 		) {
 			return;
 		}
-		const epoch = epochBeingPlannedFor();
+		const cycleNumber = cycleNumberBeingPlannedFor();
 		if (actions.length === 0) {
 			// Nothing planned is the same as nothing pending, and a stored empty
 			// round would only be a way to reveal nothing later.
@@ -347,7 +349,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 			set({step: 'Idle'});
 			return;
 		}
-		set({step: 'Planning', epoch, actions});
+		set({step: 'Planning', cycleNumber, actions});
 	}
 
 	async function commit() {
@@ -357,7 +359,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 		// loop simply does nothing), so what is being decided here is only whether an
 		// empty turn is worth sending.
 		const idleButOwed =
-			nothingPendingFor(epochInfo.now().currentEpoch) && commitWhenIdle();
+			nothingPendingFor(cycleInfo.now().currentCycleNumber) && commitWhenIdle();
 		if ($state.step !== 'Planning' && $state.step !== 'Error' && !idleButOwed) {
 			return;
 		}
@@ -367,46 +369,46 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 		const player = currentIdentity();
 		if (!hasIdentity(player)) return;
 
-		const info = epochInfo.now();
+		const info = cycleInfo.now();
 		if (!info.isCommitPhase) {
 			// The commit phase closed while the player was deciding. Their moves
-			// are kept, but this epoch is gone.
+			// are kept, but this cycle is gone.
 			return;
 		}
-		const epoch = info.currentEpoch;
-		const secret = await makeSecret({epoch, identity: player});
+		const cycleNumber = info.currentCycleNumber;
+		const secret = await makeSecret({cycleNumber, identity: player});
 		const {hash} = adapter.buildCommitment({actions, secret});
 
 		// Persisted BEFORE the call, so a reload during the wallet prompt cannot
 		// leave a commitment nobody can open. See the file comment.
-		storage.save({epoch, actions, secret, committed: false});
+		storage.save({cycleNumber, actions, secret, committed: false});
 
-		set({step: 'Committing', epoch, actions});
+		set({step: 'Committing', cycleNumber, actions});
 		try {
 			await adapter.commit({
 				identity: player,
 				hash,
 				actions,
 				secret,
-				epoch,
+				cycleNumber,
 				// TAKEN FROM THE ROUND, not recomputed from the deployment. A
 				// manually advanced chain has no clock, so there is no moment to
 				// predict and nothing a scheduler could be told; and under a policy
-				// that allows early advance the epoch's origin moves, so the same
+				// that allows early advance the cycle's origin moves, so the same
 				// arithmetic run against the deployment's start time would answer
 				// for a grid the chain has left behind - and a scheduled reveal is
 				// the one thing that cannot be re-asked later.
 				revealDueAt: info.type === 'manual' ? undefined : info.revealOpensAt,
 			});
-			storage.save({epoch, actions, secret, committed: true});
-			set({step: 'Committed', epoch, actions});
+			storage.save({cycleNumber, actions, secret, committed: true});
+			set({step: 'Committed', cycleNumber, actions});
 		} catch (error) {
 			// The commitment never went out, so nothing is at stake and the stored
 			// round would only confuse the next load.
 			storage.clear();
 			set({
 				step: 'Error',
-				epoch,
+				cycleNumber,
 				during: 'commit',
 				message: messageOf(error),
 				error,
@@ -423,16 +425,20 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 		const player = currentIdentity();
 		if (!hasIdentity(player)) return;
 
-		const info = epochInfo.now();
-		if (info.currentEpoch !== pending.epoch) {
-			// Too late: the contract only accepts a reveal in the epoch that was
+		const info = cycleInfo.now();
+		if (info.currentCycleNumber !== pending.cycleNumber) {
+			// Too late: the contract only accepts a reveal in the cycle that was
 			// committed to.
 			storage.clear();
-			set({step: 'Missed', epoch: pending.epoch});
+			set({step: 'Missed', cycleNumber: pending.cycleNumber});
 			return;
 		}
 
-		set({step: 'Revealing', epoch: pending.epoch, actions: pending.actions});
+		set({
+			step: 'Revealing',
+			cycleNumber: pending.cycleNumber,
+			actions: pending.actions,
+		});
 		try {
 			await adapter.reveal({
 				identity: player,
@@ -447,14 +453,14 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 				// either way, and the poller will catch up on its own interval.
 			}
 			storage.clear();
-			set({step: 'Revealed', epoch: pending.epoch});
+			set({step: 'Revealed', cycleNumber: pending.cycleNumber});
 		} catch (error) {
 			// The stored round is deliberately KEPT: the reveal can be retried for
 			// as long as the phase lasts, and dropping the secret here would
 			// forfeit the stake over a rejected wallet prompt.
 			set({
 				step: 'Error',
-				epoch: pending.epoch,
+				cycleNumber: pending.cycleNumber,
 				during: 'reveal',
 				message: messageOf(error),
 				error,
@@ -481,10 +487,10 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * It refuses two things, and both refusals are the point rather than
 	 * defensive noise.
 	 *
-	 * A ROUND FROM ANOTHER EPOCH. Only the epoch in progress can still be
+	 * A ROUND FROM ANOTHER CYCLE. Only the cycle in progress can still be
 	 * revealed; adopting an older one would put the round into `Committed` for a
 	 * window that has shut, and it would then spend gas on a reveal the contract
-	 * refuses. A commitment left over from an earlier epoch is a MISSED reveal,
+	 * refuses. A commitment left over from an earlier cycle is a MISSED reveal,
 	 * which is a settlement the player presses for themselves, not something to
 	 * recover.
 	 *
@@ -498,15 +504,24 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * reconstructed once is now an ordinary stored round.
 	 */
 	function adopt(pending: PersistedRound<TAction>): boolean {
-		if (pending.epoch !== epochInfo.now().currentEpoch) return false;
+		if (pending.cycleNumber !== cycleInfo.now().currentCycleNumber)
+			return false;
 		if ($state.step === 'Committing' || $state.step === 'Revealing')
 			return false;
 
 		storage.save(pending);
 		set(
 			pending.committed
-				? {step: 'Committed', epoch: pending.epoch, actions: pending.actions}
-				: {step: 'Planning', epoch: pending.epoch, actions: pending.actions},
+				? {
+						step: 'Committed',
+						cycleNumber: pending.cycleNumber,
+						actions: pending.actions,
+					}
+				: {
+						step: 'Planning',
+						cycleNumber: pending.cycleNumber,
+						actions: pending.actions,
+					},
 		);
 		return true;
 	}
@@ -518,35 +533,36 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 
 		if (adopt(pending)) return;
 
-		// An older epoch. A committed round that was never revealed has already
+		// An older cycle. A committed round that was never revealed has already
 		// cost the player; an uncommitted one costs nothing and is just dropped.
 		storage.clear();
 		if (pending.committed) {
-			set({step: 'Missed', epoch: pending.epoch});
+			set({step: 'Missed', cycleNumber: pending.cycleNumber});
 		}
 	}
 
 	function start() {
 		restore();
 
-		let previousEpoch: number | undefined;
+		let previousCycleNumber: number | undefined;
 
-		const unsubscribeEpoch = epochInfo.subscribe(($info) => {
-			const epochChanged =
-				previousEpoch !== undefined && $info.currentEpoch !== previousEpoch;
-			previousEpoch = $info.currentEpoch;
+		const unsubscribeCycle = cycleInfo.subscribe(($info) => {
+			const cycleChanged =
+				previousCycleNumber !== undefined &&
+				$info.currentCycleNumber !== previousCycleNumber;
+			previousCycleNumber = $info.currentCycleNumber;
 
-			if (epochChanged) {
+			if (cycleChanged) {
 				if ($state.step === 'Committed' || $state.step === 'Revealing') {
-					// The epoch turned over with a commitment still open: the reveal
+					// The cycle turned over with a commitment still open: the reveal
 					// window is gone.
 					storage.clear();
-					set({step: 'Missed', epoch: $state.epoch});
+					set({step: 'Missed', cycleNumber: $state.cycleNumber});
 				} else if ($state.step === 'Planning' || $state.step === 'Error') {
-					// A plan made during the reveal phase was stamped for THIS epoch,
+					// A plan made during the reveal phase was stamped for THIS cycle,
 					// which has just begun, so it is not stale and must survive. Only
 					// drop a plan whose commit window has actually gone by.
-					if ($state.epoch < $info.currentEpoch) {
+					if ($state.cycleNumber < $info.currentCycleNumber) {
 						storage.clear();
 						set({step: 'Idle'});
 					}
@@ -585,15 +601,15 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 					// Nothing planned, but silence costs this game's player what they
 					// hold. See `commitWhenIdle`, and `nothingPendingFor` for why this is
 					// not simply `Idle`: the round that just ended is still being
-					// reported, and it owes the next epoch a turn all the same.
-					(nothingPendingFor($info.currentEpoch) && commitWhenIdle())) &&
+					// reported, and it owes the next cycle a turn all the same.
+					(nothingPendingFor($info.currentCycleNumber) && commitWhenIdle())) &&
 				$info.timeLeftForCommitEnd <= $info.config.commitTimeAllowance
 			) {
 				void commit();
 			}
 		});
 
-		return () => unsubscribeEpoch();
+		return () => unsubscribeCycle();
 	}
 
 	return {

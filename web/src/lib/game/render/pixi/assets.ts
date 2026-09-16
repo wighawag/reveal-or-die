@@ -91,7 +91,7 @@ export function loadWorldAssets(): Promise<void> {
 
 // `typeof window` rather than `$lib/kit`'s `browser`, because this repo's kit
 // re-exports only `version`. Every other module under `$lib/game/**` that needs
-// this asks the same way (`epoch.ts`, `chain-time.ts`, `gamepad.ts`), so this
+// this asks the same way (`cycle.ts`, `chain-time.ts`, `gamepad.ts`), so this
 // is the house style here rather than a shortcut. reveal-or-die's kit DOES
 // export `browser`, and adding it upstream is worth doing - but on `main`,
 // where every node gets it, not on this branch, where it would be a shared-file

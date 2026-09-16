@@ -46,7 +46,7 @@ const cell = (id: bigint) => ({
 });
 
 describe('createBoardReader', () => {
-	it('accepts a read whose chain epoch is behind the one asked for', async () => {
+	it('accepts a read whose chain cycle is behind the one asked for', async () => {
 		// THE FIX. The client's clock interpolates from the wall clock between
 		// blocks, so it crosses a round boundary before the chain has mined a
 		// block past it, and the contract answers from its latest block with the
@@ -59,16 +59,16 @@ describe('createBoardReader', () => {
 			zones: [0n],
 			fromBlock: 0,
 			toBlock: 100,
-			expectedEpoch: 8,
+			expectedCycleNumber: 8,
 		});
 
 		expect(state).toBeDefined();
 		expect(state!.cells.size).toBe(1);
 	});
 
-	it('stamps the read with the epoch it was FOR, not the chain\u2019s', async () => {
+	it('stamps the read with the cycle it was FOR, not the chain\u2019s', async () => {
 		// Everything downstream asks "has the board caught up with the clock?" by
-		// comparing this number with the clock's. Stamping the chain's epoch makes
+		// comparing this number with the clock's. Stamping the chain's cycle makes
 		// the catch-up last until a block past the boundary is mined - on a node
 		// that only mines on transactions, that is the next commit, some twenty
 		// seconds of waiting for a counter when the data has already arrived.
@@ -78,10 +78,10 @@ describe('createBoardReader', () => {
 			zones: [0n],
 			fromBlock: 0,
 			toBlock: 100,
-			expectedEpoch: 8,
+			expectedCycleNumber: 8,
 		});
 
-		expect(state!.epoch).toBe(8);
+		expect(state!.cycleNumber).toBe(8);
 	});
 
 	it('refuses only when two batches of one read disagree with each other', async () => {
@@ -97,7 +97,7 @@ describe('createBoardReader', () => {
 			zones: Array.from({length: 9}, (_, i) => BigInt(i)),
 			fromBlock: 0,
 			toBlock: 100,
-			expectedEpoch: 8,
+			expectedCycleNumber: 8,
 		});
 
 		expect(state).toBeUndefined();
@@ -118,7 +118,7 @@ describe('createBoardReader', () => {
 			zones: Array.from({length: 9}, (_, i) => BigInt(i)),
 			fromBlock: 0,
 			toBlock: 100,
-			expectedEpoch: 8,
+			expectedCycleNumber: 8,
 		});
 
 		expect(blocks.length).toBe(2);
@@ -137,10 +137,10 @@ describe('createBoardReader', () => {
 			zones: [],
 			fromBlock: 0,
 			toBlock: 100,
-			expectedEpoch: 8,
+			expectedCycleNumber: 8,
 		});
 
 		expect(readContract).not.toHaveBeenCalled();
-		expect(state).toEqual({cells: new Map(), epoch: 8});
+		expect(state).toEqual({cells: new Map(), cycleNumber: 8});
 	});
 });

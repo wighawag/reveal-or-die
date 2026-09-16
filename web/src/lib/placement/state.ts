@@ -89,8 +89,9 @@ export function createBoardReader(params: {
 	// state from LOGS needs them (conquest does). This game reads the board
 	// straight out of contract storage, so the range is not used for content -
 	// but `toBlock` still pins WHICH block every call reads, see below.
-	return async ({zones, expectedEpoch, toBlock}) => {
-		if (zones.length === 0) return {cells: new Map(), epoch: expectedEpoch};
+	return async ({zones, expectedCycleNumber, toBlock}) => {
+		if (zones.length === 0)
+			return {cells: new Map(), cycleNumber: expectedCycleNumber};
 
 		const batches = await Promise.all(
 			chunk(zones, ZONES_PER_CALL).map(
@@ -116,14 +117,14 @@ export function createBoardReader(params: {
 		);
 
 		const byID = new Map<bigint, Cell>();
-		let chainEpoch: number | undefined;
-		for (const [cells, epoch] of batches) {
+		let chainCycleNumber: number | undefined;
+		for (const [cells, cycleNumber] of batches) {
 			// THE ONLY REASON A READ IS REFUSED: the batches disagreeing with EACH
 			// OTHER. They all read one pinned block, so they normally cannot; one
 			// that does means a reorg replaced that block mid-read, and stitching
 			// the halves would produce a board that never existed.
 			//
-			// WHAT IS NO LONGER REFUSED is a chain epoch that differs from the one
+			// WHAT IS NO LONGER REFUSED is a chain cycle that differs from the one
 			// asked for. This used to require an exact match, which turned a
 			// two-clock disagreement of SECONDS into a failed read: the client's
 			// clock interpolates from the wall clock between blocks, so it crosses
@@ -132,9 +133,9 @@ export function createBoardReader(params: {
 			// Refusing that ran the framework's catch-up budget out and turned it
 			// into exponential backoff behind an RPC-health banner, over a board
 			// that was a moment behind and nothing worse.
-			const at = Number(epoch);
-			if (chainEpoch === undefined) chainEpoch = at;
-			else if (at !== chainEpoch) return undefined;
+			const at = Number(cycleNumber);
+			if (chainCycleNumber === undefined) chainCycleNumber = at;
+			else if (at !== chainCycleNumber) return undefined;
 
 			for (const cell of cells) {
 				byID.set(cell.cellID, {
@@ -145,9 +146,9 @@ export function createBoardReader(params: {
 			}
 		}
 
-		// STAMPED WITH THE EPOCH THE FETCH WAS FOR, not the one the chain's latest
+		// STAMPED WITH THE CYCLE THE FETCH WAS FOR, not the one the chain's latest
 		// block reports, because that is what "has the board caught up" means for
-		// everything downstream. Stamping the CHAIN's epoch instead makes the
+		// everything downstream. Stamping the CHAIN's cycle instead makes the
 		// catch-up last until a block past the boundary is mined - on a node that
 		// mines only on transactions, that is the next commit, some twenty seconds
 		// in - and all of it is a wait for a COUNTER when the data has already
@@ -155,7 +156,7 @@ export function createBoardReader(params: {
 		// after the boundary is refused (`InCommitmentPhase`) and a commit places
 		// nothing, so a fetch landing after the clock ticks already holds the new
 		// round in full.
-		return {cells: byID, epoch: expectedEpoch};
+		return {cells: byID, cycleNumber: expectedCycleNumber};
 	};
 }
 

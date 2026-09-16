@@ -1,19 +1,19 @@
 import {describe, expect, it} from 'vitest';
 import {
-	calculateEpochInfo,
+	calculateCycleInfo,
 	revealPhaseStartTime,
-	type EpochConfig,
-} from '$lib/game/core/epoch';
+	type CycleConfig,
+} from '$lib/game/core/cycle';
 
 /**
- * `revealPhaseStartTime` is the inverse of the epoch formula, and it exists so a
+ * `revealPhaseStartTime` is the inverse of the cycle formula, and it exists so a
  * game can tell an outside scheduler WHEN the reveal becomes due, at commit
  * time. Getting it wrong means a scheduled reveal fires in the wrong phase and
  * the player forfeits, so it is checked against the forward formula rather than
  * against hand-computed numbers.
  */
 describe('revealPhaseStartTime', () => {
-	const config: EpochConfig = {
+	const config: CycleConfig = {
 		commitPhaseDuration: 30,
 		revealPhaseDuration: 10,
 		startTime: 1_000,
@@ -22,16 +22,16 @@ describe('revealPhaseStartTime', () => {
 	};
 
 	it('lands exactly on the first instant of the reveal phase', () => {
-		for (let epoch = 2; epoch < 40; epoch++) {
-			const t = revealPhaseStartTime(config, epoch);
+		for (let cycleNumber = 2; cycleNumber < 40; cycleNumber++) {
+			const t = revealPhaseStartTime(config, cycleNumber);
 
-			const atStart = calculateEpochInfo(t, config);
-			expect(atStart.currentEpoch, `epoch at ${t}`).toBe(epoch);
+			const atStart = calculateCycleInfo(t, config);
+			expect(atStart.currentCycleNumber, `cycle at ${t}`).toBe(cycleNumber);
 			expect(atStart.isCommitPhase, `phase at ${t}`).toBe(false);
 
-			// And the instant before it is still the commit phase of that epoch.
-			const justBefore = calculateEpochInfo(t - 0.001, config);
-			expect(justBefore.currentEpoch).toBe(epoch);
+			// And the instant before it is still the commit phase of that cycle.
+			const justBefore = calculateCycleInfo(t - 0.001, config);
+			expect(justBefore.currentCycleNumber).toBe(cycleNumber);
 			expect(justBefore.isCommitPhase).toBe(true);
 		}
 	});

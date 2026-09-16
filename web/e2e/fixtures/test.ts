@@ -335,7 +335,7 @@ async function fundAppSenders(page: Page): Promise<void> {
  *
  * The failure the whole top-up remedy exists for, reproduced the way it happens
  * in life: the signer is a fresh key holding only what someone put in it, and a
- * round spends from it twice an epoch forever. Waiting for the app to observe
+ * round spends from it twice a cycle forever. Waiting for the app to observe
  * the drop matters as much as the drop itself - the balance store polls, and a
  * test that moved on immediately would be reasoning about a stale number.
  */
@@ -412,7 +412,7 @@ export interface WalletOptions {
 	 * bounded by that list's length, so the pool has a size something can check.
 	 *
 	 * All e2e tests share ONE chain, and the game keys a commitment by player
-	 * address: one open commitment per account per epoch. Two files committing
+	 * address: one open commitment per account per cycle. Two files committing
 	 * from the same account (files run in parallel workers) would fight over it,
 	 * so a file that commits takes its own account with
 	 * `test.use({walletAccountIndex: 1})`.

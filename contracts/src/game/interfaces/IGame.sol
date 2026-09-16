@@ -38,7 +38,7 @@ interface IGameCommit is UsingGameTypes {
     ///      the one action that moves money to a person.
     function withdrawFromReserve(uint256 amount) external;
 
-    /// @notice Commit to placements for this epoch, bonding part of the reserve.
+    /// @notice Commit to placements for this cycle, bonding part of the reserve.
     /// @param player The identity the commitment is FOR. Pass zero to play as
     ///        the caller. Anything else must be an identity the caller may act
     ///        for, which is how a local signer commits for the player without
@@ -78,11 +78,11 @@ interface IGameReveal is UsingGameTypes {
     function acknowledgeMissedReveal(uint256 player) external;
 
     /// @notice Move the cycle on, if the rules already permit it.
-    /// @return cycleNumber The epoch after the move.
+    /// @return cycleNumber The cycle after the move.
     /// @return commiting Which phase it is now in.
     /// @dev PERMISSIONLESS AND STRICTLY CONDITIONAL. Anyone may call it, and it
     ///      can only do what would already have been allowed: the phase moves
-    ///      when every member the epoch waits for has committed, and the epoch
+    ///      when every member the cycle waits for has committed, and the cycle
     ///      moves when every commitment in it has been revealed. So there is
     ///      nothing here to grant and nothing to abuse, and an advance that is
     ///      not yet due reverts saying who is still being waited for.
@@ -91,7 +91,7 @@ interface IGameReveal is UsingGameTypes {
     ///      which is what keeps `reveal` meaning the same thing whoever sends
     ///      it and whenever it lands. See {UsingGameInternal-_advanceCycle}.
     ///
-    ///      On a purely timed game it always reverts, because the epoch is
+    ///      On a purely timed game it always reverts, because the cycle is
     ///      whatever the clock says and no transaction can change that.
     function advanceCycle()
         external
@@ -105,7 +105,7 @@ interface IGameGetters is UsingGameTypes {
         returns (uint64 cycleNumber, bool commiting);
 
     /// @notice Where the cycle is, and until when.
-    /// @dev THE ONE A CLIENT SHOULD READ. A client can compute the epoch from
+    /// @dev THE ONE A CLIENT SHOULD READ. A client can compute the cycle from
     ///      the clock and the deployment's durations, and under a policy that
     ///      allows early advance that computation is a FLOOR rather than an
     ///      answer: an advance is a transaction, and no amount of arithmetic
@@ -113,7 +113,7 @@ interface IGameGetters is UsingGameTypes {
     ///      shape that stays correct under all three policies.
     function getCycle() external view returns (Cycle memory cycle);
 
-    /// @notice Who the epoch is waiting for, and how many have acted.
+    /// @notice Who the cycle is waiting for, and how many have acted.
     function getAttendance()
         external
         view
@@ -136,8 +136,8 @@ interface IGameGetters is UsingGameTypes {
         uint256 player
     ) external view returns (uint256 stake);
 
-    /// @notice Every non-empty cell in a zone, plus the epoch the answer is for.
-    /// @dev The epoch is returned so a caller can tell a current answer from a
+    /// @notice Every non-empty cell in a zone, plus the cycle the answer is for.
+    /// @dev The cycle is returned so a caller can tell a current answer from a
     ///      stale one without a second call.
     function getCellsInZone(
         uint64 zone
