@@ -46,7 +46,7 @@ const SECRET_B =
 const COMMIT_PHASE = 30n;
 const REVEAL_PHASE = 10n;
 
-type Round = {
+type Cycle = {
 	cycleNumber: bigint;
 	commiting: boolean;
 	phaseStart: bigint;
@@ -58,7 +58,7 @@ type Round = {
  *
  * Deployed rather than configured, because an epoch policy is fixed at
  * construction: it decides what the clock MEANS, and a game that could change
- * its answer mid-round would be a game whose players had committed under
+ * its answer mid-cycle would be a game whose players had committed under
  * different rules from the ones they are judged by.
  */
 async function gameOn(policy: EpochPolicy, players = 2) {
@@ -106,8 +106,8 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 		await fixtures.advanceToTime(clock.epochStartTime(epoch + 2), true);
 	}
 
-	async function round(): Promise<Round> {
-		return (await env.read(Game, {functionName: 'getRound'})) as Round;
+	async function cycle(): Promise<Cycle> {
+		return (await env.read(Game, {functionName: 'getCycle'})) as Cycle;
 	}
 
 	async function attendance(): Promise<{
@@ -149,7 +149,7 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 	function advance(by = 0) {
 		return env.execute(Game, {
 			account: accounts[by] ?? fixtures.namedAccounts.deployer,
-			functionName: 'advanceRound',
+			functionName: 'advanceCycle',
 			args: [],
 		});
 	}
@@ -166,7 +166,7 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 		clock,
 		accounts,
 		identities,
-		round,
+		cycle,
 		attendance,
 		commit,
 		reveal,
@@ -277,10 +277,10 @@ describe('Epoch policy', function () {
 
 		await game.commit(2, [{cellID: cellAt(3, 1)}], SECRET_A);
 		await game.advance();
-		expect((await game.round()).commiting).toEqual(false);
+		expect((await game.cycle()).commiting).toEqual(false);
 	});
 
-	it('stops waiting for a member who leaves, which is what unblocks the round', async function () {
+	it('stops waiting for a member who leaves, which is what unblocks the cycle', async function () {
 		const game = await gameOn(EPOCH_POLICY.Manual, 2);
 
 		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);
@@ -297,7 +297,7 @@ describe('Epoch policy', function () {
 		expect(attendance.committed).toEqual(1n);
 
 		await game.advance();
-		expect((await game.round()).commiting).toEqual(false);
+		expect((await game.cycle()).commiting).toEqual(false);
 	});
 
 	it('counts a replaced commitment once, not twice', async function () {
@@ -345,23 +345,23 @@ describe('Epoch policy', function () {
 		await expect(game.advance()).toBeRejectedWith(/StillWaitingToReveal/);
 
 		await game.reveal(1, placementsB, SECRET_B);
-		const before = await game.round();
+		const before = await game.cycle();
 		await game.advance();
-		const after = await game.round();
+		const after = await game.cycle();
 		expect(after.cycleNumber).toEqual(before.cycleNumber + 1n);
 		expect(after.commiting).toEqual(true);
 	});
 
-	it('advances a manual round into the REVEAL phase, never past it', async function () {
+	it('advances a manual cycle into the REVEAL phase, never past it', async function () {
 		const game = await gameOn(EPOCH_POLICY.Manual, 1);
 
 		const placements = [{cellID: cellAt(4, 4)}];
-		const before = await game.round();
+		const before = await game.cycle();
 		await game.commit(0, placements, SECRET_A);
 		await game.advance();
-		const after = await game.round();
+		const after = await game.cycle();
 
-		// THE PROPERTY THE WHOLE ROUND RESTS ON. A commitment made in the
+		// THE PROPERTY THE WHOLE CYCLE RESTS ON. A commitment made in the
 		// current epoch must always still be openable, which is true exactly
 		// while an epoch is a commit phase followed by a reveal phase and
 		// nothing else. An advance out of a commit phase that skipped to the
@@ -376,14 +376,14 @@ describe('Epoch policy', function () {
 	it('opens the reveal phase early without moving the deadline', async function () {
 		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 2);
 
-		const before = await game.round();
+		const before = await game.cycle();
 		expect(before.commiting).toEqual(true);
 
 		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);
 		await game.commit(1, [{cellID: cellAt(2, 1)}], SECRET_B);
 		await game.advance();
 
-		const after = await game.round();
+		const after = await game.cycle();
 		expect(after.cycleNumber).toEqual(before.cycleNumber);
 		expect(after.commiting).toEqual(false);
 
@@ -424,19 +424,19 @@ describe('Epoch policy', function () {
 		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 1);
 
 		const placements = [{cellID: cellAt(6, 6)}];
-		const before = await game.round();
+		const before = await game.cycle();
 		await game.commit(0, placements, SECRET_A);
 		await game.advance();
 		await game.reveal(0, placements, SECRET_A);
 		await game.advance();
 
-		const after = await game.round();
+		const after = await game.cycle();
 		expect(after.cycleNumber).toEqual(before.cycleNumber + 1n);
 		expect(after.commiting).toEqual(true);
 
 		// The new commit phase is a FULL one starting now, rather than what was
 		// left of a slot on the original grid. Without this an early advance
-		// would buy nothing at all: the round would still turn over on the
+		// would buy nothing at all: the cycle would still turn over on the
 		// clock, and "everyone is here, get on with it" would be unsayable.
 		expect(after.phaseEnd - after.phaseStart).toEqual(COMMIT_PHASE);
 		expect(after.phaseStart < before.phaseEnd).toEqual(true);
@@ -452,7 +452,7 @@ describe('Epoch policy', function () {
 		// Nobody is timed out by anybody: the clock is the protection, so a
 		// silent member costs this game its early turnaround and nothing else.
 		await game.waitForRevealPhase();
-		expect((await game.round()).commiting).toEqual(false);
+		expect((await game.cycle()).commiting).toEqual(false);
 		await game.reveal(0, placements, SECRET_A);
 	});
 
@@ -462,13 +462,13 @@ describe('Epoch policy', function () {
 		const placements = [{cellID: cellAt(8, 8)}];
 		await game.commit(0, placements, SECRET_A);
 		await game.advance();
-		const before = await game.round();
+		const before = await game.cycle();
 		await game.reveal(0, placements, SECRET_A);
-		const after = await game.round();
+		const after = await game.cycle();
 
 		// Revealing last is not a different function from revealing first. If
 		// it were, a reveal's gas would depend on winning a race, an advance
-		// stranded by an unrelated revert would leave the round stuck, and the
+		// stranded by an unrelated revert would leave the cycle stuck, and the
 		// policy would have leaked into the one call every policy shares.
 		expect(after.cycleNumber).toEqual(before.cycleNumber);
 		expect(after.commiting).toEqual(false);

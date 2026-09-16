@@ -1,9 +1,9 @@
 import {describe, expect, it} from 'vitest';
 import {
 	calculateEpochInfo,
-	predictRound,
+	predictCycle,
 	type EpochConfig,
-	type RoundReading,
+	type CycleReading,
 } from '$lib/game/core/epoch';
 
 /**
@@ -81,7 +81,7 @@ describe('an epoch has no gap in it', () => {
 	});
 
 	it('tiles time with no hole and no overlap, under the hybrid prediction', () => {
-		let reading: RoundReading = {
+		let reading: CycleReading = {
 			epoch: 2,
 			isCommitPhase: true,
 			phaseStart: 100,
@@ -92,7 +92,7 @@ describe('an epoch has no gap in it', () => {
 			// The instant the phase ends is the instant the next one begins:
 			// there is no moment in between, which is what "no trailing segment"
 			// means when it is stated about the boundary rather than the epoch.
-			const next = predictRound(reading, reading.phaseEnd, config);
+			const next = predictCycle(reading, reading.phaseEnd, config);
 			expect(next.phaseStart, `hole at ${reading.phaseEnd}`).toBe(
 				reading.phaseEnd,
 			);
@@ -110,7 +110,7 @@ describe('an epoch has no gap in it', () => {
 		// epoch is still exactly as long as it was, so a reveal scheduled
 		// against the nominal time still lands inside it - and the round still
 		// cannot end with an unopened commitment in it.
-		const openedEarly: RoundReading = {
+		const openedEarly: CycleReading = {
 			epoch: 2,
 			isCommitPhase: false,
 			phaseStart: 112,
@@ -119,7 +119,7 @@ describe('an epoch has no gap in it', () => {
 		const nominalEpochEnd = config.startTime + 40;
 		expect(openedEarly.phaseEnd).toBe(nominalEpochEnd);
 
-		const next = predictRound(openedEarly, openedEarly.phaseEnd, config);
+		const next = predictCycle(openedEarly, openedEarly.phaseEnd, config);
 		expect(next.epoch).toBe(3);
 		expect(next.isCommitPhase).toBe(true);
 		expect(next.phaseStart).toBe(nominalEpochEnd);

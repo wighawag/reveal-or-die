@@ -23,7 +23,7 @@ import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import type {RecoveryState} from '$lib/game/core/recovery';
 import {SignerOutOfFundsError} from '../errors';
 import type {SetupNeeded} from '$lib/context/game';
-import type {RoundPhase} from '$lib/game/core/round-phase';
+import type {CyclePhase} from '$lib/game/core/cycle-phase';
 
 export type HudModel = {
 	phaseLabel: string;
@@ -37,9 +37,9 @@ export type HudModel = {
 	 * clock cannot see. Reported as "wait" it tells the player the round is
 	 * resolving when nothing is being waited for except a poll, and it is the
 	 * one state where a plan would be built from a position that has already
-	 * changed. See `game/core/round-phase.ts`.
+	 * changed. See `game/core/cycle-phase.ts`.
 	 */
-	phase: RoundPhase;
+	phase: CyclePhase;
 	/** Seconds left in the phase, already rounded for display. */
 	secondsLeft: number;
 	/** How far through the phase, 0..1, for a progress bar. */
@@ -289,7 +289,7 @@ export function acquisitionBusyLabel(
  * nothing is resolving, the board is simply behind, and telling a player the
  * round is still running is what makes a stale board look like a stuck one.
  */
-export function phaseLabelOf(phase: RoundPhase): string {
+export function phaseLabelOf(phase: CyclePhase): string {
 	switch (phase) {
 		case 'play':
 			return 'Plan your moves';
@@ -420,7 +420,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			// countdown at all: it lasts until a fetch lands, however long that is.
 			const timeLeft = 'timeLeft' in $twoPhase ? $twoPhase.timeLeft : 0;
 			const duration = 'duration' in $twoPhase ? $twoPhase.duration : 0;
-			const phase = $phase as RoundPhase;
+			const phase = $phase as CyclePhase;
 			const playable = phase === 'play';
 
 			const acquisition = $acquisition as AcquisitionState;
