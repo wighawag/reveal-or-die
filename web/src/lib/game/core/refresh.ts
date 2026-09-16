@@ -7,12 +7,12 @@
  *
  * DURING THE REVEAL WINDOW. Everything on the board changes at exactly one
  * moment in a cycle: the reveal phase, as each player's commitment resolves,
- * one transaction at a time. A browser that does not itself hold the round (a
- * second player watching, the same player in another window) has nothing local
- * to tell it any of that happened, so it learns about a move up to a whole
- * interval late. At a 5s interval that reads as the board ignoring the reveal
- * until the next cycle has already started. {@link refreshDuringReveal} runs a
- * short cadence for the window instead.
+ * one transaction at a time. A browser that does not itself hold the submission
+ * (a second player watching, the same player in another window) has nothing
+ * local to tell it any of that happened, so it learns about a move up to a
+ * whole interval late. At a 5s interval that reads as the board ignoring the
+ * reveal until the next cycle has already started. {@link refreshDuringReveal}
+ * runs a short cadence for the window instead.
  *
  * AT THE CYCLE BOUNDARY. The client's clock interpolates from the wall clock
  * between blocks, so it crosses into the new cycle BEFORE the chain has mined a

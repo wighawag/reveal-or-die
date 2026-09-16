@@ -3,12 +3,12 @@
  * randomised.
  *
  * The framework's default secret is 32 random bytes (`randomSecret` in
- * `round.ts`). It is safe, and it is unrecoverable: it exists only in local
- * storage, so a player who clears site data between the commit and the reveal
- * cannot open their own commitment. In a game with a stake that is not a
+ * `submission.ts`). It is safe, and it is unrecoverable: it exists only in
+ * local storage, so a player who clears site data between the commit and the
+ * reveal cannot open their own commitment. In a game with a stake that is not a
  * nuisance, it is the stake.
  *
- * A derived secret is a signature over a message that names the round, hashed.
+ * A derived secret is a signature over a message that names the cycle, hashed.
  * The same key produces the same signature, so the secret can be recomputed on
  * another device, or in the same browser after its storage is gone.
  *
@@ -41,7 +41,7 @@ import type {PlayerIdentity} from './seams.js';
 export type SignMessage = (message: string) => Promise<`0x${string}`>;
 
 /**
- * Build the `makeSecret` a round takes.
+ * Build the `makeSecret` a submission takes.
  *
  * The message is `Commit:<chainId>:<contract>:<identity>:<cycle>`, which names
  * every axis along which two secrets must differ.
@@ -58,7 +58,7 @@ export type SignMessage = (message: string) => Promise<`0x${string}`>;
  *
  * The chain id and the contract are in it for the ordinary reason: the same
  * cycle of the same game on another chain, or another deployment on the same
- * chain, is a different round.
+ * chain, is a different cycle.
  */
 export function createDerivedSecret<TIdentity extends PlayerIdentity>(params: {
 	sign: SignMessage;

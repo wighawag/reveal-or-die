@@ -335,9 +335,10 @@ async function fundAppSenders(page: Page): Promise<void> {
  *
  * The failure the whole top-up remedy exists for, reproduced the way it happens
  * in life: the signer is a fresh key holding only what someone put in it, and a
- * round spends from it twice a cycle forever. Waiting for the app to observe
- * the drop matters as much as the drop itself - the balance store polls, and a
- * test that moved on immediately would be reasoning about a stale number.
+ * submission spends from it twice a cycle forever. Waiting for the app to
+ * observe the drop matters as much as the drop itself - the balance store
+ * polls, and a test that moved on immediately would be reasoning about a stale
+ * number.
  */
 export async function drainSignerGas(page: Page): Promise<void> {
 	const {signer} = await appSenderAddresses(page);

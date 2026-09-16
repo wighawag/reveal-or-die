@@ -13,7 +13,7 @@ import {privateKey} from '@rocketh/signer';
 import {parseEther} from 'viem';
 
 /**
- * How the round advances. Mirrors `UsingGameTypes.CyclePolicy`, whose ORDER is
+ * How the cycle advances. Mirrors `UsingGameTypes.CyclePolicy`, whose ORDER is
  * the contract's: these are the enum's numeric values and rearranging them here
  * would silently deploy a different policy from the one named.
  *

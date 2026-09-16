@@ -10,7 +10,7 @@ import {EthereumProvider} from 'hardhat/types/providers';
 import {parseEther, zeroAddress} from 'viem';
 
 /**
- * How the round advances. The contract's enum, by value.
+ * How the cycle advances. The contract's enum, by value.
  *
  * Mirrors `rocketh/config.ts`'s copy rather than importing it, because that one
  * is bigints for the deploy and these are the numbers a test asserts against.

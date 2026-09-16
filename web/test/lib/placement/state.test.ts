@@ -48,9 +48,9 @@ const cell = (id: bigint) => ({
 describe('createBoardReader', () => {
 	it('accepts a read whose chain cycle is behind the one asked for', async () => {
 		// THE FIX. The client's clock interpolates from the wall clock between
-		// blocks, so it crosses a round boundary before the chain has mined a
+		// blocks, so it crosses a cycle boundary before the chain has mined a
 		// block past it, and the contract answers from its latest block with the
-		// PREVIOUS round. Requiring an exact match turned that two-clock
+		// PREVIOUS cycle. Requiring an exact match turned that two-clock
 		// disagreement of seconds into a failed read, and the failed read into
 		// backoff behind a health banner over a board that was fine.
 		const {read} = reader(() => [[cell(1n)], 7n]);

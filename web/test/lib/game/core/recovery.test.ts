@@ -1,25 +1,25 @@
 import {describe, expect, it} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {
-	createRoundRecovery,
+	createSubmissionRecovery,
 	type LiveCommitment,
 } from '$lib/game/core/recovery';
 
 /** A game's action, standing in for whatever a real one has. */
 type Placement = {cellID: bigint};
-import type {RoundState, RoundStore} from '$lib/game/core/round';
+import type {SubmissionState, SubmissionStore} from '$lib/game/core/submission';
 
 const player = '0x1111111111111111111111111111111111111111' as const;
 
 /**
- * The round, as much of it as this store touches: a state it reads and the one
- * method the framework gained for this.
+ * The submission, as much of it as this store touches: a state it reads and the
+ * one method the framework gained for this.
  */
-function fakeRound(initial: RoundState<Placement> = {step: 'Idle'}) {
-	const state = writable<RoundState<Placement>>(initial);
+function fakeSubmission(initial: SubmissionState<Placement> = {step: 'Idle'}) {
+	const state = writable<SubmissionState<Placement>>(initial);
 	const adopted: unknown[] = [];
 	let accept = true;
-	const round = {
+	const submission = {
 		subscribe: state.subscribe,
 		get value() {
 			return get(state);
@@ -28,20 +28,23 @@ function fakeRound(initial: RoundState<Placement> = {step: 'Idle'}) {
 		commit: async () => {},
 		reveal: async () => {},
 		dismiss: () => {},
-		adopt: (round: {cycleNumber: number; actions: readonly Placement[]}) => {
-			adopted.push(round);
+		adopt: (submission: {
+			cycleNumber: number;
+			actions: readonly Placement[];
+		}) => {
+			adopted.push(submission);
 			if (accept) {
 				state.set({
 					step: 'Committed',
-					cycleNumber: round.cycleNumber,
-					actions: round.actions,
+					cycleNumber: submission.cycleNumber,
+					actions: submission.actions,
 				});
 			}
 			return accept;
 		},
 		start: () => () => {},
-	} as unknown as RoundStore<`0x${string}`, Placement>;
-	return {round, adopted, state, refuse: () => (accept = false)};
+	} as unknown as SubmissionStore<`0x${string}`, Placement>;
+	return {submission, adopted, state, refuse: () => (accept = false)};
 }
 
 /**
@@ -62,12 +65,14 @@ const buildCommitment = ({
 
 function setup(options?: {
 	live?: LiveCommitment;
-	round?: RoundState<Placement>;
+	submission?: SubmissionState<Placement>;
 }) {
-	const {round, adopted, state, refuse} = fakeRound(options?.round);
+	const {submission, adopted, state, refuse} = fakeSubmission(
+		options?.submission,
+	);
 	const commitment = writable<LiveCommitment | undefined>(options?.live);
-	const recovery = createRoundRecovery({
-		round,
+	const recovery = createSubmissionRecovery({
+		submission,
 		commitment,
 		identity: writable(player),
 		makeSecret: () => '0xsecret' as `0x${string}`,
@@ -82,7 +87,7 @@ const committed: LiveCommitment = {
 	hash: '0xsecret:1,2' as `0x${string}`,
 };
 
-describe('a commitment the chain holds and this browser has no round for', () => {
+describe('a commitment the chain holds and this browser has no submission for', () => {
 	it('says nothing when the chain holds nothing', () => {
 		const {recovery} = setup();
 		expect(get(recovery)).toEqual({step: 'Idle'});
@@ -93,25 +98,25 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 		expect(get(recovery)).toEqual({step: 'Found', cycleNumber: 5});
 	});
 
-	it('says nothing when the round already accounts for it', () => {
-		// The ordinary case: storage had the round, `restore()` took it up, and
+	it('says nothing when the submission already accounts for it', () => {
+		// The ordinary case: storage had the submission, `restore()` took it up, and
 		// there is nothing to recover. Reporting it would put a notice about a
-		// lost round in front of a player whose round is fine.
+		// lost submission in front of a player whose submission is fine.
 		const {recovery} = setup({
 			live: committed,
-			round: {step: 'Committed', cycleNumber: 5, actions: [{cellID: 1n}]},
+			submission: {step: 'Committed', cycleNumber: 5, actions: [{cellID: 1n}]},
 		});
 		expect(get(recovery)).toEqual({step: 'Idle'});
 	});
 
-	it('still reports it when the round is merely PLANNING the same cycle', () => {
-		// This is the trap. The chain says a commitment exists and the round says
-		// the player is still choosing, so the player is halfway to re-entering
+	it('still reports it when the submission is merely PLANNING the same cycle', () => {
+		// This is the trap. The chain says a commitment exists and the submission
+		// says the player is still choosing, so the player is halfway to re-entering
 		// their turn without being told that is what they are doing - and a plain
 		// commit would replace the commitment they are trying to open.
 		const {recovery} = setup({
 			live: committed,
-			round: {step: 'Planning', cycleNumber: 5, actions: [{cellID: 1n}]},
+			submission: {step: 'Planning', cycleNumber: 5, actions: [{cellID: 1n}]},
 		});
 		expect(get(recovery)).toEqual({step: 'Found', cycleNumber: 5});
 	});
@@ -148,8 +153,8 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 
 	it('lets a refused player try again, and then goes quiet', async () => {
 		// GOING QUIET IS THE POINT. There is no `Recovered` state, because a
-		// recovered round is a restored one and this store must not be the one
-		// thing in the app that can tell the difference. Once adopted, the round
+		// recovered submission is a restored one and this store must not be the one
+		// thing in the app that can tell the difference. Once adopted, the submission
 		// itself reports `Committed` and owes a reveal.
 		const {recovery, state} = setup({live: committed});
 
@@ -162,10 +167,10 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 	});
 
 	it('does not report a refusal the player did not cause', async () => {
-		// The round declined the adoption - the cycle turned over while they were
-		// clicking, or a commit of their own is in flight. Neither is a wrong
-		// plan, and saying "that is not what you committed" would send them
-		// looking for a mistake they did not make.
+		// The submission declined the adoption - the cycle turned over while they
+		// were clicking, or a commit of their own is in flight. Neither is a wrong
+		// plan, and saying "that is not what you committed" would send them looking
+		// for a mistake they did not make.
 		const {recovery, adopted, refuse} = setup({live: committed});
 		refuse();
 
@@ -177,8 +182,8 @@ describe('a commitment the chain holds and this browser has no round for', () =>
 	});
 
 	it('forgets a refusal once the chain moves on', async () => {
-		// A refusal is about ONE commitment. Carrying it into the next round would
-		// tell a player their new turn was wrong before they had made one.
+		// A refusal is about ONE commitment. Carrying it into the next submission
+		// would tell a player their new turn was wrong before they had made one.
 		const {recovery, commitment} = setup({live: committed});
 		await recovery.offer([{cellID: 9n}]);
 		expect(get(recovery)).toMatchObject({step: 'Refused'});

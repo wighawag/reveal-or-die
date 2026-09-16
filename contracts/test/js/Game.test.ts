@@ -53,7 +53,7 @@ const SECRET_B =
 	'0x0000000000000000000000000000000000000000000000000000000000000b22';
 
 describe('Game', function () {
-	it('places a cell through a full commit/reveal round', async function () {
+	it('places a cell through a full commit/reveal submission', async function () {
 		const {
 			env,
 			Game,
@@ -126,7 +126,7 @@ describe('Game', function () {
 	 * and both violate it. So it is asserted directly rather than trusted.
 	 *
 	 * IT IS REPLAYED UNDER EVERY CYCLE POLICY, because the policy is the place
-	 * the same failure can reappear one level up: a round that could be pushed
+	 * the same failure can reappear one level up: a cycle that could be pushed
 	 * forward by a subset would let whoever is quickest decide what everyone
 	 * else got, which is the reveal race wearing a clock. The board must come
 	 * out identical whether the phase turned over on a timer or because the
@@ -637,8 +637,8 @@ describe('Game delegation', function () {
 		});
 
 		// The commitment is the AVATAR'S, not the sender's. If it were filed
-		// under the signer, losing the browser would lose the round - and here it
-		// could not be filed there at all, because the signer owns no avatar,
+		// under the signer, losing the browser would lose the submission - and here
+		// it could not be filed there at all, because the signer owns no avatar,
 		// which is the identity model doing the same work the reserve did.
 		const commitment = (await env.read(Game, {
 			functionName: 'getCommitment',
