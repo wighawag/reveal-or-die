@@ -27,17 +27,17 @@ abstract contract UsingGameInternal is
         // schedule that does not exist, and a client reads them back to draw a
         // countdown with. Refused too, for the same reason: it is a deployment
         // mistake either way, and this is the cheapest place it can be caught.
-        if (config.epochPolicy == EpochPolicy.Manual) {
+        if (config.cyclePolicy == CyclePolicy.Manual) {
             if (
                 config.commitPhaseDuration != 0 ||
                 config.revealPhaseDuration != 0
             ) {
-                revert InvalidEpochConfiguration();
+                revert InvalidCycleConfiguration();
             }
         } else if (
             config.commitPhaseDuration == 0 || config.revealPhaseDuration == 0
         ) {
-            revert InvalidEpochConfiguration();
+            revert InvalidCycleConfiguration();
         }
     }
 
@@ -74,7 +74,7 @@ abstract contract UsingGameInternal is
         // could commit, see the epoch turn against them, and pull their stake
         // out instead of revealing.
         Commitment storage commitment = _commitments[player];
-        uint256 locked = commitment.epoch == 0 ? 0 : commitment.bond;
+        uint256 locked = commitment.cycleNumber == 0 ? 0 : commitment.bond;
 
         if (amount + locked > current) {
             revert ReserveTooLow(current, amount + locked);
@@ -90,8 +90,8 @@ abstract contract UsingGameInternal is
         // SUBSET satisfies unanimity and closes the phase on somebody who has
         // not acted. That is not a corner case: an idle player's automatic
         // empty turn bonds exactly zero.
-        if (amount == current && commitment.epoch != 0) {
-            revert CommitmentStillOpen(commitment.epoch);
+        if (amount == current && commitment.cycleNumber != 0) {
+            revert CommitmentStillOpen(commitment.cycleNumber);
         }
 
         uint256 newAmount = current - amount;
@@ -144,7 +144,7 @@ abstract contract UsingGameInternal is
 
         Commitment storage commitment = _commitments[player];
 
-        if (commitment.epoch != 0 && commitment.epoch != epoch) {
+        if (commitment.cycleNumber != 0 && commitment.cycleNumber != epoch) {
             revert PreviousCommitmentNotRevealed();
         }
 
@@ -153,12 +153,12 @@ abstract contract UsingGameInternal is
         // again would let one player alone satisfy unanimity for the whole
         // set. Every commitment reaching here is a member's, per the check
         // above, which is what makes this count comparable to {_waitedFor}.
-        if (commitment.epoch != epoch) {
+        if (commitment.cycleNumber != epoch) {
             _recordCommitment(epoch);
         }
 
         commitment.hash = commitmentHash;
-        commitment.epoch = epoch;
+        commitment.cycleNumber = epoch;
         commitment.bond = bond;
 
         emit CommitmentMade(player, epoch, commitmentHash, bond);
@@ -171,17 +171,17 @@ abstract contract UsingGameInternal is
         }
 
         Commitment storage commitment = _commitments[player];
-        if (commitment.epoch == 0) {
+        if (commitment.cycleNumber == 0) {
             revert NoCommitmentToCancel();
         }
 
-        if (commitment.epoch != epoch) {
+        if (commitment.cycleNumber != epoch) {
             revert PreviousCommitmentNotRevealed();
         }
 
         // Note that we do not reset the hash
         // This ensure the slot do not get reset and keep the gas cost consistent across execution
-        commitment.epoch = 0;
+        commitment.cycleNumber = 0;
         _recordCancellation(epoch);
 
         emit CommitmentCancelled(player, epoch);
@@ -211,12 +211,12 @@ abstract contract UsingGameInternal is
         }
         Commitment storage commitment = _commitments[player];
 
-        if (commitment.epoch == 0) {
+        if (commitment.cycleNumber == 0) {
             revert NothingToReveal();
         }
 
-        if (commitment.epoch != epoch) {
-            revert InvalidEpoch(epoch, commitment.epoch);
+        if (commitment.cycleNumber != epoch) {
+            revert InvalidCycle(epoch, commitment.cycleNumber);
         }
 
         bytes24 hashRevealed = commitment.hash;
@@ -232,7 +232,7 @@ abstract contract UsingGameInternal is
         }
 
         _reserve[player] -= cost;
-        commitment.epoch = 0; // used
+        commitment.cycleNumber = 0; // used
         commitment.bond = 0;
         _recordReveal(epoch);
 
@@ -283,19 +283,19 @@ abstract contract UsingGameInternal is
     function _acknowledgeMissedReveal(uint256 player) internal {
         Commitment storage commitment = _commitments[player];
 
-        if (commitment.epoch == 0) {
+        if (commitment.cycleNumber == 0) {
             revert NothingToReveal();
         }
 
         (uint64 epoch, ) = _epoch();
 
-        if (commitment.epoch == epoch) {
+        if (commitment.cycleNumber == epoch) {
             revert CanStillReveal(epoch);
         }
 
         uint256 forfeited = _forfeit(player, commitment.bond);
 
-        commitment.epoch = 0;
+        commitment.cycleNumber = 0;
         commitment.bond = 0;
 
         emit CommitmentVoid(player, epoch, forfeited);
@@ -428,14 +428,14 @@ abstract contract UsingGameInternal is
     ///      phase action. That is not a window being shortened; it is what
     ///      committing means.
     function _advanceRound() internal returns (uint64 epoch, bool commiting) {
-        if (EPOCH_POLICY == EpochPolicy.Timed) {
+        if (EPOCH_POLICY == CyclePolicy.Timed) {
             // The epoch simply IS what the clock says, so there is nothing
             // here for anyone to do.
             revert NextPhaseNotAllowed();
         }
 
         Round memory round = _round();
-        Attendance memory attendance = _attendance(round.epoch);
+        Attendance memory attendance = _attendance(round.cycleNumber);
 
         // C1: no closed set, no denominator. Without this, one caller could
         // push an empty game forward as fast as they liked.
@@ -450,10 +450,10 @@ abstract contract UsingGameInternal is
                     attendance.waitedFor
                 );
             }
-            epoch = round.epoch;
+            epoch = round.cycleNumber;
             commiting = false;
 
-            if (EPOCH_POLICY == EpochPolicy.Manual) {
+            if (EPOCH_POLICY == CyclePolicy.Manual) {
                 _epochState.anchorEpoch = epoch;
                 _epochState.commiting = false;
             } else {
@@ -475,11 +475,11 @@ abstract contract UsingGameInternal is
                     attendance.committed
                 );
             }
-            epoch = round.epoch + 1;
+            epoch = round.cycleNumber + 1;
             commiting = true;
 
             _epochState.anchorEpoch = epoch;
-            if (EPOCH_POLICY == EpochPolicy.Manual) {
+            if (EPOCH_POLICY == CyclePolicy.Manual) {
                 _epochState.commiting = true;
             } else {
                 // The new epoch runs its full length from here, which is the
@@ -599,13 +599,13 @@ abstract contract UsingGameInternal is
         bool anchored = state.anchorEpoch != 0;
         uint64 anchorEpoch = anchored ? state.anchorEpoch : 2;
 
-        if (EPOCH_POLICY == EpochPolicy.Manual) {
+        if (EPOCH_POLICY == CyclePolicy.Manual) {
             // No clock, so no phase bounds: zero here means "there is nothing
             // to count down to", which is a different statement from a
             // deadline that happens to be zero.
             return
                 Round({
-                    epoch: anchorEpoch,
+                    cycleNumber: anchorEpoch,
                     commiting: anchored ? state.commiting : true,
                     phaseStart: 0,
                     phaseEnd: 0
@@ -620,11 +620,12 @@ abstract contract UsingGameInternal is
 
         uint256 epochDuration = COMMIT_PHASE_DURATION + REVEAL_PHASE_DURATION;
         uint256 elapsed = time - anchoredAt;
-        round.epoch = anchorEpoch + uint64(elapsed / epochDuration);
+        round.cycleNumber = anchorEpoch + uint64(elapsed / epochDuration);
         round.commiting = (elapsed % epochDuration) < COMMIT_PHASE_DURATION;
 
         uint256 epochStart =
-            anchoredAt + uint256(round.epoch - anchorEpoch) * epochDuration;
+            anchoredAt +
+                uint256(round.cycleNumber - anchorEpoch) * epochDuration;
 
         // AN EARLY OPEN MOVES THE START AND NOT THE DEADLINE. The reveal window
         // becomes "as soon as everyone has committed, until the nominal end",
@@ -633,8 +634,8 @@ abstract contract UsingGameInternal is
         // it. Shifting the deadline forward instead would lose exactly those
         // reveals, and lose them silently, at the cost of the stake.
         bool openedEarly =
-            EPOCH_POLICY == EpochPolicy.TimedWithEarlyAdvance &&
-                state.earlyRevealEpoch == round.epoch;
+            EPOCH_POLICY == CyclePolicy.TimedWithEarlyAdvance &&
+                state.earlyRevealEpoch == round.cycleNumber;
         if (openedEarly) {
             round.commiting = false;
         }
@@ -657,7 +658,7 @@ abstract contract UsingGameInternal is
     ///      in step with the first.
     function _epoch() internal view returns (uint64 epoch, bool commiting) {
         Round memory round = _round();
-        return (round.epoch, round.commiting);
+        return (round.cycleNumber, round.commiting);
     }
 
     function _checkHash(

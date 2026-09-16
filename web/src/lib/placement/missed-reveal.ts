@@ -116,9 +116,9 @@ export function createMissedReveal(params: {
 				abi: deployments.contracts.Game.abi,
 				functionName: 'getCommitment',
 				args: [onchainIdentity(player)],
-			})) as {hash: `0x${string}`; epoch: bigint; bond: bigint};
+			})) as {hash: `0x${string}`; cycleNumber: bigint; bond: bigint};
 
-			if (onChain.epoch === 0n) {
+			if (onChain.cycleNumber === 0n) {
 				commitment.set(undefined);
 				set({step: 'Clear'});
 				return;
@@ -127,7 +127,7 @@ export function createMissedReveal(params: {
 			const [currentEpoch] = (await deps.publicClient.readContract({
 				address: deployments.contracts.Game.address,
 				abi: deployments.contracts.Game.abi,
-				functionName: 'getEpoch',
+				functionName: 'getCycleNumber',
 			})) as [bigint, boolean];
 
 			// A commitment for the CURRENT epoch is live, not missed: it can still
@@ -135,8 +135,11 @@ export function createMissedReveal(params: {
 			// would revert with `CanStillReveal`. It is still worth SAYING, because
 			// a reveal is owed for it and this browser may have no idea: publishing
 			// it here is the whole of the chain half of recovering a lost round.
-			if (onChain.epoch === currentEpoch) {
-				commitment.set({epoch: Number(onChain.epoch), hash: onChain.hash});
+			if (onChain.cycleNumber === currentEpoch) {
+				commitment.set({
+					epoch: Number(onChain.cycleNumber),
+					hash: onChain.hash,
+				});
 				set({step: 'Clear'});
 				return;
 			}
@@ -144,7 +147,7 @@ export function createMissedReveal(params: {
 			commitment.set(undefined);
 			set({
 				step: 'Blocked',
-				epoch: Number(onChain.epoch),
+				epoch: Number(onChain.cycleNumber),
 				bond: onChain.bond,
 			});
 		} catch {

@@ -22,7 +22,7 @@ interface UsingGameTypes {
     ///      which is permissionless and strictly conditional - it may only do
     ///      what the rules already permit, so letting anyone call it grants
     ///      nothing.
-    enum EpochPolicy {
+    enum CyclePolicy {
         /// @notice The clock decides, and nothing else can.
         Timed,
         /// @notice There is no clock. The round moves when the players have all
@@ -45,18 +45,18 @@ interface UsingGameTypes {
         /// @notice how much one placement costs, taken from the player's reserve
         uint256 placementCost;
         /// @notice how the round advances
-        EpochPolicy epochPolicy;
+        CyclePolicy cyclePolicy;
     }
 
     /// @notice WHERE THE ROUND IS, and until when.
     /// @dev The client reads this rather than computing it, because under
-    ///      {EpochPolicy-TimedWithEarlyAdvance} the arithmetic alone cannot
+    ///      {CyclePolicy-TimedWithEarlyAdvance} the arithmetic alone cannot
     ///      know that a phase was brought forward - that takes a transaction.
     ///      A local clock predicts this correctly right up until someone
     ///      advances early, which is exactly why the prediction is a floor and
     ///      this is the answer.
     struct Round {
-        uint64 epoch;
+        uint64 cycleNumber;
         /// @notice true in the commit phase, false in the reveal phase
         bool commiting;
         /// @notice chain time the current phase opened
@@ -143,7 +143,7 @@ interface UsingGameTypes {
 
     struct Commitment {
         bytes24 hash;
-        uint64 epoch;
+        uint64 cycleNumber;
         /// @notice reserve earmarked when the commitment was made, forfeited if
         ///         the player never reveals
         uint256 bond;

@@ -15,8 +15,8 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     IERC20 internal immutable TOKENS;
     /// @notice how much one placement costs
     uint256 internal immutable PLACEMENT_COST;
-    /// @notice how the round advances: see {UsingGameTypes-EpochPolicy}
-    EpochPolicy internal immutable EPOCH_POLICY;
+    /// @notice how the round advances: see {UsingGameTypes-CyclePolicy}
+    CyclePolicy internal immutable EPOCH_POLICY;
 
     /// @notice the number of placements a hash represents
     uint8 internal constant MAX_NUM_PLACEMENTS_PER_HASH = 32;
@@ -81,7 +81,7 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
         REVEAL_PHASE_DURATION = config.revealPhaseDuration;
         TOKENS = config.tokens;
         PLACEMENT_COST = config.placementCost;
-        EPOCH_POLICY = config.epochPolicy;
+        EPOCH_POLICY = config.cyclePolicy;
         // What makes a configuration VALID is checked one level up, in
         // {UsingGameInternal}, which is where the errors are declared.
     }

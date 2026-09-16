@@ -31,7 +31,10 @@ contract GameReveal is IGameReveal, UsingGameInternal {
     /// @dev Its own entry point, deliberately, and it is the reason `reveal`
     ///      above is unchanged by this whole axis: a reveal never advances
     ///      anything, whoever sends it and whenever it lands.
-    function advanceRound() external returns (uint64 epoch, bool commiting) {
+    function advanceRound()
+        external
+        returns (uint64 cycleNumber, bool commiting)
+    {
         return _advanceRound();
     }
 }

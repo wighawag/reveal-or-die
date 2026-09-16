@@ -92,11 +92,11 @@ describe('the epoch config, read off the deployment', () => {
 	});
 
 	it('takes the epoch policy the deployment declared', () => {
-		const declared = (epochPolicy: number) =>
+		const declared = (cyclePolicy: number) =>
 			resolveEpochConfig({
 				commitPhaseDuration: '30',
 				revealPhaseDuration: '10',
-				epochPolicy,
+				cyclePolicy,
 			}).policy;
 
 		// The numbers are the contract's enum, so the ORDER is the thing being
@@ -115,9 +115,9 @@ describe('the epoch config, read off the deployment', () => {
 			resolveEpochConfig({
 				commitPhaseDuration: '30',
 				revealPhaseDuration: '10',
-				epochPolicy: 7,
+				cyclePolicy: 7,
 			}),
-		).toThrow(/epochPolicy of 7/);
+		).toThrow(/cyclePolicy of 7/);
 	});
 
 	it('reads a deployment older than the parameter the way it actually ran', () => {
