@@ -24,10 +24,10 @@ import {
 	type TwoPhase,
 } from '$lib/game/core/cycle';
 import {
-	createRound,
-	type RoundStorage,
-	type RoundStore,
-} from '$lib/game/core/round';
+	createSubmission,
+	type SubmissionStorage,
+	type SubmissionStore,
+} from '$lib/game/core/submission';
 import {createDerivedSecret} from '$lib/game/core/secret';
 import {
 	createActiveIdentity,
@@ -35,7 +35,10 @@ import {
 	type GameIdentity,
 } from '$lib/game/identity';
 import {holdBoardUntilCycleEnds} from '$lib/game/core/handover';
-import {createRoundRecovery, type RecoveryStore} from '$lib/game/core/recovery';
+import {
+	createSubmissionRecovery,
+	type RecoveryStore,
+} from '$lib/game/core/recovery';
 import {
 	boardIsBehindClock,
 	cyclePhaseOf,
@@ -76,9 +79,9 @@ import {
 	type Placement,
 } from '$lib/placement/commit-reveal';
 import {
-	createRoundStorage,
-	noRoundStorage,
-	roundStorageKey,
+	createSubmissionStorage,
+	noSubmissionStorage,
+	submissionStorageKey,
 } from '$lib/placement/storage';
 import {createPlanning, type PlanningStore} from '$lib/placement/planning';
 import {createCycleReader} from '$lib/placement/cycle';
@@ -116,17 +119,17 @@ export type Game = {
 	 * the whole design and is otherwise invisible from outside: the account
 	 * owns, and a different key pays the gas and sends the moves.
 	 *
-	 * NOT what the round is keyed by. That is `activeIdentity`, and the two hold
-	 * the SAME VALUE here because the template is an address game - which is
-	 * precisely why they have to be two members rather than one. A consumer
-	 * asking "who am I signed in as" wants this one; a consumer asking "whose
-	 * commitment is this" wants the other, and on a game whose identity is a
-	 * token they are different values of different types.
+	 * NOT what the submission is keyed by. That is `activeIdentity`, and the two
+	 * hold the SAME VALUE here because the template is an address game - which is
+	 * precisely why they have to be two members rather than one. A consumer asking
+	 * "who am I signed in as" wants this one; a consumer asking "whose commitment
+	 * is this" wants the other, and on a game whose identity is a token they are
+	 * different values of different types.
 	 */
 	identity: Readable<`0x${string}` | undefined>;
 	/**
-	 * WHO IS PLAYING: what the round, the commitment, the stake and the round's
-	 * storage key are all keyed by. See `$lib/game/identity`.
+	 * WHO IS PLAYING: what the submission, the commitment, the stake and the
+	 * submission's storage key are all keyed by. See `$lib/game/identity`.
 	 *
 	 * Equal to `identity` here and NOT the same question. Where a game's
 	 * identity is a token, the account still exists and still owns the token;
@@ -148,8 +151,8 @@ export type Game = {
 	phase: Readable<CyclePhase>;
 	/** The same, collapsed to play / wait. */
 	twoPhase: Readable<TwoPhase>;
-	/** The commit-reveal round: what is planned, committed, revealed. */
-	round: RoundStore<GameIdentity, Placement>;
+	/** The commit-reveal submission: what is planned, committed, revealed. */
+	submission: SubmissionStore<GameIdentity, Placement>;
 	/** Clicks into planned placements. */
 	planning: PlanningStore;
 	/** The tokens at stake, without which nobody would have to reveal. */
@@ -165,13 +168,13 @@ export type Game = {
 	 */
 	missedReveal: MissedRevealStore;
 	/**
-	 * A commitment the chain holds for the round in progress that this browser
+	 * A commitment the chain holds for the cycle in progress that this browser
 	 * has no memory of - a cleared browser, a second device, a private window.
 	 * The stake is still recoverable while the cycle lasts. See
 	 * `$lib/game/core/recovery`.
 	 */
 	recovery: RecoveryStore<Placement>;
-	/** What the planned round will cost the player. */
+	/** What the planned submission will cost the player. */
 	cost: Readable<bigint>;
 	/**
 	 * Whether the player can actually take a turn: they have an identity to play
@@ -227,7 +230,7 @@ export type GameContext = {
  * the fix happens elsewhere (the top-up flow, reachable from the HUD and the
  * top bar). Watching the SIGNER'S BALANCE rather than the flow keeps the two
  * decoupled: whatever put gas in the account - the flow, a faucet, a transfer
- * by hand - the round resumes.
+ * by hand - the submission resumes.
  *
  * It matters most for a reveal, where the window is short and the stake is
  * already committed: asking the player to notice the failure, top up, and then
@@ -239,13 +242,13 @@ export type GameContext = {
  * context. Exported for the tests and used only just below.
  */
 export function resumeWhenGasArrives(params: {
-	round: Pick<
-		RoundStore<GameIdentity, Placement>,
+	submission: Pick<
+		SubmissionStore<GameIdentity, Placement>,
 		'subscribe' | 'value' | 'commit' | 'reveal'
 	>;
 	signerBalance: Readable<{step: string; value?: bigint}>;
 }): () => void {
-	const {round, signerBalance} = params;
+	const {submission, signerBalance} = params;
 	let gasSeen: bigint | undefined;
 
 	return signerBalance.subscribe(($balance) => {
@@ -257,22 +260,22 @@ export function resumeWhenGasArrives(params: {
 		// balance that fell is the failed move's own gas being spent elsewhere.
 		if (previous === undefined || $balance.value <= previous) return;
 
-		const $round = round.value;
+		const $submission = submission.value;
 		// The type the game constructed at its own boundary, not a fresh look at
 		// the node's wording. This decides whether to SPEND the player's gas
 		// unprompted, so it must resume only for the failure the arriving money
 		// actually fixes: any other error is still an error once the balance rises,
 		// and retrying it just burns the top-up.
 		if (
-			$round.step !== 'Error' ||
-			!($round.error instanceof SignerOutOfFundsError)
+			$submission.step !== 'Error' ||
+			!($submission.error instanceof SignerOutOfFundsError)
 		) {
 			return;
 		}
 		// Which one is not a detail: revealing when a commit failed would send a
 		// reveal for a commitment that was never made.
-		if ($round.during === 'reveal') void round.reveal();
-		else void round.commit();
+		if ($submission.during === 'reveal') void submission.reveal();
+		else void submission.commit();
 	});
 }
 
@@ -368,10 +371,10 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * WHO IS PLAYING, which is a different question from who is signed in.
 	 *
 	 * The same value as `account` here and deliberately not the same NAME: the
-	 * round, the secret's domain separation, the stake and the storage key are
-	 * keyed by THIS, and a game whose identity is a token keys them by the
-	 * token while the account goes on owning it. Every site below picks one of
-	 * the two on purpose; see `$lib/game/identity` for the rule.
+	 * submission, the secret's domain separation, the stake and the storage key
+	 * are keyed by THIS, and a game whose identity is a token keys them by the
+	 * token while the account goes on owning it. Every site below picks one of the
+	 * two on purpose; see `$lib/game/identity` for the rule.
 	 *
 	 * Built through a provider rather than assigned, because D6 requires
 	 * identity to be a SELECTION even where there is exactly one of them.
@@ -461,24 +464,24 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * Storage that follows the connected player.
 	 *
 	 * Resolved per call rather than captured once: the account can change while
-	 * the app is running, and a pending round belonging to a different address
-	 * would fail to reveal and read as a contract bug.
+	 * the app is running, and a pending submission belonging to a different
+	 * address would fail to reveal and read as a contract bug.
 	 */
-	const storage: RoundStorage<Placement> = {
+	const storage: SubmissionStorage<Placement> = {
 		load: () => forCurrentPlayer().load(),
-		save: (round) => forCurrentPlayer().save(round),
+		save: (submission) => forCurrentPlayer().save(submission),
 		clear: () => forCurrentPlayer().clear(),
 	};
 
-	function forCurrentPlayer(): RoundStorage<Placement> {
+	function forCurrentPlayer(): SubmissionStorage<Placement> {
 		// Keyed by WHO PLAYS, which is what the contract's commitment is keyed by.
 		// (This comment used to say "the signer", which the code has not done since
 		// the account became the player.)
 		const player = get(activeIdentity);
 		// `=== undefined`, not falsy: an identity that is a token id can be `0n`.
-		if (player === undefined) return noRoundStorage;
-		return createRoundStorage({
-			key: roundStorageKey({
+		if (player === undefined) return noSubmissionStorage;
+		return createSubmissionStorage({
+			key: submissionStorageKey({
 				chainID: deployments.chain.id,
 				gameAddress: deployments.contracts.Game.address,
 				player,
@@ -511,9 +514,9 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * commit, which is what the signer exists to remove.
 	 *
 	 * It THROWS when there is no signer rather than falling back to a random
-	 * secret. A silent fallback would produce a round that looks identical and is
-	 * not recoverable, which is the failure this is here to prevent, and the
-	 * setup gate already refuses to let anyone commit before signing in.
+	 * secret. A silent fallback would produce a submission that looks identical
+	 * and is not recoverable, which is the failure this is here to prevent, and
+	 * the setup gate already refuses to let anyone commit before signing in.
 	 */
 	async function signAsSigner(message: string): Promise<`0x${string}`> {
 		const executor = get(core.signerExecutor);
@@ -536,7 +539,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	}
 
 	/**
-	 * ONE derivation, shared by the round and by recovery.
+	 * ONE derivation, shared by the submission and by recovery.
 	 *
 	 * Built here rather than inline below because `./placement/recover-round`
 	 * has to reproduce EXACTLY what was committed with. Two call sites
@@ -551,7 +554,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		contract: deployments.contracts.Game.address,
 	});
 
-	const round = createRound<GameIdentity, Placement>({
+	const submission = createSubmission<GameIdentity, Placement>({
 		cycleInfo,
 		/**
 		 * DERIVED, not random, so a cleared browser does not cost the stake.
@@ -588,25 +591,25 @@ export function createGameContext(core: CoreServices): GameContext {
 		// neither the account nor the identity.
 		identity: activeIdentity,
 		onSettled: async () => {
-			// A settled round changes both the board and the reserve. Awaited by the
-			// round before it reports itself revealed, so the confirmed placements
-			// are on the board by the time the planned ones stop being drawn: no
-			// flicker of the moves disappearing and coming back.
+			// A settled submission changes both the board and the reserve. Awaited by
+			// the submission before it reports itself revealed, so the confirmed
+			// placements are on the board by the time the planned ones stop being drawn:
+			// no flicker of the moves disappearing and coming back.
 			await Promise.all([onchainState.update(), reserve.update()]);
 		},
 	});
 
-	const planning = createPlanning({round});
+	const planning = createPlanning({submission});
 
 	/**
 	 * The chain says a commitment exists; this browser may not know that.
 	 *
 	 * Wired from the read `missedReveal` was already making, and from the same
-	 * secret and hashing the round commits with. Nothing is fetched for it and
-	 * the framework gained one method for it (`round.adopt`).
+	 * secret and hashing the submission commits with. Nothing is fetched for it
+	 * and the framework gained one method for it (`submission.adopt`).
 	 */
-	const recovery = createRoundRecovery({
-		round,
+	const recovery = createSubmissionRecovery({
+		submission,
 		commitment: missedReveal.commitment,
 		identity: activeIdentity,
 		makeSecret,
@@ -636,19 +639,19 @@ export function createGameContext(core: CoreServices): GameContext {
 	const viewState = createViewState({
 		onchainState: heldBoard.board,
 		/**
-		 * THE DISPLAY COPY of the plan, not the round's live one.
+		 * THE DISPLAY COPY of the plan, not the submission's live one.
 		 *
 		 * The two halves of a turn - the local overlay before it resolves, the
 		 * board's account of it after - have to hand over with nothing in between,
-		 * and the round drops its actions the moment it reaches `Revealed`, before
-		 * the board releases what they did. Released by the board's OWN signal, so
-		 * the two cannot disagree about when the cycle ended.
+		 * and the submission drops its actions the moment it reaches `Revealed`,
+		 * before the board releases what they did. Released by the board's OWN
+		 * signal, so the two cannot disagree about when the cycle ended.
 		 *
 		 * ONLY WHAT IS DRAWN. `planning.plan` is untouched and everything that
 		 * ACTS on a turn keeps reading it.
 		 */
 		localState: holdPlanUntilBoardReleases({
-			round,
+			submission,
 			plan: planning.plan,
 			holding: heldBoard.holding,
 		}),
@@ -702,7 +705,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	const readyToPlay = derived(setup, ($setup) => $setup === undefined);
 
 	function start() {
-		const stopRound = round.start();
+		const stopSubmission = submission.start();
 
 		// A click is only a click to the canvas; what it MEANS is decided here, so
 		// the render layer stays free of game rules.
@@ -731,13 +734,14 @@ export function createGameContext(core: CoreServices): GameContext {
 			void missedReveal.check();
 		});
 
-		// A round that ends in Missed locally is very likely blocked on chain too.
-		const unsubscribeRound = round.subscribe(($round) => {
-			if ($round.step === 'Missed') void missedReveal.check();
+		// A submission that ends in Missed locally is very likely blocked on chain
+		// too.
+		const unsubscribeSubmission = submission.subscribe(($submission) => {
+			if ($submission.step === 'Missed') void missedReveal.check();
 		});
 
 		const unsubscribeGas = resumeWhenGasArrives({
-			round,
+			submission,
 			signerBalance: core.signerBalance,
 		});
 
@@ -771,10 +775,10 @@ export function createGameContext(core: CoreServices): GameContext {
 		});
 
 		return () => {
-			stopRound();
+			stopSubmission();
 			eventEmitter.off('clicked', onClicked);
 			unsubscribeIdentity();
-			unsubscribeRound();
+			unsubscribeSubmission();
 			unsubscribeCycle();
 			unsubscribeGas();
 			unsubscribeAcquisition();
@@ -793,7 +797,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			threePhase,
 			phase,
 			twoPhase,
-			round,
+			submission,
 			planning,
 			reserve,
 			acquisition,

@@ -1,7 +1,7 @@
 /**
  * The template game's `CommitRevealAdapter`.
  *
- * The framework's round decides WHEN these are called and keeps the secret
+ * The framework's submission decides WHEN these are called and keeps the secret
  * between the two; this file is only the translation into the Game contract's
  * own calls. That split is the seam: a game with a different identity model, or
  * a contract that names things differently, replaces this file and nothing
@@ -56,10 +56,10 @@ export function buildPlacementCommitment(params: {
 /**
  * What the adapter needs.
  *
- * `signerExecutor`, NOT `accountExecutor`: commit and reveal are signed by the local
- * signer so the player is never prompted mid-round, and so an account with no
- * wallet provider (email/social sign-in) can play at all. See where the game
- * executor is built in `context/core.ts`.
+ * `signerExecutor`, NOT `accountExecutor`: commit and reveal are signed by the
+ * local signer so the player is never prompted mid-submission, and so an
+ * account with no wallet provider (email/social sign-in) can play at all. See
+ * where the game executor is built in `context/core.ts`.
  */
 export type CommitRevealDeps = Pick<
 	Context,
@@ -84,7 +84,7 @@ export type CommitRevealDeps = Pick<
  * checking belonged to a different address from the one actually paying.
  *
  * The signer needs gas of its own; that is surfaced up front as a balance the
- * player can top up, not discovered mid-round. See `signerBalance` in the
+ * player can top up, not discovered mid-submission. See `signerBalance` in the
  * context.
  *
  * WHAT IT DOES DO, since 'after the fact' turned out not to be free: it refuses
@@ -93,13 +93,13 @@ export type CommitRevealDeps = Pick<
  * pre-flight check above, and costs no RPC call: it reads the balance the player
  * is already being shown.
  *
- * Waiting for inclusion matters more than it looks. `writeContract` resolves as soon as
- * the transaction is BROADCAST, so without this a commitment that reverts (an
- * empty reserve, a bond the reserve cannot cover) would still resolve happily,
- * the round would call itself Committed, and the only symptom would be a
- * baffling `NothingToReveal` a phase later. The round's states are what the
- * player is told about something they have money on, so they have to mean what
- * they say.
+ * Waiting for inclusion matters more than it looks. `writeContract` resolves as
+ * soon as the transaction is BROADCAST, so without this a commitment that
+ * reverts (an empty reserve, a bond the reserve cannot cover) would still
+ * resolve happily, the submission would call itself Committed, and the only
+ * symptom would be a baffling `NothingToReveal` a phase later. The submission's
+ * states are what the player is told about something they have money on, so
+ * they have to mean what they say.
  *
  * The cast is doing one specific job: viem types `value` differently for a
  * PAYABLE function than the tracked client's `writeContract` generic expects.
@@ -121,10 +121,10 @@ export type CommitRevealDeps = Pick<
  * `hardhat_setNonce` will not put it back.
  *
  * The cost of that lands squarely on the feature this file is most careful
- * about: the player tops up, the round retries, and the retry can never mine, so
- * a stake that was recoverable is lost to a stuck `Committing` instead. That is
- * the exact failure `out-of-gas.e2e.ts` exists to prevent, arriving through the
- * remedy rather than the original fault.
+ * about: the player tops up, the submission retries, and the retry can never
+ * mine, so a stake that was recoverable is lost to a stuck `Committing`
+ * instead. That is the exact failure `out-of-gas.e2e.ts` exists to prevent,
+ * arriving through the remedy rather than the original fault.
  *
  * THE CHECK IS DELIBERATELY NARROW, and reads as an assertion about the app
  * rather than about the chain. It fires only when the balance the player is
@@ -168,7 +168,7 @@ async function send(
 		// upstream's classifier again over an error this app already named.
 		//
 		// Named as its own type so the UI can offer the remedy (topping the
-		// SIGNER up) instead of a dead end, and so the round can carry on once
+		// SIGNER up) instead of a dead end, and so the submission can carry on once
 		// the money lands. See ./errors.
 		if (isInsufficientFundsFailure(error)) {
 			throw new SignerOutOfFundsError(error);
@@ -186,8 +186,8 @@ export function createPlacementCommitReveal(params: {
 	deps: CommitRevealDeps;
 	config: PlacementConfig;
 	/**
-	 * Run before a commitment is built or sent, to refuse one that cannot
-	 * succeed. Throwing here surfaces as the round's Error state, so whatever is
+	 * Run before a commitment is built or sent, to refuse one that cannot succeed.
+	 * Throwing here surfaces as the submission's Error state, so whatever is
 	 * thrown is read by the player: it should say what to do about it.
 	 *
 	 * Used for the unrevealed-commitment case, which the contract would otherwise
@@ -222,7 +222,7 @@ export function createPlacementCommitReveal(params: {
 
 			// The bond is the exact cost of what was planned. The contract only
 			// requires it to COVER the reveal, but bonding more would leave the
-			// surplus locked out of the reserve until the round settles, and
+			// surplus locked out of the reserve until the submission settles, and
 			// bonding less makes the reveal revert with `BondTooLow` after the
 			// commitment is already immovable.
 			const bond = costOfPlacements(config, actions.length);

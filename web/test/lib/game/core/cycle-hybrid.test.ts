@@ -31,7 +31,7 @@ const config: CycleConfig = {
 	policy: 'hybrid',
 };
 
-/** A round on the nominal grid: cycle 2 runs 0..40, committing until 30. */
+/** A cycle on the nominal grid: cycle 2 runs 0..40, committing until 30. */
 const nominal: CycleReading = {
 	cycleNumber: 2,
 	isCommitPhase: true,
@@ -66,7 +66,7 @@ function fakeChainTime(initial: number): ChainTimeStore & {
 }
 
 describe('predictCycle', () => {
-	it('rolls a known round forward on the clock alone', () => {
+	it('rolls a known cycle forward on the clock alone', () => {
 		expect(predictCycle(nominal, 10, config)).toEqual(nominal);
 		expect(predictCycle(nominal, 30, config)).toEqual({
 			cycleNumber: 2,
@@ -88,7 +88,7 @@ describe('predictCycle', () => {
 		});
 	});
 
-	it('predicts from the ROUND it was given, not from the deployment', () => {
+	it('predicts from the CYCLE it was given, not from the deployment', () => {
 		// What an early cycle advance leaves behind: cycle 7 began at 1000,
 		// which is nowhere on the grid the deployment's start time implies. An
 		// arithmetic that ignored this would answer for a schedule the chain has
@@ -113,7 +113,7 @@ describe('predictCycle', () => {
 		});
 	});
 
-	it('leaves a round alone when the clock is behind it', () => {
+	it('leaves a cycle alone when the clock is behind it', () => {
 		expect(predictCycle(nominal, -5, config)).toEqual(nominal);
 	});
 });
@@ -194,9 +194,9 @@ describe('the hybrid tracker', () => {
 		expect(info.currentCycleNumber).toBe(2);
 	});
 
-	it('never walks the round backwards when an answer arrives stale', async () => {
+	it('never walks the cycle backwards when an answer arrives stale', async () => {
 		// A load-balanced RPC can answer from a node a block behind. The chain
-		// is monotone; the answers about it are not, and a round that went
+		// is monotone; the answers about it are not, and a cycle that went
 		// backwards on screen would re-open a commit phase the chain has closed.
 		const {cycleInfo, refresh, chainTime} = harness([
 			{cycleNumber: 3, isCommitPhase: false, phaseStart: 70, phaseEnd: 80},

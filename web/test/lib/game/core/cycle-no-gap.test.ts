@@ -9,13 +9,14 @@ import {
 /**
  * A CYCLE IS A COMMIT PHASE FOLLOWED BY A REVEAL PHASE AND NOTHING ELSE.
  *
- * This is the arithmetic the round's recovery rests on, and it is load-bearing
- * in a way that is easy to lose by accident. Because there is no trailing
- * segment, a commitment made in the CURRENT cycle is always still openable: you
- * are either in the phase that takes it or in the phase that opens it. That is
- * why reconciling a round with the chain needs nothing at all for the too-late
- * case - the moment the reveal window shuts, the cycle has advanced, and the
- * existing missed-reveal path reports it and offers the settlement.
+ * This is the arithmetic the submission's recovery rests on, and it is
+ * load-bearing in a way that is easy to lose by accident. Because there is no
+ * trailing segment, a commitment made in the CURRENT cycle is always still
+ * openable: you are either in the phase that takes it or in the phase that
+ * opens it. That is why reconciling a submission with the chain needs nothing
+ * at all for the too-late case - the moment the reveal window shuts, the cycle
+ * has advanced, and the existing missed-reveal path reports it and offers the
+ * settlement.
  *
  * A settlement window, a gap between cycles, or a cycle that can turn over
  * while a reveal window is still nominally open would each void that argument,
@@ -108,7 +109,7 @@ describe('a cycle has no gap in it', () => {
 		// What the contract writes down when unanimity brings the reveal phase
 		// forward: the window starts now, and the deadline is untouched. The
 		// cycle is still exactly as long as it was, so a reveal scheduled
-		// against the nominal time still lands inside it - and the round still
+		// against the nominal time still lands inside it - and the cycle still
 		// cannot end with an unopened commitment in it.
 		const openedEarly: CycleReading = {
 			cycleNumber: 2,

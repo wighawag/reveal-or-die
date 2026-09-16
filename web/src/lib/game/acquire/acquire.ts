@@ -33,7 +33,7 @@
  *
  * WHAT A GAME SUPPLIES is {@link Acquisition}: where the call goes, what it
  * costs, and how to build it. Nothing else here is game-specific, which is why
- * it lives beside the round rather than in any one game's directory.
+ * it lives beside the submission rather than in any one game's directory.
  */
 import {derived, get, readable, writable, type Readable} from 'svelte/store';
 import {logs} from 'named-logs';

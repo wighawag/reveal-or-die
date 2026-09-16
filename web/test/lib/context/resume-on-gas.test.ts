@@ -2,7 +2,7 @@ import {describe, it, expect, vi} from 'vitest';
 import {writable} from 'svelte/store';
 import {resumeWhenGasArrives} from '$lib/context/game';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 import type {Placement} from '$lib/placement/commit-reveal';
 
 /**
@@ -19,9 +19,9 @@ import type {Placement} from '$lib/placement/commit-reveal';
  * player never asked for either send.
  */
 
-type State = RoundState<Placement>;
+type State = SubmissionState<Placement>;
 
-function fakeRound(state: State) {
+function fakeSubmission(state: State) {
 	const commit = vi.fn(async () => {});
 	const reveal = vi.fn(async () => {});
 	let value = state;
@@ -47,19 +47,19 @@ const outOfGas = (during: 'commit' | 'reveal'): State => ({
 	error: new SignerOutOfFundsError(new Error('insufficient funds')),
 });
 
-describe('resuming a round when gas arrives', () => {
+describe('resuming a submission when gas arrives', () => {
 	it('retries a commit that ran out of gas', () => {
-		const round = fakeRound(outOfGas('commit'));
+		const submission = fakeSubmission(outOfGas('commit'));
 		const balance = writable<{step: string; value?: bigint}>({
 			step: 'Loaded',
 			value: 0n,
 		});
 
-		const stop = resumeWhenGasArrives({round, signerBalance: balance});
+		const stop = resumeWhenGasArrives({submission, signerBalance: balance});
 		balance.set({step: 'Loaded', value: 10n});
 
-		expect(round.commit).toHaveBeenCalledOnce();
-		expect(round.reveal).not.toHaveBeenCalled();
+		expect(submission.commit).toHaveBeenCalledOnce();
+		expect(submission.reveal).not.toHaveBeenCalled();
 		stop();
 	});
 
@@ -67,26 +67,26 @@ describe('resuming a round when gas arrives', () => {
 		// Not interchangeable: committing again here would build a second
 		// commitment for a cycle that already has one, and the reveal the player
 		// has a stake riding on would still never be sent.
-		const round = fakeRound(outOfGas('reveal'));
+		const submission = fakeSubmission(outOfGas('reveal'));
 		const balance = writable<{step: string; value?: bigint}>({
 			step: 'Loaded',
 			value: 0n,
 		});
 
-		const stop = resumeWhenGasArrives({round, signerBalance: balance});
+		const stop = resumeWhenGasArrives({submission, signerBalance: balance});
 		balance.set({step: 'Loaded', value: 10n});
 
-		expect(round.reveal).toHaveBeenCalledOnce();
-		expect(round.commit).not.toHaveBeenCalled();
+		expect(submission.reveal).toHaveBeenCalledOnce();
+		expect(submission.commit).not.toHaveBeenCalled();
 		stop();
 	});
 
 	it('does NOT retry a failure that gas cannot fix', () => {
-		// The mutation this test exists for: resuming on `step === 'Error'` alone.
-		// It looks harmless (the round is failed either way) and it quietly spends
-		// the top-up on a move that fails again identically. A contract that
-		// rejected a commitment rejects it just as hard with a full tank.
-		const round = fakeRound({
+		// The mutation this test exists for: resuming on `step === 'Error'` alone. It
+		// looks harmless (the submission is failed either way) and it quietly spends
+		// the top-up on a move that fails again identically. A contract that rejected
+		// a commitment rejects it just as hard with a full tank.
+		const submission = fakeSubmission({
 			step: 'Error',
 			during: 'commit',
 			cycleNumber: 3,
@@ -99,16 +99,16 @@ describe('resuming a round when gas arrives', () => {
 			value: 0n,
 		});
 
-		const stop = resumeWhenGasArrives({round, signerBalance: balance});
+		const stop = resumeWhenGasArrives({submission, signerBalance: balance});
 		balance.set({step: 'Loaded', value: 10n});
 
-		expect(round.commit).not.toHaveBeenCalled();
-		expect(round.reveal).not.toHaveBeenCalled();
+		expect(submission.commit).not.toHaveBeenCalled();
+		expect(submission.reveal).not.toHaveBeenCalled();
 		stop();
 	});
 
-	it('does not send anything when the round is not failed', () => {
-		const round = fakeRound({
+	it('does not send anything when the submission is not failed', () => {
+		const submission = fakeSubmission({
 			step: 'Committed',
 			cycleNumber: 3,
 			actions: [{cellID: 1n}],
@@ -119,11 +119,11 @@ describe('resuming a round when gas arrives', () => {
 			value: 0n,
 		});
 
-		const stop = resumeWhenGasArrives({round, signerBalance: balance});
+		const stop = resumeWhenGasArrives({submission, signerBalance: balance});
 		balance.set({step: 'Loaded', value: 10n});
 
-		expect(round.commit).not.toHaveBeenCalled();
-		expect(round.reveal).not.toHaveBeenCalled();
+		expect(submission.commit).not.toHaveBeenCalled();
+		expect(submission.reveal).not.toHaveBeenCalled();
 		stop();
 	});
 
@@ -131,44 +131,44 @@ describe('resuming a round when gas arrives', () => {
 		// Loading a balance is this browser learning what was already there, not
 		// money arriving. Firing on it would retry the moment the page settles,
 		// against exactly the balance that just failed.
-		const round = fakeRound(outOfGas('commit'));
+		const submission = fakeSubmission(outOfGas('commit'));
 		const balance = writable<{step: string; value?: bigint}>({
 			step: 'Unloaded',
 		});
 
-		const stop = resumeWhenGasArrives({round, signerBalance: balance});
+		const stop = resumeWhenGasArrives({submission, signerBalance: balance});
 		balance.set({step: 'Loaded', value: 500n});
 
-		expect(round.commit).not.toHaveBeenCalled();
+		expect(submission.commit).not.toHaveBeenCalled();
 		stop();
 	});
 
 	it('does not fire when the balance falls or holds still', () => {
-		const round = fakeRound(outOfGas('commit'));
+		const submission = fakeSubmission(outOfGas('commit'));
 		const balance = writable<{step: string; value?: bigint}>({
 			step: 'Loaded',
 			value: 10n,
 		});
 
-		const stop = resumeWhenGasArrives({round, signerBalance: balance});
+		const stop = resumeWhenGasArrives({submission, signerBalance: balance});
 		balance.set({step: 'Loaded', value: 10n});
 		balance.set({step: 'Loaded', value: 4n});
 
-		expect(round.commit).not.toHaveBeenCalled();
+		expect(submission.commit).not.toHaveBeenCalled();
 		stop();
 	});
 
 	it('stops watching once torn down', () => {
-		const round = fakeRound(outOfGas('commit'));
+		const submission = fakeSubmission(outOfGas('commit'));
 		const balance = writable<{step: string; value?: bigint}>({
 			step: 'Loaded',
 			value: 0n,
 		});
 
-		const stop = resumeWhenGasArrives({round, signerBalance: balance});
+		const stop = resumeWhenGasArrives({submission, signerBalance: balance});
 		stop();
 		balance.set({step: 'Loaded', value: 10n});
 
-		expect(round.commit).not.toHaveBeenCalled();
+		expect(submission.commit).not.toHaveBeenCalled();
 	});
 });

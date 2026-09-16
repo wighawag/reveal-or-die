@@ -1,9 +1,9 @@
 import {describe, it, expect} from 'vitest';
 import {get, writable, type Writable} from 'svelte/store';
-import {createHud, describeRound} from '$lib/placement/ui/hud';
+import {createHud, describeSubmission} from '$lib/placement/ui/hud';
 import type {Context} from '$lib/context/types';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 import type {Placement} from '$lib/placement/commit-reveal';
 
 /**
@@ -13,11 +13,11 @@ import type {Placement} from '$lib/placement/commit-reveal';
  * gap was invisible: the strings are right there in the source and reading them
  * proves nothing about which one is reached. The distinction being pinned here
  * is between a failure with a remedy (the signer has no gas: top it up and the
- * round carries on by itself) and one without, because sending a player to buy
- * gas they already have is worse than telling them nothing.
+ * submission carries on by itself) and one without, because sending a player to
+ * buy gas they already have is worse than telling them nothing.
  */
 
-type State = RoundState<Placement>;
+type State = SubmissionState<Placement>;
 
 const idle = (): State => ({step: 'Idle'});
 
@@ -30,9 +30,9 @@ const failed = (during: 'commit' | 'reveal', error: unknown): State => ({
 	error,
 });
 
-describe('what the HUD says about a failed round', () => {
+describe('what the HUD says about a failed submission', () => {
 	it('names the gas problem, not the transaction, when the signer is empty', () => {
-		const commit = describeRound(
+		const commit = describeSubmission(
 			failed('commit', new SignerOutOfFundsError(new Error('whatever'))),
 		);
 		expect(commit.label).toBe(
@@ -40,7 +40,7 @@ describe('what the HUD says about a failed round', () => {
 		);
 		expect(commit.tone).toBe('bad');
 
-		const reveal = describeRound(
+		const reveal = describeSubmission(
 			failed('reveal', new SignerOutOfFundsError(new Error('whatever'))),
 		);
 		expect(reveal.label).toBe(
@@ -53,7 +53,7 @@ describe('what the HUD says about a failed round', () => {
 		// funds". True, and misleading here: the account is a signer the player
 		// was never told about, so they read "this account" as their wallet and go
 		// and look at a balance that is fine. The game names whose shortfall it is.
-		const {label} = describeRound(
+		const {label} = describeSubmission(
 			failed('commit', new SignerOutOfFundsError(new Error('whatever'))),
 		);
 		expect(label).not.toMatch(/this account/i);
@@ -63,7 +63,7 @@ describe('what the HUD says about a failed round', () => {
 	it('reports any other failure as itself, with the message', () => {
 		// Including a revert that mentions funds. The remedy on offer must follow
 		// what the boundary decided, not what the text happens to say.
-		const {label, tone} = describeRound(
+		const {label, tone} = describeSubmission(
 			failed('commit', new Error('execution reverted: insufficient funds')),
 		);
 		expect(label).toBe('Commit failed: execution reverted: insufficient funds');
@@ -73,14 +73,16 @@ describe('what the HUD says about a failed round', () => {
 
 	it('tells the player to retry a failed reveal before the phase ends', () => {
 		// The reveal is the one with a stake on it, and the window closes.
-		const {label} = describeRound(failed('reveal', new Error('nonce too low')));
+		const {label} = describeSubmission(
+			failed('reveal', new Error('nonce too low')),
+		);
 		expect(label).toBe(
 			'Reveal failed: nonce too low. Retry before the phase ends.',
 		);
 	});
 
 	it('says what a missed reveal cost, rather than that something went wrong', () => {
-		const {label, tone} = describeRound({
+		const {label, tone} = describeSubmission({
 			step: 'Missed',
 			cycleNumber: 7,
 			actions: [{cellID: 1n}],
@@ -91,7 +93,7 @@ describe('what the HUD says about a failed round', () => {
 });
 
 /** A context with only the parts `createHud` reads. */
-function fakeContext(round: State, hasLocalSigner = true) {
+function fakeContext(submission: State, hasLocalSigner = true) {
 	return {
 		hasLocalSigner,
 		// The setup gate's button carries the price, so the HUD reads the chain's
@@ -106,7 +108,7 @@ function fakeContext(round: State, hasLocalSigner = true) {
 			// The four-part model, asked separately from the countdown: the
 			// catch-up has no countdown at all. See game/core/cycle-phase.ts.
 			phase: writable('play'),
-			round: writable(round),
+			submission: writable(submission),
 			planning: {count: writable(1)},
 			cost: writable(0n),
 			reserve: writable({step: 'Loaded', amount: 100n}),
@@ -202,7 +204,7 @@ describe('what the HUD says when there is no local signer', () => {
  * will open it. It must NOT say the stake is lost - it is not, yet, which is
  * the entire reason for showing anything.
  */
-describe('a round the chain holds and this browser has lost', () => {
+describe('a submission the chain holds and this browser has lost', () => {
 	it('says nothing at all when there is nothing to recover', () => {
 		const model = get(createHud(fakeContext(idle())));
 		expect(model.recovery).toBeUndefined();

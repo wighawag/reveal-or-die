@@ -23,7 +23,7 @@ import {execFileSync} from 'node:child_process';
  * It looks at the FRAMEWORK'S IDENTITY-PARAMETERISED GENERICS instead. Those
  * are the sites where a type argument means "this is what a player IS", and
  * they are unambiguous: there is no other reason to pass a type to
- * `createRound`. Wherever application code instantiates one of them, the
+ * `createSubmission`. Wherever application code instantiates one of them, the
  * identity argument has to be the alias.
  *
  * THE MIRROR-IMAGE RULE MATTERS JUST AS MUCH, and it is the second block
@@ -48,15 +48,15 @@ import {execFileSync} from 'node:child_process';
  * The framework generics whose type argument names the identity.
  *
  * `RecoveryStore` is deliberately NOT in this list: it is parameterised by the
- * ACTION only (`RecoveryStore<TAction>`). `createRoundRecovery` is the
+ * ACTION only (`RecoveryStore<TAction>`). `createSubmissionRecovery` is the
  * identity-carrying half of that module and it is here.
  */
 const IDENTITY_GENERICS = [
-	'RoundStore',
-	'createRound',
+	'SubmissionStore',
+	'createSubmission',
 	'CommitRevealAdapter',
 	'createDerivedSecret',
-	'createRoundRecovery',
+	'createSubmissionRecovery',
 ] as const;
 
 const ALIAS = 'GameIdentity';
@@ -67,10 +67,10 @@ const FRAMEWORK = 'src/lib/game/core/';
  * The framework's own tests.
  *
  * Exempt for the same reason the framework is, and the reason is worth stating
- * because it looks like a loophole. Those suites test `createRound` itself,
- * so a concrete type there is a TEST FIXTURE picking one instance of the type
- * parameter, not an application declaring what its players are. They pin the
- * ADDRESS case specifically, which is valuable exactly where it looks
+ * because it looks like a loophole. Those suites test `createSubmission`
+ * itself, so a concrete type there is a TEST FIXTURE picking one instance of
+ * the type parameter, not an application declaring what its players are. They
+ * pin the ADDRESS case specifically, which is valuable exactly where it looks
  * redundant: in a descendant whose own identity is a `bigint`, the inherited
  * copies of these suites are the only coverage the address half of
  * `PlayerIdentity` has. Forcing them onto the alias would delete that, and
@@ -117,17 +117,19 @@ function withoutComments(source: string): string {
  * Every explicit instantiation of an identity-parameterised generic.
  *
  * The identity is always the FIRST type argument, so the capture stops at the
- * first comma or closing angle bracket. Inference sites (`createRoundRecovery`
- * called with no type arguments at all) name nothing and are not matched,
- * which is correct: they cannot say the wrong thing.
+ * first comma or closing angle bracket. Inference sites
+ * (`createSubmissionRecovery` called with no type arguments at all) name
+ * nothing and are not matched, which is correct: they cannot say the wrong
+ * thing.
  */
 function instantiationsIn(path: string): Instantiation[] {
 	const source = withoutComments(readFileSync(`${root}${path}`, 'utf8'));
 	const found: Instantiation[] = [];
 	source.split('\n').forEach((text, index) => {
 		for (const generic of IDENTITY_GENERICS) {
-			// \b...\s*< so that `createRound<` does not match `createRoundRecovery<`
-			// and `RoundStore<` does not match `RoundStorage<`.
+			// \b...\s*< so that `createSubmission<` does not match
+			// `createSubmissionRecovery<` and `SubmissionStore<` does not match
+			// `SubmissionStorage<`.
 			const pattern = new RegExp(`\\b${generic}\\s*<\\s*([^,<>]+)`, 'g');
 			let match: RegExpExecArray | null;
 			while ((match = pattern.exec(text)) !== null) {

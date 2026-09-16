@@ -1,7 +1,7 @@
 <!--
 	The template's game.
 
-	A grid of shared cells: click to plan placements, the round commits as the
+	A grid of shared cells: click to plan placements, the submission commits as the
 	phase closes, and reveals in the reveal phase. It exists to prove the seams
 	in `$lib/game/core/seams.ts` fit together - the state store, the
 	commit-reveal adapter, the view merge and the renderer are all exercised

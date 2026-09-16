@@ -144,7 +144,7 @@ describe('the cycle config, read off the deployment', () => {
 
 	it('refuses to build a clock out of a missing phase duration', () => {
 		// The failure this replaces had no symptom at all: a NaN duration makes
-		// every comparison false, so the cycle never advances, the round never
+		// every comparison false, so the cycle never advances, the submission never
 		// commits, and there is nothing in the console to go on.
 		expect(() =>
 			resolveCycleConfig({

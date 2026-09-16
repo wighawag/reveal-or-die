@@ -1,11 +1,11 @@
 /**
- * WHAT THIS GAME KEYS A ROUND BY.
+ * WHAT THIS GAME KEYS A SUBMISSION BY.
  *
- * The framework never names a concrete identity: `createRound`,
- * `CommitRevealAdapter`, `createDerivedSecret` and `createRoundRecovery` are
- * all generic over `TIdentity extends PlayerIdentity`, deliberately, because
- * the games this template exists for disagree about what a player IS. An
- * account-keyed game plays as an address; reveal-or-die and bomber-world
+ * The framework never names a concrete identity: `createSubmission`,
+ * `CommitRevealAdapter`, `createDerivedSecret` and `createSubmissionRecovery`
+ * are all generic over `TIdentity extends PlayerIdentity`, deliberately,
+ * because the games this template exists for disagree about what a player IS.
+ * An account-keyed game plays as an address; reveal-or-die and bomber-world
  * commit per ERC721 token; conquest commits per owner-derived empire id.
  *
  * So SOMETHING has to say which one this app chose, and this module is it.
@@ -25,9 +25,9 @@
  *   address in every game and every configuration. `Game.identity` is that,
  *   and so are `acquire`'s `owner`, the reserve's `payer` and everything in
  *   `onchain/delegation.ts`.
- * - the GAME IDENTITY is who PLAYS. The round, the commitment, the secret's
- *   domain separation, the stake and the round's storage key are all keyed by
- *   it, and it is what changes shape between games.
+ * - the GAME IDENTITY is who PLAYS. The submission, the commitment, the
+ *   secret's domain separation, the stake and the submission's storage key are
+ *   all keyed by it, and it is what changes shape between games.
  *
  * ON `main` THEY HOLD THE SAME VALUE, because the template is deliberately an
  * address game (decision 3 in HANDOFF). That is exactly why the names have to
@@ -71,7 +71,7 @@ export type GameIdentity = `0x${string}`;
  * NOT A FORMATTER, and the distinction is what keeps it honest: it is the one
  * place that knows how THIS game's identity is spelled on chain, which is the
  * same job `_playerOf` does in Solidity. The two have to agree, and the e2e
- * round is what proves they do - a disagreement surfaces as a commitment
+ * submission is what proves they do - a disagreement surfaces as a commitment
  * filed under an identity the reveal cannot find.
  */
 export function onchainIdentity(identity: GameIdentity): bigint {

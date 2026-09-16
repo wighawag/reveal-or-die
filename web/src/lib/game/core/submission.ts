@@ -1,5 +1,5 @@
 /**
- * The commit-reveal round.
+ * The commit-reveal submission.
  *
  * This is framework, not a seam. It owns the part every game on this template
  * shares: what the player has planned for this cycle, when that stops being
@@ -39,7 +39,7 @@ import {revealPhaseStartTime, type CycleInfoStore} from './cycle';
  * the game hands over, in the middle of a phase, and anything clever here is a
  * way to lose a secret.
  */
-export type PersistedRound<TAction> = {
+export type PersistedSubmission<TAction> = {
 	cycleNumber: number;
 	actions: readonly TAction[];
 	secret: `0x${string}`;
@@ -48,19 +48,19 @@ export type PersistedRound<TAction> = {
 };
 
 /**
- * Where the pending round is kept between page loads.
+ * Where the pending submission is kept between page loads.
  *
- * A port rather than a direct `localStorage` call: the round is constructed
- * during SSR too, and a game with an account system may want the round scoped
- * to the signed-in player rather than to the browser.
+ * A port rather than a direct `localStorage` call: the submission is
+ * constructed during SSR too, and a game with an account system may want the
+ * submission scoped to the signed-in player rather than to the browser.
  */
-export type RoundStorage<TAction> = {
-	load(): PersistedRound<TAction> | undefined;
-	save(round: PersistedRound<TAction>): void;
+export type SubmissionStorage<TAction> = {
+	load(): PersistedSubmission<TAction> | undefined;
+	save(submission: PersistedSubmission<TAction>): void;
 	clear(): void;
 };
 
-export type RoundState<TAction> =
+export type SubmissionState<TAction> =
 	/** No player, or nothing planned yet this cycle. */
 	| {step: 'Idle'}
 	/** Actions chosen, still changeable. */
@@ -73,7 +73,7 @@ export type RoundState<TAction> =
 	/**
 	 * A commitment from an earlier cycle was never revealed. Whatever the game
 	 * put at stake has been lost by its own rules (a burnt bond, a demoted
-	 * character); the round cannot undo it, only report it.
+	 * character); the submission cannot undo it, only report it.
 	 */
 	| {step: 'Missed'; cycleNumber: number}
 	| {
@@ -93,34 +93,35 @@ export type RoundState<TAction> =
 			actions: readonly TAction[];
 	  };
 
-export type RoundStore<TIdentity extends PlayerIdentity, TAction> = Readable<
-	RoundState<TAction>
-> & {
-	readonly value: RoundState<TAction>;
+export type SubmissionStore<
+	TIdentity extends PlayerIdentity,
+	TAction,
+> = Readable<SubmissionState<TAction>> & {
+	readonly value: SubmissionState<TAction>;
 	/** Replace what is planned for this cycle. Ignored once committed. */
 	plan(actions: readonly TAction[]): void;
 	/** Send the commitment now, rather than waiting for the phase to close. */
 	commit(): Promise<void>;
-	/** Send the reveal now. Normally the round does this itself. */
+	/** Send the reveal now. Normally the submission does this itself. */
 	reveal(): Promise<void>;
 	/** Acknowledge a missed reveal, clearing it off the HUD. */
 	dismiss(): void;
 	/**
-	 * Take up a round this browser did not create. Returns whether it did.
+	 * Take up a submission this browser did not create. Returns whether it did.
 	 *
 	 * The chain, not local storage, is what says a commitment exists. A cleared
 	 * browser, a second device, a second browser, a private window, a reinstall
 	 * and a storage write that silently failed all produce the same state: the
-	 * contract holds a commitment this round knows nothing about, and the stake
-	 * is lost unless it can be revealed.
+	 * contract holds a commitment this submission knows nothing about, and the
+	 * stake is lost unless it can be revealed.
 	 *
 	 * A game that can reconstruct the actions - by asking the player to re-enter
-	 * them, or by enumerating a small action space - hands the result here and
-	 * the round carries on as if it had never forgotten. It is the ONLY method
-	 * the framework adds for this, deliberately: see {@link RoundStore.adopt}'s
-	 * implementation for what it refuses and why.
+	 * them, or by enumerating a small action space - hands the result here and the
+	 * submission carries on as if it had never forgotten. It is the ONLY method
+	 * the framework adds for this, deliberately: see {@link
+	 * SubmissionStore.adopt}'s implementation for what it refuses and why.
 	 */
-	adopt(round: PersistedRound<TAction>): boolean;
+	adopt(submission: PersistedSubmission<TAction>): boolean;
 	/** Begin watching the cycle. Returns the teardown. */
 	start(): () => void;
 };
@@ -147,10 +148,13 @@ function randomSecret(): `0x${string}` {
 	return hex as `0x${string}`;
 }
 
-export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
+export function createSubmission<
+	TIdentity extends PlayerIdentity,
+	TAction,
+>(params: {
 	cycleInfo: CycleInfoStore;
 	adapter: CommitRevealAdapter<TIdentity, TAction>;
-	storage: RoundStorage<TAction>;
+	storage: SubmissionStorage<TAction>;
 	/** Who is playing, or undefined when nobody is connected. */
 	identity: Readable<TIdentity | undefined>;
 	/**
@@ -162,12 +166,12 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * Whether a turn with NOTHING planned should still be committed and revealed.
 	 *
 	 * Default false, which is right for a game where a quiet cycle simply passes:
-	 * committing an empty round would spend gas to say nothing.
+	 * committing an empty submission would spend gas to say nothing.
 	 *
 	 * It is wrong, and expensively so, for a game that PUNISHES SILENCE. Where
 	 * what is at stake DECAYS rather than sitting in a bond - an avatar that dies
-	 * after a few missed rounds, a character that loses levels - the contract
-	 * measures liveness by reveals, so a player who watches a few rounds without
+	 * after a few missed submissions, a character that loses levels - the contract
+	 * measures liveness by reveals, so a player who watches a few cycles without
 	 * moving loses what they paid for, having done nothing wrong and been told
 	 * nothing. The client has to keep the loop turning on their behalf.
 	 *
@@ -178,12 +182,12 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * A PREDICATE rather than a flag, because the answer changes minute to minute:
 	 * it is only true while the game is actually holding something that can die.
 	 * An entity waiting to enter play has no clock running against it, and
-	 * committing empty rounds for it would burn gas for nothing.
+	 * committing empty submissions for it would burn gas for nothing.
 	 *
-	 * It has to live here rather than in the game because the round owns the cycle
-	 * loop, the secret and the storage, and a game cannot express "commit nothing"
-	 * from outside: `plan([])` means "nothing is pending", not "send an empty
-	 * turn".
+	 * It has to live here rather than in the game because the submission owns the
+	 * cycle loop, the secret and the storage, and a game cannot express "commit
+	 * nothing" from outside: `plan([])` means "nothing is pending", not "send an
+	 * empty turn".
 	 *
 	 * KNOWN TENSION, worth reading before building a deliberate exit on top of
 	 * this: an idle player with the tab open never dies and quietly spends gas, so
@@ -199,17 +203,18 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * This is NOT a choice about whether the player may reveal: `reveal()` is
 	 * always callable, and a third party can always reveal on their behalf (every
 	 * one of these contracts takes the identity as an argument rather than using
-	 * msg.sender, deliberately). It only decides what the round does on its own.
+	 * msg.sender, deliberately). It only decides what the submission does on its
+	 * own.
 	 *
 	 * - `immediately`: reveal as soon as the phase opens. Right for any game
-	 *   whose round is short enough that the player is plausibly still there,
+	 *   whose cycle is short enough that the player is plausibly still there,
 	 *   and for a hot-seat or single-machine setup where turns are simply waited
 	 *   out.
 	 * - `fallback`: something else is expected to reveal (a scheduler holding a
-	 *   timelock-encrypted transaction, see `CommitRevealAdapter.commit`), but
-	 *   this browser tries anyway once the phase is nearly over and the round is
-	 *   still open. A duplicate reveal is cheap - the loser of the race reverts -
-	 *   and a missed one is not, so trying is the right bias.
+	 * timelock-encrypted transaction, see `CommitRevealAdapter.commit`), but this
+	 * browser tries anyway once the phase is nearly over and the submission is
+	 * still open. A duplicate reveal is cheap - the loser of the race reverts -
+	 * and a missed one is not, so trying is the right bias.
 	 * - `never`: something else owns it entirely.
 	 *
 	 * A game on a 23h/1h commit/reveal split cannot expect anyone to be at the
@@ -227,7 +232,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * Produce the secret for a cycle. Defaults to 32 random bytes.
 	 *
 	 * A game overrides this to DERIVE the secret from a key the player already
-	 * holds, which makes a round recoverable after local storage is lost. See
+	 * holds, which makes a submission recoverable after local storage is lost. See
 	 * `randomSecret` above and `createDerivedSecret` in `./secret.ts`.
 	 *
 	 * IT IS HANDED THE IDENTITY, not only the cycle, and a derivation that
@@ -242,17 +247,17 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 		identity: TIdentity;
 	}) => `0x${string}` | Promise<`0x${string}`>;
 	/**
-	 * Called when a round completes, so the caller can refresh chain state.
+	 * Called when a submission completes, so the caller can refresh chain state.
 	 *
-	 * AWAITED before the round reports itself revealed, and that ordering is the
-	 * whole point. The planned placements are drawn from the round, and the
-	 * confirmed ones from the board; flipping to `Revealed` first would clear the
-	 * planned overlay while the board was still a fetch behind, and the player
+	 * AWAITED before the submission reports itself revealed, and that ordering is
+	 * the whole point. The planned placements are drawn from the submission, and
+	 * the confirmed ones from the board; flipping to `Revealed` first would clear
+	 * the planned overlay while the board was still a fetch behind, and the player
 	 * would watch their moves vanish and then reappear. The data is already on
 	 * chain at this point, so there is no reason to show a gap.
 	 */
 	onSettled?: () => void | Promise<void>;
-}): RoundStore<TIdentity, TAction> {
+}): SubmissionStore<TIdentity, TAction> {
 	const {cycleInfo, adapter, storage, identity} = params;
 	const autoCommit = params.autoCommit ?? true;
 	const commitWhenIdle = params.commitWhenIdle ?? (() => false);
@@ -260,15 +265,15 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	const fallbackRevealAfter = params.fallbackRevealAfter ?? 0.5;
 	const makeSecret = params.makeSecret ?? (() => randomSecret());
 
-	let $state: RoundState<TAction> = {step: 'Idle'};
-	const store = writable<RoundState<TAction>>($state);
+	let $state: SubmissionState<TAction> = {step: 'Idle'};
+	const store = writable<SubmissionState<TAction>>($state);
 
-	function set(next: RoundState<TAction>) {
+	function set(next: SubmissionState<TAction>) {
 		$state = next;
 		store.set(next);
 	}
 
-	/** The actions of whatever round is currently in play, if any. */
+	/** The actions of whatever submission is currently in play, if any. */
 	function currentActions(): readonly TAction[] {
 		return 'actions' in $state ? $state.actions : [];
 	}
@@ -291,19 +296,19 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	}
 
 	/**
-	 * Whether the round owes NOTHING for the cycle now closing, which is the
+	 * Whether the submission owes NOTHING for the cycle now closing, which is the
 	 * question `commitWhenIdle` is asked about.
 	 *
 	 * Not the same as `step === 'Idle'`, and reading it that way stopped the
-	 * liveness loop after exactly one turn. A round that has been revealed sits
-	 * on `Revealed` - there is nothing to put it back to `Idle`, and nothing
+	 * liveness loop after exactly one turn. A submission that has been revealed
+	 * sits on `Revealed` - there is nothing to put it back to `Idle`, and nothing
 	 * should, since the HUD reports the outcome from it - so a player who moved
 	 * once and then stood still committed nothing ever again, and lost what they
 	 * held a few cycles later to the very silence this option exists to prevent.
 	 * Found in play, not in review.
 	 *
-	 * A FINISHED round from an EARLIER cycle is nothing pending. The cycle
-	 * comparison is what makes that safe: a round revealed in the cycle still
+	 * A FINISHED submission from an EARLIER cycle is nothing pending. The cycle
+	 * comparison is what makes that safe: a submission revealed in the cycle still
 	 * running has already had its commitment, and a second one for the same cycle
 	 * is not something to send.
 	 */
@@ -321,8 +326,8 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	 * During the commit phase that is this cycle. During the REVEAL phase the
 	 * commit window has closed, so anything planned now is for the next one.
 	 * Stamping it that way is what stops it being thrown away as stale the moment
-	 * the cycle turns over: a player who keeps clicking while the round resolves
-	 * is planning ahead, not making a mistake.
+	 * the cycle turns over: a player who keeps clicking while the submission
+	 * resolves is planning ahead, not making a mistake.
 	 */
 	function cycleNumberBeingPlannedFor(): number {
 		const info = cycleInfo.now();
@@ -344,7 +349,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 		const cycleNumber = cycleNumberBeingPlannedFor();
 		if (actions.length === 0) {
 			// Nothing planned is the same as nothing pending, and a stored empty
-			// round would only be a way to reveal nothing later.
+			// submission would only be a way to reveal nothing later.
 			storage.clear();
 			set({step: 'Idle'});
 			return;
@@ -391,7 +396,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 				actions,
 				secret,
 				cycleNumber,
-				// TAKEN FROM THE ROUND, not recomputed from the deployment. A
+				// TAKEN FROM THE CYCLE, not recomputed from the deployment. A
 				// manually advanced chain has no clock, so there is no moment to
 				// predict and nothing a scheduler could be told; and under a policy
 				// that allows early advance the cycle's origin moves, so the same
@@ -404,7 +409,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 			set({step: 'Committed', cycleNumber, actions});
 		} catch (error) {
 			// The commitment never went out, so nothing is at stake and the stored
-			// round would only confuse the next load.
+			// submission would only confuse the next load.
 			storage.clear();
 			set({
 				step: 'Error',
@@ -455,7 +460,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 			storage.clear();
 			set({step: 'Revealed', cycleNumber: pending.cycleNumber});
 		} catch (error) {
-			// The stored round is deliberately KEPT: the reveal can be retried for
+			// The stored submission is deliberately KEPT: the reveal can be retried for
 			// as long as the phase lasts, and dropping the secret here would
 			// forfeit the stake over a rejected wallet prompt.
 			set({
@@ -476,34 +481,34 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 	}
 
 	/**
-	 * Take up a round, wherever it came from.
+	 * Take up a submission, wherever it came from.
 	 *
 	 * THE BODY OF `restore()`, lifted so that storage is not the only place a
-	 * round may come from. A round reconstructed from the chain is a RESTORED
-	 * round and nothing downstream should be able to tell the difference, which
-	 * is why this adds no state: every consumer that switches on `RoundState`
-	 * keeps working because there is nothing new to switch on.
+	 * submission may come from. A submission reconstructed from the chain is a
+	 * RESTORED submission and nothing downstream should be able to tell the
+	 * difference, which is why this adds no state: every consumer that switches on
+	 * `SubmissionState` keeps working because there is nothing new to switch on.
 	 *
 	 * It refuses two things, and both refusals are the point rather than
 	 * defensive noise.
 	 *
-	 * A ROUND FROM ANOTHER CYCLE. Only the cycle in progress can still be
-	 * revealed; adopting an older one would put the round into `Committed` for a
-	 * window that has shut, and it would then spend gas on a reveal the contract
-	 * refuses. A commitment left over from an earlier cycle is a MISSED reveal,
-	 * which is a settlement the player presses for themselves, not something to
-	 * recover.
+	 * A SUBMISSION FROM ANOTHER CYCLE. Only the cycle in progress can still be
+	 * revealed; adopting an older one would put the submission into `Committed`
+	 * for a window that has shut, and it would then spend gas on a reveal the
+	 * contract refuses. A commitment left over from an earlier cycle is a MISSED
+	 * reveal, which is a settlement the player presses for themselves, not
+	 * something to recover.
 	 *
-	 * A ROUND WHILE A TRANSACTION IS IN FLIGHT. This writes to storage, and
+	 * A SUBMISSION WHILE A TRANSACTION IS IN FLIGHT. This writes to storage, and
 	 * storage is where the secret for an unlanded commitment lives. Overwriting
 	 * it mid-commit would leave a commitment on chain whose secret is gone,
 	 * which is the exact loss the whole file is arranged to prevent, and it
 	 * would happen silently.
 	 *
 	 * IT SAVES ON THE WAY THROUGH, so a second reload costs nothing: what was
-	 * reconstructed once is now an ordinary stored round.
+	 * reconstructed once is now an ordinary stored submission.
 	 */
-	function adopt(pending: PersistedRound<TAction>): boolean {
+	function adopt(pending: PersistedSubmission<TAction>): boolean {
 		if (pending.cycleNumber !== cycleInfo.now().currentCycleNumber)
 			return false;
 		if ($state.step === 'Committing' || $state.step === 'Revealing')
@@ -533,7 +538,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 
 		if (adopt(pending)) return;
 
-		// An older cycle. A committed round that was never revealed has already
+		// An older cycle. A committed submission that was never revealed has already
 		// cost the player; an uncommitted one costs nothing and is just dropped.
 		storage.clear();
 		if (pending.committed) {
@@ -583,7 +588,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 					// turns off is the reveal that protects the stake.
 				} else if (autoReveal === 'fallback' && $info.type !== 'manual') {
 					// Whoever was supposed to do this has had most of the phase. The
-					// round is still open, so try: a duplicate reveal costs one
+					// submission is still open, so try: a duplicate reveal costs one
 					// reverted transaction, a missed one costs the stake.
 					const elapsed =
 						1 - $info.timeLeftInPhase / $info.config.revealPhaseDuration;
@@ -600,7 +605,7 @@ export function createRound<TIdentity extends PlayerIdentity, TAction>(params: {
 				($state.step === 'Planning' ||
 					// Nothing planned, but silence costs this game's player what they
 					// hold. See `commitWhenIdle`, and `nothingPendingFor` for why this is
-					// not simply `Idle`: the round that just ended is still being
+					// not simply `Idle`: the submission that just ended is still being
 					// reported, and it owes the next cycle a turn all the same.
 					(nothingPendingFor($info.currentCycleNumber) && commitWhenIdle())) &&
 				$info.timeLeftForCommitEnd <= $info.config.commitTimeAllowance
