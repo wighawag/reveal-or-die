@@ -22,7 +22,7 @@ import {
  * most `numMoves` steps over walkable cells, and the maze keeps that small
  * enough to SEARCH: the app recomputes the secret, enumerates the walks and
  * hashes them until one matches what the chain is holding. So the player is
- * asked nothing and presses nothing, which is the assertion below - the round
+ * asked nothing and presses nothing, which is the assertion below - the submission
  * comes back on its own. The template's game has to ask, because a turn there
  * is any subset of the cells on an open board.
  *
@@ -44,7 +44,7 @@ describe('A turn the chain holds and this browser has lost', () => {
 		connectedPage,
 		authoriseBrowser,
 	}) => {
-		// Up to three full rounds: entering the world, then the round that is lost.
+		// Up to three full cycles: entering the world, then the submission that is lost.
 		test.setTimeout(400_000);
 		const page = connectedPage;
 
@@ -77,7 +77,7 @@ describe('A turn the chain holds and this browser has lost', () => {
 		).toBeDefined();
 
 		// A play phase with room for everything that follows: the commit, losing
-		// the round, a reload, and the search.
+		// the submission, a reload, and the search.
 		await expect
 			.poll(
 				async () => {
@@ -110,18 +110,20 @@ describe('A turn the chain holds and this browser has lost', () => {
 		// prove nothing.
 		const cleared = await page.evaluate(() => {
 			const keys = Object.keys(localStorage).filter((k) =>
-				k.startsWith('__world_round_'),
+				k.startsWith('__world_submission_'),
 			);
 			for (const k of keys) localStorage.removeItem(k);
 			return keys.length;
 		});
-		expect(cleared, 'there was a stored round to destroy').toBeGreaterThan(0);
+		expect(cleared, 'there was a stored submission to destroy').toBeGreaterThan(
+			0,
+		);
 
 		await page.reload();
 		await expect(page.locator('canvas')).toBeVisible({timeout: 30_000});
 
 		// THE WHOLE POINT. Nothing below touches the page: no click, no key, no
-		// button. The app reads the chain, finds a commitment it has no round for,
+		// button. The app reads the chain, finds a commitment it has no submission for,
 		// recomputes the secret and searches the maze for the walk that hashes to
 		// it. If the search were broken this would sit at `Idle` until the cycle
 		// turned over and the suite would fail here.
@@ -139,12 +141,12 @@ describe('A turn the chain holds and this browser has lost', () => {
 			'nothing should have been asked of the player',
 		).toBeHidden();
 
-		// A recovered round is a RESTORED round, so it reveals itself on the phase
+		// A recovered submission is a RESTORED submission, so it reveals itself on the phase
 		// change exactly like any other. Nothing was sent to recover it; the
 		// commitment was already on chain.
 		await expect
 			.poll(async () => (await boardState(page)).step, {
-				message: 'the recovered round should reveal itself',
+				message: 'the recovered submission should reveal itself',
 				timeout: 180_000,
 			})
 			.toBe('Revealed');

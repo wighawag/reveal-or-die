@@ -171,11 +171,11 @@ export const mergeWorldView: ViewMerge<WorldState, LocalPlan, WorldView> = ({
 	//
 	// Or planned to LEAVE and already gone from the read: `_exit` removes the
 	// avatar from its zone, so the board loses it the moment the reveal lands,
-	// while the round it belongs to has seconds left to run. The board's hold
+	// while the cycle it belongs to has seconds left to run. The board's hold
 	// cannot keep it - an avatar missing from the read is indistinguishable from
 	// one the player panned away from, which is why `world/hold.ts` says it
 	// cannot do exits - but the plan naming an Exit says so for this ONE avatar,
-	// the player's, and inventing it keeps it on the board until the round ends
+	// the player's, and inventing it keeps it on the board until the cycle ends
 	// with everybody else's outcome.
 	//
 	// `entering` is therefore asked of the plan rather than assumed: it drives the

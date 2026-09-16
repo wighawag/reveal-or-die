@@ -7,7 +7,7 @@
 
 	This is where the pre-port UI ended up. `GameClock` is the framework's now
 	(`$lib/game/ui`), since every game on this template has the same four-part
-	round to draw; the phase banners `EnterFlow.svelte` used to paint across the
+	submission to draw; the phase banners `EnterFlow.svelte` used to paint across the
 	bottom of the screen are the `instruction` line, the "Moves: n" box from
 	`TopBar` is the moves counter, and the avatar list `EnterFlow` opened in a
 	modal is the picker below. What they all had in common was reading the
@@ -24,13 +24,13 @@
 	const {game} = context;
 	const hud = createHud(context);
 
-	const round = game.round;
+	const submission = game.submission;
 	const planning = game.planning;
 	const missedReveal = game.missedReveal;
 	// A turn the chain holds and this browser has lost. Usually recovered
 	// without the player ever seeing this, by searching the walks the maze
 	// allows; the notice is what is left when the search cannot answer. See
-	// $lib/world/recover-round.
+	// $lib/world/recover-submission.
 	const recovery = game.recovery;
 	const plannedActions = game.planning.actions;
 	const activeIdentity = game.activeIdentity;
@@ -64,7 +64,7 @@
 			<div class="flex items-baseline gap-2">
 				<span class="text-sm font-semibold">{$hud.phaseLabel}</span>
 				<span class="text-xs text-muted-foreground"
-					>round {$hud.cycleNumber}</span
+					>submission {$hud.cycleNumber}</span
 				>
 			</div>
 			{#if $hud.avatarLine}
@@ -83,7 +83,7 @@
 		</div>
 	</div>
 
-	<!-- The round, and the on-screen controls beside it -->
+	<!-- The submission, and the on-screen controls beside it -->
 	<div class="flex items-end justify-between gap-3">
 		<div
 			class="pointer-events-auto w-fit max-w-md rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"
@@ -188,11 +188,13 @@
 					{/if}
 				{/if}
 			{:else}
-				<p class="text-sm {toneClass[$hud.roundTone]}">{$hud.roundLabel}</p>
+				<p class="text-sm {toneClass[$hud.submissionTone]}">
+					{$hud.submissionLabel}
+				</p>
 
 				{#if $hud.outOfGas}
 					<!--
-					The one failure with a remedy. The round retries itself once the
+					The one failure with a remedy. The submission retries itself once the
 					gas arrives, so this offers the top-up and says so, rather than
 					asking the player to also remember to press something after.
 				-->
@@ -204,7 +206,7 @@
 					     what the argument is for: the key is already authorised and
 					     has simply run out of gas, so telling the player it is about
 					     to be authorised would be describing a step that happened
-					     rounds ago. -->
+					     cycles ago. -->
 						<Button
 							size="sm"
 							class="mt-2"
@@ -221,7 +223,7 @@
 					<Button
 						size="sm"
 						disabled={!$hud.canCommit}
-						onclick={() => round.commit()}
+						onclick={() => submission.commit()}
 					>
 						Commit now
 					</Button>
@@ -229,7 +231,7 @@
 						<Button
 							size="sm"
 							variant="destructive"
-							onclick={() => round.reveal()}
+							onclick={() => submission.reveal()}
 						>
 							Retry reveal
 						</Button>
@@ -292,7 +294,7 @@
 </div>
 
 <!--
-	A border round the whole window while the round is resolving.
+	A border submission the whole window while the submission is resolving.
 
 	Kept from the pre-port UI: the canvas fills the screen and the player is
 	looking at their avatar, not at the HUD in the corner, so the one thing that

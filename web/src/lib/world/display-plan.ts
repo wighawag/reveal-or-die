@@ -4,19 +4,19 @@
  * A turn is drawn twice, by two different things, and the handover between
  * them used to have a hole in it several seconds wide.
  *
- * BEFORE the round resolves, what the player sees is LOCAL INTENT: the planned
+ * BEFORE the cycle resolves, what the player sees is LOCAL INTENT: the planned
  * dots, the ring on the cell they will leave from, and - for an avatar that is
  * not in the world yet - the entering preview, an entity `mergeWorldView`
  * invents because there is nothing on chain behind it. All of that comes from
- * the round's own actions (`world/planning.ts`).
+ * the submission's own actions (`world/planning.ts`).
  *
- * AFTER the round resolves, the same turn is drawn from the BOARD: the avatar
+ * AFTER the cycle resolves, the same turn is drawn from the BOARD: the avatar
  * stands where the chain says, and `AvatarObject` replays the accepted path.
  *
- * The hole is that the two changed hands at different moments. The round DROPS
+ * The hole is that the two changed hands at different moments. The submission DROPS
  * its actions the instant it reaches `Revealed`, so the local overlay vanished
  * as soon as the reveal transaction landed - while the board's version of the
- * same turn is deliberately held back until the round is over
+ * same turn is deliberately held back until the cycle is over
  * (`world/hold.ts`, and holding it is the whole reason reveals are not drawn in
  * the order they were paid for). Between those two moments the player was
  * shown neither: the planned path disappeared while their avatar sat at its old
@@ -31,29 +31,29 @@
  *
  * FOR DISPLAY ONLY. Nothing that CONTROLS a turn reads this: the HUD's planned
  * count, its Undo and Clear buttons, `movesLeft` and every affordance in
- * `world/controls.ts` keep reading the round, because once a turn is committed
+ * `world/controls.ts` keep reading the submission, because once a turn is committed
  * there is nothing left to undo and a held display copy must not make the HUD
  * offer it.
  *
- * THE MEMORY IS THE FRAMEWORK'S. The round dropping its actions at `Revealed`
- * is a fact about the round, so `game/core/handover.ts` owns remembering the
+ * THE MEMORY IS THE FRAMEWORK'S. The submission dropping its actions at `Revealed`
+ * is a fact about the submission, so `game/core/handover.ts` owns remembering the
  * turn and deciding the moment - the same moment the board releases on, which
  * is the whole point. What is left here is this game's half: what a remembered
  * turn LOOKS like on this board.
  */
 import {derived, type Readable} from 'svelte/store';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 import {heldTurnUntilBoardReleases} from '$lib/game/core/handover';
 import type {Action} from './commit-reveal';
 import {toPlannedActions, type LocalPlan} from './view';
 
 export function holdPlanUntilBoardReleases(params: {
-	/** The round, which carries the actions up to `Revealing` and not after. */
-	round: Readable<RoundState<Action>>;
-	/** The live plan: what is drawn whenever the round still has it. */
+	/** The submission, which carries the actions up to `Revealing`, not after. */
+	submission: Readable<SubmissionState<Action>>;
+	/** The live plan: what is drawn whenever the submission still has it. */
 	plan: Readable<LocalPlan>;
 	/**
-	 * Which round the board is holding back, from the board itself.
+	 * Which cycle the board is holding back, from the board itself.
 	 *
 	 * `undefined` is the release, and it is the ONE moment both halves of the
 	 * handover turn on.
@@ -61,7 +61,7 @@ export function holdPlanUntilBoardReleases(params: {
 	holding: Readable<number | undefined>;
 }): Readable<LocalPlan> {
 	const held = heldTurnUntilBoardReleases({
-		round: params.round,
+		submission: params.submission,
 		holding: params.holding,
 	});
 

@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {get, writable, type Readable} from 'svelte/store';
 import {holdPlanUntilBoardReleases} from '$lib/world/display-plan';
 import {holdBoardUntilCycleEnds} from '$lib/game/core/handover';
-import {holdResolvingRound} from '$lib/world/hold';
+import {holdResolvingCycle} from '$lib/world/hold';
 import {createPlanning} from '$lib/world/planning';
 import {createHud} from '$lib/world/ui/hud';
 import {createViewState} from '$lib/view';
@@ -11,7 +11,7 @@ import {mergeWorldView, type AvatarView, type WorldView} from '$lib/world/view';
 import {emptyWorld, type Avatar, type WorldState} from '$lib/world/state';
 import type {Action} from '$lib/world/commit-reveal';
 import type {WorldConfig} from '$lib/world/config';
-import type {RoundState, RoundStore} from '$lib/game/core/round';
+import type {SubmissionState, SubmissionStore} from '$lib/game/core/submission';
 import type {Context} from '$lib/context/types';
 import {ActionType, xyToBigIntID, type Position} from 'reveal-or-die-contracts';
 
@@ -21,10 +21,10 @@ import {ActionType, xyToBigIntID, type Position} from 'reveal-or-die-contracts';
  * Before it resolves, the player's turn is drawn from LOCAL INTENT: planned
  * dots, an exit ring, and for an avatar that is not in the world yet, the
  * entering preview `mergeWorldView` invents. After it resolves, the same turn
- * is drawn from the BOARD, which holds it back until the round is over so that
- * a simultaneous round is not shown in the order the reveals were paid for.
+ * is drawn from the BOARD, which holds it back until the submission is over so that
+ * a simultaneous cycle is not shown in the order the reveals were paid for.
  *
- * The round drops its actions the instant it reaches `Revealed`, seconds
+ * The submission drops its actions the instant it reaches `Revealed`, seconds
  * before the board releases what they did, so the two used to change hands at
  * different moments and the player was shown NEITHER in between: the path
  * vanished while the avatar stood still, and a planned entry made the avatar
@@ -67,12 +67,12 @@ function world(...avatars: Avatar[]): WorldState & {cycleNumber: number} {
 	return {...state, cycleNumber: 7};
 }
 
-/** A round whose step can be driven straight from the test. */
-function fakeRound(initial: RoundState<Action> = {step: 'Idle'}) {
-	const state = writable<RoundState<Action>>(initial);
+/** A submission whose step can be driven straight from the test. */
+function fakeSubmission(initial: SubmissionState<Action> = {step: 'Idle'}) {
+	const state = writable<SubmissionState<Action>>(initial);
 	let value = initial;
 	state.subscribe((v) => (value = v));
-	const round = {
+	const submission = {
 		subscribe: state.subscribe,
 		get value() {
 			return value;
@@ -83,16 +83,19 @@ function fakeRound(initial: RoundState<Action> = {step: 'Idle'}) {
 		reveal: async () => {},
 		dismiss: () => {},
 		start: () => () => {},
-	} as unknown as RoundStore<GameIdentity, Action>;
-	return {round, state};
+	} as unknown as SubmissionStore<GameIdentity, Action>;
+	return {submission, state};
 }
 
 const config = {numMoves: 3} as WorldConfig;
 
 /** The plan store exactly as the context builds it, from the real planning. */
-function livePlan(round: RoundStore<GameIdentity, Action>, at?: Position) {
+function livePlan(
+	submission: SubmissionStore<GameIdentity, Action>,
+	at?: Position,
+) {
 	return createPlanning({
-		round,
+		submission,
 		config,
 		currentPosition: writable(at) as Readable<Position | undefined>,
 		activeIdentity: writable(ME),
@@ -102,11 +105,11 @@ function livePlan(round: RoundStore<GameIdentity, Action>, at?: Position) {
 
 describe('the display copy of a turn', () => {
 	function setup(at?: Position) {
-		const {round, state} = fakeRound();
-		const planning = livePlan(round, at);
+		const {submission, state} = fakeSubmission();
+		const planning = livePlan(submission, at);
 		const holding = writable<number | undefined>(undefined);
 		const display = holdPlanUntilBoardReleases({
-			round,
+			submission,
 			plan: planning.plan,
 			holding,
 		});
@@ -114,7 +117,7 @@ describe('the display copy of a turn', () => {
 		return {state, planning, holding, display, stop};
 	}
 
-	it('survives the reveal landing, which is when the round throws the actions away', () => {
+	it('survives the reveal landing, which is when the submission throws the actions away', () => {
 		const {state, holding, display, stop} = setup(START);
 		state.set({
 			step: 'Planning',
@@ -123,7 +126,7 @@ describe('the display copy of a turn', () => {
 		});
 		expect(get(display).planned).toHaveLength(1);
 
-		// The round is resolving and the board is holding its outcome back.
+		// The cycle is resolving and the board is holding its outcome back.
 		holding.set(7);
 		// The reveal lands: `Revealed` carries no actions at all.
 		state.set({step: 'Revealed', cycleNumber: 7});
@@ -142,18 +145,18 @@ describe('the display copy of a turn', () => {
 		state.set({step: 'Revealed', cycleNumber: 7});
 		expect(get(display).planned).toHaveLength(1);
 
-		// The round is over: the board is showing what the turn did, so the local
+		// The cycle is over: the board is showing what the turn did, so the local
 		// account of it is finished.
 		holding.set(undefined);
 		expect(get(display).planned).toHaveLength(0);
 		stop();
 	});
 
-	it('never resurrects a turn from an earlier round', () => {
+	it('never resurrects a turn from an earlier cycle', () => {
 		// The player planned nothing this cycle, so there is nothing of theirs to
 		// draw - and `commitWhenIdle` still commits and reveals an empty turn for
 		// them every cycle, which is exactly when a memory with no cycle on it
-		// would redraw last round's path.
+		// would redraw last cycle's path.
 		const {state, holding, display, stop} = setup(START);
 		state.set({
 			step: 'Planning',
@@ -168,10 +171,10 @@ describe('the display copy of a turn', () => {
 		stop();
 	});
 
-	it('forgets a path the player cleared before the round resolved', () => {
-		// The last thing the round carried is what the turn WAS. A memory that
+	it('forgets a path the player cleared before the submission resolved', () => {
+		// The last thing the submission carried is what the turn WAS. A memory that
 		// only kept non-empty plans would redraw a path the player deleted, for
-		// the whole of the round the empty turn resolves in - and an empty turn is
+		// the whole of the cycle the empty turn resolves in - and an empty turn is
 		// not a rare case, it is what `commitWhenIdle` sends every cycle a player
 		// stands still.
 		const {state, holding, display, stop} = setup(START);
@@ -190,7 +193,7 @@ describe('the display copy of a turn', () => {
 	it('leaves the plan the HUD and the controls read exactly where it was', () => {
 		// FOR DISPLAY ONLY. Once a turn is committed there is nothing left to
 		// undo, so `movesLeft`, the planned count and the Undo and Clear buttons
-		// must keep reading the ROUND: a held display copy that reached them
+		// must keep reading the SUBMISSION: a held display copy that reached them
 		// would offer to take back a turn that is already on chain.
 		const {state, planning, holding, display, stop} = setup(START);
 		state.set({
@@ -228,7 +231,7 @@ describe('the display copy of a turn', () => {
 
 /** A context with only the parts `createHud` reads, wired as the app wires it. */
 function fakeContext(
-	round: Readable<RoundState<Action>>,
+	submission: Readable<SubmissionState<Action>>,
 	planning: ReturnType<typeof livePlan>,
 ) {
 	return {
@@ -236,7 +239,7 @@ function fakeContext(
 		game: {
 			twoPhase: writable({phase: 'wait', timeLeft: 5, duration: 20}),
 			phase: writable('reveal'),
-			round,
+			submission,
 			// THE LIVE PLAN, which is the wiring under test as much as the values
 			// are: the HUD is given what controls a turn, never the display copy.
 			planning: {
@@ -271,11 +274,14 @@ function fakeContext(
  * Both halves turn on ONE signal - the board's own `holding` - and this is
  * what pins that: the assertions are over EVERY value the view emits across
  * the release, not over the value it settles on. A version where the overlay
- * clears on its own reading of the round or the cycle settles correctly and
+ * clears on its own reading of the submission or the cycle settles correctly and
  * still shows a hole, which is precisely the bug.
  */
 describe('the handover, from the local overlay to the board', () => {
-	function compose(round: RoundStore<GameIdentity, Action>, at?: Position) {
+	function compose(
+		submission: SubmissionStore<GameIdentity, Action>,
+		at?: Position,
+	) {
 		const state = writable<
 			| {step: 'Unloaded'}
 			| ({step: 'Loaded'} & WorldState & {cycleNumber: number})
@@ -292,13 +298,13 @@ describe('the handover, from the local overlay to the board', () => {
 			} as never,
 			phase,
 			cycleNumber,
-			hold: holdResolvingRound,
+			hold: holdResolvingCycle,
 		});
-		const planning = livePlan(round, at);
+		const planning = livePlan(submission, at);
 		const viewState = createViewState({
 			onchainState: board,
 			localState: holdPlanUntilBoardReleases({
-				round,
+				submission,
 				plan: planning.plan,
 				holding,
 			}),
@@ -318,16 +324,16 @@ describe('the handover, from the local overlay to the board', () => {
 	it('keeps a planned ENTRY on screen from the click to the avatar being real', () => {
 		// The worst of the two symptoms. The entering preview is the ONLY thing
 		// drawing this avatar - it is genuinely not on chain yet - and the board
-		// deliberately hides the real one until the round ends, so a gap between
+		// deliberately hides the real one until the cycle ends, so a gap between
 		// them is the player's avatar disappearing for several seconds.
-		const {round, state} = fakeRound();
-		const {seen, load, phase, stop} = compose(round);
+		const {submission, state} = fakeSubmission();
+		const {seen, load, phase, stop} = compose(submission);
 		load(world());
 		state.set({step: 'Planning', cycleNumber: 7, actions: [enterAt(START)]});
 		seen.length = 0;
 
-		// The round closes, and the reveal lands: the chain now has the avatar,
-		// and the board is holding it back because it entered THIS round.
+		// The cycle closes, and the reveal lands: the chain now has the avatar,
+		// and the board is holding it back because it entered THIS cycle.
 		phase.set({phase: 'wait'});
 		load(
 			world(
@@ -339,7 +345,7 @@ describe('the handover, from the local overlay to the board', () => {
 			),
 		);
 		state.set({step: 'Revealed', cycleNumber: 7});
-		// The round ends and the board releases it.
+		// The cycle ends and the board releases it.
 		phase.set({phase: 'play'});
 
 		expect(seen.length).toBeGreaterThan(3);
@@ -353,8 +359,8 @@ describe('the handover, from the local overlay to the board', () => {
 	});
 
 	it('keeps a planned PATH drawn until the board has the turn to replay', () => {
-		const {round, state} = fakeRound();
-		const {seen, load, phase, stop} = compose(round, START);
+		const {submission, state} = fakeSubmission();
+		const {seen, load, phase, stop} = compose(submission, START);
 		load(world(avatar({avatarID: ME})));
 		state.set({
 			step: 'Planning',
@@ -395,13 +401,13 @@ describe('the handover, from the local overlay to the board', () => {
 		stop();
 	});
 
-	it('keeps a planned EXIT on screen until the round is over, then lets it go', () => {
+	it('keeps a planned EXIT on screen until the cycle is over, then lets it go', () => {
 		// The mirror image, and the one the board's hold cannot do by itself:
 		// `_exit` removes the avatar from its zone, so it is simply MISSING from
 		// the read, and missing is indistinguishable from panned away without the
 		// camera. The plan naming an Exit says so for the player's own avatar.
-		const {round, state} = fakeRound();
-		const {seen, load, phase, stop} = compose(round, EXIT);
+		const {submission, state} = fakeSubmission();
+		const {seen, load, phase, stop} = compose(submission, EXIT);
 		load(world(avatar({avatarID: ME, position: EXIT})));
 		state.set({step: 'Planning', cycleNumber: 7, actions: [exitAt(EXIT)]});
 		seen.length = 0;

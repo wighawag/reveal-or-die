@@ -93,7 +93,7 @@ describe('Transaction inspector', () => {
 	 * game's commit is the wrong instrument for that - it depends on the cycle
 	 * phase, keys one open commitment per player, and auto-commits as the phase
 	 * closes, so a suite that only wants "a transaction happened" would be racing
-	 * the round for no reason. `WRITE_FUNCTION` is a plain account-sent write that
+	 * the submission for no reason. `WRITE_FUNCTION` is a plain account-sent write that
 	 * exists on the deployed Game and needs no set-up, which is why the
 	 * stalling-wallet fixture and contracts.e2e.ts drive the same one.
 	 *

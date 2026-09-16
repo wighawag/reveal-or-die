@@ -1,20 +1,22 @@
 /**
- * Keeping the planned round across a reload.
+ * Keeping the planned submission across a reload.
  *
- * A commit-reveal round spans two phases and a page can be closed between them.
- * The secret and the exact actions are the only things that can open a
- * commitment, and they exist nowhere else: losing them costs the player the
- * turn, and with the missed-reveal guard re-enabled it also blocks the next
- * one until they acknowledge it. So this is load-bearing rather than a
- * convenience.
+ * A submission spans two phases and a page can be closed between them. The
+ * secret and the exact actions are the only things that can open a commitment,
+ * and they exist nowhere else: losing them costs the player the turn, and with
+ * the missed-reveal guard re-enabled it also blocks the next one until they
+ * acknowledge it. So this is load-bearing rather than a convenience.
  */
-import type {PersistedRound, RoundStorage} from '$lib/game/core/round';
+import type {
+	PersistedSubmission,
+	SubmissionStorage,
+} from '$lib/game/core/submission';
 import type {Action} from './commit-reveal';
 
-const PREFIX = '__world_round_';
+const PREFIX = '__world_submission_';
 
 /**
- * Where one round is kept.
+ * Where one submission is kept.
  *
  * Includes the AVATAR, which the template's equivalent has no need for. This
  * client plays one avatar at a time and the player can switch, so a key without
@@ -22,7 +24,7 @@ const PREFIX = '__world_round_';
  * new one. The chain and game address are in it for the usual reason: the same
  * browser may play the same game on two chains, or two deployments on one.
  */
-export function roundStorageKey(params: {
+export function submissionStorageKey(params: {
 	chainID: string | number;
 	gameAddress: string;
 	avatarID: bigint | string;
@@ -33,56 +35,66 @@ export function roundStorageKey(params: {
 type StoredAction = {actionType: number; data: string};
 
 /**
- * THE ON-DISK SHAPE, AND IT DELIBERATELY STILL SAYS `epoch`.
+ * THE ON-DISK SHAPE, AND IT WAS RENAMED OUTRIGHT.
  *
- * This type and `PREFIX` above are a COMPATIBILITY SURFACE with a stake behind
- * it, which is what makes them the one exception to the `epoch` -> `cycle`
- * rename that arrived with the framework. A record written by the previous
- * build is read by this one, and a record this build cannot read is discarded
- * by `load()` - so renaming the field or the key would orphan a commitment in
- * flight, losing the secret that opens it. Here that costs the AVATAR, which
- * is what this game puts at stake: a missed reveal is a miss against
- * `numMissesAllowed`, and enough of them kill it.
+ * This type and `PREFIX` above are a WIRE: `load()` discards any record it
+ * cannot read, so renaming either normally orphans a commitment in flight and
+ * costs the player the AVATAR this game puts at stake. That is the third
+ * commit-reveal rule in `AGENTS.md`, and it is why this was held back once
+ * already.
  *
- * The failure is silent in the worst way: every suite stays green, because the
- * tests are renamed alongside the code and nothing here reads a record written
- * by an older build. It would be found by a player, at their own expense.
+ * It was renamed anyway, and the reason is CHECKED FOR THIS REPO rather than
+ * inherited from the template. The template could rename its own because it has
+ * no committed deployment at all; that argument does not transfer, because this
+ * repo HAS one (`contracts/deployments/rise-testnet`). Three things make it
+ * free here regardless:
  *
- * The argument that the ABI was free to rename does NOT transfer here, and in
- * this repo it does not even arise: these contracts are not inherited and have
- * not been renamed at all.
+ * 1. THAT DEPLOYMENT IS ALREADY UNREACHABLE by this build. Its `Game` ABI
+ *    carries none of `delegationStatus`, `registerDelegate`,
+ *    `registerDelegateViaSignature` or `revokeDelegate`, which
+ *    `onchain/delegation.ts` calls unconditionally - today's `IGame` composes
+ *    `IDelegation` and that deployment predates it. A player cannot get as far
+ *    as having a submission in flight against it.
+ * 2. A RECORD IS ONLY EVER ACTED ON INSIDE ITS OWN CYCLE. `reveal()` clears it
+ *    and reports `Missed` when the cycle has moved on, and `adopt()` refuses
+ *    one from another cycle. On that deployment's own config (40s commit, 4s
+ *    reveal) the window in which a rename could strand anything is 44 seconds.
+ * 3. AND AN ORPHANED RECORD HERE IS NOT A LOST STAKE, it is the recovery
+ *    path's job. The secret is DERIVED from a signature, not random, so it is
+ *    recomputable; `world/recover-submission.ts` then searches the maze for the
+ *    walk that hashes to the commitment the chain is holding.
+ *    `web/e2e/tests/recover-submission.e2e.ts` proves exactly this by deleting
+ *    every one of these keys and asserting the turn comes back with nothing
+ *    asked of the player. The one case that cannot be searched (an ENTRY)
+ *    degrades to the documented "ask the player" fallback, still inside the
+ *    cycle.
  *
- * So the in-memory name moved and the serialised name did not, and the two are
- * mapped explicitly in `load()` and `save()` below. Retiring this belongs with
- * whatever ports this game's own vocabulary, as a deliberate migrating read -
- * accept the old shape, write the new, drop the tolerance a release later -
- * rather than as a side effect of a sweep.
- *
- * A MECHANICAL RE-RUN OF THE SWEEP REVERSES THIS, and does it silently. The
- * exception is a judgement no mapping file encodes. If you are re-running a
- * rename over this tree, this is the line to look at afterwards.
+ * So the rule still holds and this is not an exception to it: the rule is about
+ * a stake that can actually be in flight, and here none can. **Once this game
+ * has a live deployment its players can reach, this type and `PREFIX` are an
+ * ABI**: change them the way you would change the contract's.
  */
-type StoredRound = {
-	epoch: number;
+type StoredSubmission = {
+	cycleNumber: number;
 	actions: StoredAction[];
 	secret: string;
 	committed: boolean;
 };
 
 /**
- * A `RoundStorage` backed by localStorage.
+ * A `SubmissionStorage` backed by localStorage.
  *
  * Every operation is defensive: storage can be full, disabled, or hold
  * something from an older version of the app. A throw from here during a commit
  * would be the worst possible time for one, so failures degrade to "no pending
- * round" instead. The one case NOT swallowed is a failed write, surfaced
+ * submission" instead. The one case NOT swallowed is a failed write, surfaced
  * through `onWriteFailure` so the game can refuse to commit rather than commit
  * something it will not be able to open.
  */
-export function createRoundStorage(params: {
+export function createSubmissionStorage(params: {
 	key: string;
 	onWriteFailure?: (error: unknown) => void;
-}): RoundStorage<Action> {
+}): SubmissionStorage<Action> {
 	const {key} = params;
 
 	return {
@@ -91,18 +103,16 @@ export function createRoundStorage(params: {
 			try {
 				const raw = localStorage.getItem(key);
 				if (!raw) return undefined;
-				const stored = JSON.parse(raw) as StoredRound;
+				const stored = JSON.parse(raw) as StoredSubmission;
 				if (
-					typeof stored?.epoch !== 'number' ||
+					typeof stored?.cycleNumber !== 'number' ||
 					!Array.isArray(stored.actions) ||
 					typeof stored.secret !== 'string'
 				) {
 					return undefined;
 				}
 				return {
-					// `epoch` on disk, `cycleNumber` in memory: see {@link StoredRound}.
-					// The old name is the one a record in flight was written with.
-					cycleNumber: stored.epoch,
+					cycleNumber: stored.cycleNumber,
 					// `data` is a packed position and can exceed Number.MAX_SAFE_INTEGER
 					// once y is non-zero (it is shifted left 32 bits), so it is stored
 					// as a STRING. JSON has no bigint, and letting it round-trip through
@@ -114,7 +124,7 @@ export function createRoundStorage(params: {
 					})),
 					secret: stored.secret as `0x${string}`,
 					committed: !!stored.committed,
-				} satisfies PersistedRound<Action>;
+				} satisfies PersistedSubmission<Action>;
 			} catch {
 				// Unparseable is indistinguishable from absent as far as what can be
 				// done about it, and throwing here would break the whole game.
@@ -122,18 +132,16 @@ export function createRoundStorage(params: {
 			}
 		},
 
-		save(round) {
+		save(submission) {
 			if (typeof localStorage === 'undefined') return;
-			const stored: StoredRound = {
-				// Written back under the name the previous build reads. See
-				// {@link StoredRound}: changing it costs a player their avatar.
-				epoch: round.cycleNumber,
-				actions: round.actions.map((a) => ({
+			const stored: StoredSubmission = {
+				cycleNumber: submission.cycleNumber,
+				actions: submission.actions.map((a) => ({
 					actionType: a.actionType,
 					data: a.data.toString(),
 				})),
-				secret: round.secret,
-				committed: round.committed,
+				secret: submission.secret,
+				committed: submission.committed,
 			};
 			try {
 				localStorage.setItem(key, JSON.stringify(stored));
@@ -147,15 +155,15 @@ export function createRoundStorage(params: {
 			try {
 				localStorage.removeItem(key);
 			} catch {
-				// Nothing useful to do; a stale entry is handled on load by the round,
-				// which discards anything from a past cycle.
+				// Nothing useful to do; a stale entry is handled on load by the
+				// submission, which discards anything from a past cycle.
 			}
 		},
 	};
 }
 
 /** A storage that keeps nothing, for SSR and for a player with no avatar. */
-export const noRoundStorage: RoundStorage<Action> = {
+export const noSubmissionStorage: SubmissionStorage<Action> = {
 	load: () => undefined,
 	save: () => {},
 	clear: () => {},

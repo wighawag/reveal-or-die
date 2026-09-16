@@ -116,7 +116,7 @@ function harness(
 	};
 }
 
-describe('createPollingOnchainState: the round-edge refresh policy', () => {
+describe('createPollingOnchainState: the cycle-edge refresh policy', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		// The polling store and the policy both refuse to run off-browser
@@ -128,7 +128,7 @@ describe('createPollingOnchainState: the round-edge refresh policy', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('refreshes faster than the interval while a round is resolving', async () => {
+	it('refreshes faster than the interval while a cycle is resolving', async () => {
 		// The reveal phase. At the plain 5s interval a spectating browser learns
 		// about another player's move up to a whole interval late, which reads as
 		// the board ignoring the one moment the game is about.
@@ -160,7 +160,7 @@ describe('createPollingOnchainState: the round-edge refresh policy', () => {
 		off();
 	});
 
-	it('keeps fetching at a round boundary until the board has caught up', async () => {
+	it('keeps fetching at a cycle boundary until the board has caught up', async () => {
 		// THE POINT IS THE RETRY, and saying so precisely matters because the
 		// obvious version of this test proves nothing: changing the cycle changes
 		// the poller's scope key, so ONE refetch happens whether the policy exists
@@ -168,7 +168,7 @@ describe('createPollingOnchainState: the round-edge refresh policy', () => {
 		//
 		// What the policy adds is what happens when that one fetch comes back
 		// still behind - the chain has not mined past the boundary the client's
-		// clock already crossed. Without it the board sits on last round's
+		// clock already crossed. Without it the board sits on last cycle's
 		// positions for a whole interval (or longer, once the refusal turns into
 		// backoff behind a health banner). With it, the fetch repeats every 400ms
 		// until the board's own cycle reaches the clock's.
@@ -178,10 +178,10 @@ describe('createPollingOnchainState: the round-edge refresh policy', () => {
 		const off = store.subscribe(() => {});
 		await vi.waitFor(() => expect(read).toHaveBeenCalled());
 
-		// The chain is behind: every read lands, but reports the old round.
+		// The chain is behind: every read lands, but reports the old cycle.
 		setBoardCycleNumber(7);
 		read.mockClear();
-		// Into the commit phase of the next round: the transition it triggers on.
+		// Into the commit phase of the next cycle: the transition it triggers on.
 		setCycleNumber(timed(8, true));
 
 		// Well under one plain interval, so the scope change accounts for exactly
@@ -215,7 +215,7 @@ describe('createPollingOnchainState: the round-edge refresh policy', () => {
 	});
 
 	it('can be turned off, for a game that wants the interval alone', async () => {
-		// A game with a long round, or one paying per RPC call, may not want the
+		// A game with a long cycle, or one paying per RPC call, may not want the
 		// extra cadences. Opting out has to be a real switch rather than a comment
 		// in the docs, and this is the same reveal-phase setup as the first test,
 		// which is what makes the comparison mean anything.

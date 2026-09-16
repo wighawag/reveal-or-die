@@ -19,7 +19,7 @@ import {
  * ON ITS OWN PATH, like `board.e2e.ts` and for the same reason: the template's
  * `out-of-gas.e2e.ts` is listed in `.offshoot-omissions` because it reaches its
  * subject through the template's commit (a stake bonded on a cell). The subject
- * below is this app's own and unchanged - the signer running dry mid-round -
+ * below is this app's own and unchanged - the signer running dry mid-submission -
  * so only the way in had to be rewritten.
  *
  * Every other e2e test funds the signer first (`fundAppSenders`), so the whole
@@ -31,14 +31,14 @@ import {
  * signed by a local signer the player was never told about, holding only what
  * someone put in it; it can run dry between one cycle and the next. If the
  * failure is reported as a generic error, or the remedy is offered for
- * something a top-up cannot fix, or the round does not pick itself back up when
+ * something a top-up cannot fix, or the submission does not pick itself back up when
  * the gas lands, the player finds out by losing their bond.
  *
  * Three claims, in the order they matter:
  *
  * 1. the move fails as an OUT-OF-GAS failure, named as such
  * 2. the remedy is offered, next to the failure, without being asked for
- * 3. gas arriving from ANYWHERE resumes the round, all the way to Revealed
+ * 3. gas arriving from ANYWHERE resumes the submission, all the way to Revealed
  */
 describe('A move that runs out of gas', () => {
 	// Its own burner account. The game keys one open commitment per player per
@@ -50,7 +50,7 @@ describe('A move that runs out of gas', () => {
 		connectedPage,
 		authoriseBrowser,
 	}) => {
-		// A failed commit, a top-up, then a full round to prove nothing was lost.
+		// A failed commit, a top-up, then a full submission to prove nothing was lost.
 		test.slow();
 		const page = connectedPage;
 
@@ -75,10 +75,10 @@ describe('A move that runs out of gas', () => {
 
 		// Enough of the play phase left to fail, be told, be topped up, and still
 		// commit inside the same cycle - an uncommitted plan expires when the cycle
-		// turns over, and this test is about recovering the round, not losing it.
+		// turns over, and this test is about recovering the submission, not losing it.
 		await planOnCanvas(page, {x: -60, y: 40}, 12);
 
-		// Try to commit. The round also commits by itself as the phase closes, so
+		// Try to commit. The submission also commits by itself as the phase closes, so
 		// the button is pressed only if it is still live: waiting for it would race
 		// the auto-commit and then wait forever for a button that has done its job.
 		const commit = page.getByRole('button', {name: /commit now/i});
@@ -110,14 +110,14 @@ describe('A move that runs out of gas', () => {
 		).toBeVisible();
 
 		// Nothing has been spent putting this right on the player's behalf: the
-		// bond is still unbonded and the round is still theirs to abandon.
+		// bond is still unbonded and the submission is still theirs to abandon.
 		expect(
 			(await boardState(page)).planned,
 			'the plan should survive the failure, ready to be retried',
 		).toBe(1);
 
-		// --- 3. gas arriving resumes the round ------------------------------
-		// From OUTSIDE the app, not by pressing its own top-up button: the round
+		// --- 3. gas arriving resumes the submission ------------------------------
+		// From OUTSIDE the app, not by pressing its own top-up button: the submission
 		// watches the signer's balance rather than the flow, so that a faucet, a
 		// transfer by hand or someone else paying all work. Pressing the button
 		// would only prove the button works.
@@ -125,7 +125,7 @@ describe('A move that runs out of gas', () => {
 
 		await expect
 			.poll(async () => (await boardState(page)).step, {
-				message: 'the round should retry itself once the gas arrives',
+				message: 'the submission should retry itself once the gas arrives',
 				timeout: 60_000,
 			})
 			.toBe('Committed');
@@ -137,7 +137,7 @@ describe('A move that runs out of gas', () => {
 			'the remedy should stop being offered once it has been taken',
 		).toBeHidden({timeout: 30_000});
 
-		// And the round finishes on its own. This is the claim that matters most:
+		// And the submission finishes on its own. This is the claim that matters most:
 		// a player who tops up does not lose the stake they had already committed.
 		// A reveal is a second transaction from the same empty signer, so a remedy
 		// that only got as far as the commit would still cost them the bond.

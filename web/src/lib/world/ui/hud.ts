@@ -8,20 +8,20 @@
  *
  * Ported from the template's `placement/ui/hud.ts`, and the differences are all
  * the same difference: what is at stake here is an AVATAR the contract holds,
- * not a token reserve bonded per round. So there is no cost and no reserve
+ * not a token reserve bonded per cycle. So there is no cost and no reserve
  * line, the setup gate ends in "deposit" rather than "stake", and a missed
  * reveal is reported as something that BLOCKS play rather than as a forfeit,
  * because `_acknowledgeMissedReveal` currently burns nothing.
  */
 import {derived, type Readable} from 'svelte/store';
 import type {Context} from '$lib/context/types';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 
 import type {Action} from '../commit-reveal';
 import type {DepositedState} from '../deposited';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import type {RecoveryState} from '$lib/game/core/recovery';
-import type {AutoRecoveryState} from '../recover-round';
+import type {AutoRecoveryState} from '../recover-submission';
 import {SignerOutOfFundsError} from '../errors';
 import type {CyclePhase, SetupAction, SetupNeeded} from '$lib/context/game';
 import type {RevealOutcome} from '../reveal-outcome';
@@ -43,7 +43,7 @@ export type AvatarChoice = {
 export type HudModel = {
 	phaseLabel: string;
 	/**
-	 * The four parts of a round, not two.
+	 * The four parts of a cycle, not two.
 	 *
 	 * The old model folded the commit lock and the reveal into one "wait",
 	 * which was fine to play on and useless to debug against, and had no word
@@ -75,7 +75,7 @@ export type HudModel = {
 	 * Set while the player cannot take a turn yet. The HUD shows THIS instead of
 	 * the planning controls: offering "plan your moves" to someone with no avatar
 	 * invites them to lay out a whole turn that cannot be committed, and the
-	 * failure only arrives when the round is already closing.
+	 * failure only arrives when the cycle is already closing.
 	 */
 	setup?: {
 		headline: string;
@@ -167,8 +167,8 @@ export type HudModel = {
 	/** What a click will do right now, in one line. */
 	instruction: string;
 
-	roundLabel: string;
-	roundTone: 'idle' | 'busy' | 'good' | 'bad';
+	submissionLabel: string;
+	submissionTone: 'idle' | 'busy' | 'good' | 'bad';
 	canCommit: boolean;
 	canReveal: boolean;
 	canClear: boolean;
@@ -184,7 +184,7 @@ export type HudModel = {
 	 * done about it.
 	 */
 	/**
-	 * Set when the chain holds a turn for the round in progress that this
+	 * Set when the chain holds a turn for the cycle in progress that this
 	 * browser has lost, AND the app could not work it out for itself.
 	 *
 	 * Deliberately absent while the search is still running: asking a player to
@@ -212,20 +212,20 @@ export function avatarLabel(avatarID: bigint): string {
 	return `#${(avatarID & 0xffffffffn).toString(16).padStart(8, '0')}`;
 }
 
-export function describeRound(
-	state: RoundState<Action>,
+export function describeSubmission(
+	state: SubmissionState<Action>,
 	/**
-	 * What the round is ABOUT, which the round itself cannot know.
+	 * What the submission is ABOUT, which the submission itself cannot know.
 	 *
 	 * A turn belonging to an avatar that is not in the world is a turn about
 	 * appearing, and the reveal that ends one is not "your avatar has moved".
-	 * Both facts live outside the framework's round, so they arrive here rather
+	 * Both facts live outside the framework's submission, so they arrive here
 	 * than being guessed at from the step.
 	 */
 	about: {inWorld: boolean; outcome?: RevealOutcome},
 ): {
 	label: string;
-	tone: HudModel['roundTone'];
+	tone: HudModel['submissionTone'];
 } {
 	switch (state.step) {
 		case 'Idle':
@@ -250,7 +250,7 @@ export function describeRound(
 			return {label: 'Revealing...', tone: 'busy'};
 		case 'Revealed':
 			// WHAT THE TURN ACTUALLY DID. It said "your avatar has moved" after
-			// every reveal, including the empty ones the round commits by itself to
+			// every reveal, including the empty ones the submission commits by itself
 			// keep an idle avatar alive, so a player standing still was told they
 			// had moved once a cycle forever - and one who left the world was told
 			// the same thing about an avatar that is no longer on the board.
@@ -286,7 +286,7 @@ export function describeRound(
 		case 'Missed':
 			return {
 				// NOT "the bond is forfeit", which is what the template says here.
-				// This game bonds nothing per round, so claiming a loss would be a
+				// This game bonds nothing per cycle, so claiming a loss would be a
 				// lie; what it actually costs is the turn AND the next one, until the
 				// commitment is acknowledged. That is the part worth stating.
 				label: `Missed the reveal for cycle ${state.cycleNumber}. Those moves are lost, and the next round is blocked until you acknowledge it.`,
@@ -294,7 +294,8 @@ export function describeRound(
 			};
 		case 'Error':
 			// The type, not upstream's classifier: by the time an error reaches the
-			// round it has been through `send()` in ../commit-reveal, which is where
+			// submission it has been through `send()` in ../commit-reveal, which is
+			// where
 			// the node's wording is read. Asking again here would re-derive an
 			// answer the app already committed to, and could disagree with it.
 			if (state.error instanceof SignerOutOfFundsError) {
@@ -518,7 +519,7 @@ export function instructionOutsidePlay(phase: CyclePhase): string {
 	}
 }
 
-/** The clock's one line for each part of the round. */
+/** The clock's one line for each part of the cycle. */
 export function phaseLabelOf(phase: CyclePhase): string {
 	switch (phase) {
 		case 'play':
@@ -539,7 +540,7 @@ export function createHud(context: Context): Readable<HudModel> {
 		[
 			game.phase,
 			game.twoPhase,
-			game.round,
+			game.submission,
 			game.planning.movesLeft,
 			game.planning.plan,
 			game.planning.canExit,
@@ -557,7 +558,7 @@ export function createHud(context: Context): Readable<HudModel> {
 		([
 			$phase,
 			$two,
-			$round,
+			$submission,
 			$movesLeft,
 			$plan,
 			$canExit,
@@ -623,12 +624,12 @@ export function createHud(context: Context): Readable<HudModel> {
 			);
 			const plannedCount = $plan.planned.length;
 			const canLeave = $canExit as boolean;
-			const round = describeRound($round, {
+			const submission = describeSubmission($submission, {
 				inWorld,
 				outcome: $revealOutcome as RevealOutcome | undefined,
 			});
 
-			// ONE LABEL PER PART OF THE ROUND, which is the point of the four-phase
+			// ONE LABEL PER PART OF THE CYCLE, which is the point of the four-phase
 			// model: the old single "Resolving the round" covered a lock, a reveal
 			// and a catch-up, and told a debugging player nothing about which.
 			//
@@ -636,7 +637,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			// being set up the clock is just a clock, and during the catch-up the
 			// board is not the board yet. "Make your move" is also wrong for an
 			// avatar that is not in the world: it has no move to make, and the only
-			// thing it can do this round is choose where to appear.
+			// thing it can do this cycle is choose where to appear.
 			const phaseLabel = needsSetup
 				? phase === 'play'
 					? 'Round in progress'
@@ -706,7 +707,7 @@ export function createHud(context: Context): Readable<HudModel> {
 				// instruction says why rather than letting the clicks look broken.
 				// During the reveal the avatar's next position is exactly the thing
 				// being decided, and during the catch-up the board has not caught
-				// up with the round that just resolved: a plan built from either is
+				// up with the cycle that just resolved: a plan built from either is
 				// built from a guess.
 				instruction: needsSetup
 					? ''
@@ -727,8 +728,8 @@ export function createHud(context: Context): Readable<HudModel> {
 									// click on and the exit tile is otherwise just scenery.
 									'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn. To leave the world, walk onto the exit tile.',
 
-				roundLabel: round.label,
-				roundTone: round.tone,
+				submissionLabel: submission.label,
+				submissionTone: submission.tone,
 				missedReveal: describeMissedReveal($missedReveal as MissedRevealState),
 				recovery: describeRecovery(
 					$recovery as RecoveryState,
@@ -736,25 +737,27 @@ export function createHud(context: Context): Readable<HudModel> {
 					plannedCount,
 				),
 				// Committing early is allowed the whole time the phase is open; the
-				// round commits by itself if the player leaves it too late. An
+				// submission commits by itself if the player leaves it too late. An
 				// unrevealed commitment blocks it entirely: the contract would reject
 				// it, so offering the button would only spend gas to be told no.
 				// A failed commit can be tried again while the phase is open: the
 				// plan is still here and nothing was spent.
 				canCommit:
 					!blocked &&
-					($round.step === 'Planning' ||
-						($round.step === 'Error' && $round.during === 'commit')) &&
+					($submission.step === 'Planning' ||
+						($submission.step === 'Error' &&
+							$submission.during === 'commit')) &&
 					plannedCount > 0 &&
 					playable,
-				// Offered as a fallback only. The round reveals on its own, because a
+				// Offered as a fallback only. The submission reveals on its own, because
 				// missed reveal loses the turn and blocks the next one, and the
 				// window can be seconds long.
-				canReveal: $round.step === 'Error' && $round.during === 'reveal',
-				canClear: $round.step === 'Planning' && plannedCount > 0,
+				canReveal:
+					$submission.step === 'Error' && $submission.during === 'reveal',
+				canClear: $submission.step === 'Planning' && plannedCount > 0,
 				outOfGas:
-					$round.step === 'Error' &&
-					$round.error instanceof SignerOutOfFundsError
+					$submission.step === 'Error' &&
+					$submission.error instanceof SignerOutOfFundsError
 						? {
 								detail:
 									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this round carries on by itself.',

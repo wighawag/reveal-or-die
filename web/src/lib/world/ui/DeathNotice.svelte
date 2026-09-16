@@ -24,7 +24,7 @@
 	const context = getAppContext();
 	const hud = createHud(context);
 
-	// Scoped like the round storage: the same browser may play the same game on
+	// Scoped like the submission storage: the same browser may play the same game
 	// two chains, or two deployments on one.
 	const {chain, contracts} = context.deployments.get();
 	const acknowledged = createDeathAcknowledgement({

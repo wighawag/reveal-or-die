@@ -361,7 +361,7 @@ describe('reading what the chain resolved, not just where things stand', () => {
 		// chain's counter only advances when a block is mined, and nothing the
 		// board reads can change before one is (a reveal mined after the boundary
 		// is refused with InCommitmentPhase, and commits move no avatar) - so a
-		// fetch that lands after the clock ticks already holds the new round's
+		// fetch that lands after the clock ticks already holds the new cycle's
 		// data, and the request is the honest answer to "is the board caught up".
 		// Stamping the chain's cycle made the catch-up last until the next
 		// TRANSACTION, some twenty seconds on a quiet node, while the data sat

@@ -1,17 +1,18 @@
 /**
  * What the turn that just resolved actually DID.
  *
- * The round reports `{step: 'Revealed', cycleNumber}` and nothing else, so the HUD
+ * The submission reports `{step: 'Revealed', cycleNumber}` and nothing else, so
+ * the HUD
  * used to say "Revealed. Your avatar has moved." after every reveal - after a
  * turn that entered the world, after one that left it, and after the empty
- * turns the round commits by itself to keep an idle avatar alive
+ * turns the submission commits by itself to keep an idle avatar alive
  * (`commitWhenIdle`). A player standing still watched their avatar be told it
  * had moved, once a cycle, forever.
  *
- * The actions are on the round state right up to the reveal (`Revealing`
+ * The actions are on the submission state right up to the reveal (`Revealing`
  * carries them) and gone the moment it succeeds, so something has to have been
- * WATCHING. That memory is the framework's - the round dropping its actions is
- * a fact about the round, and `world/display-plan.ts` needs exactly the same
+ * WATCHING. That memory is the framework's - the submission dropping its actions
+ * is a fact about it, and `world/display-plan.ts` needs exactly the same
  * thing - so it is `rememberTurn` in `game/core/handover.ts` and this file
  * keeps only the vocabulary, which is entirely this game's.
  *
@@ -25,7 +26,7 @@
  * accepted everything.
  */
 import {derived, type Readable} from 'svelte/store';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 import {rememberTurn} from '$lib/game/core/handover';
 import {ActionType} from 'reveal-or-die-contracts';
 import type {Action} from './commit-reveal';
@@ -86,7 +87,7 @@ export function outcomeOfResolved(
 }
 
 /**
- * The outcome of the last reveal, while the round is reporting one.
+ * The outcome of the last reveal, while the submission is reporting one.
  *
  * Undefined at every other step, and also for a reveal this store did not
  * watch happen - a page opened after the fact has no way to know, and saying
@@ -100,28 +101,28 @@ export function outcomeOfResolved(
  * turn and nobody else's.
  */
 export function createRevealOutcome(
-	round: Readable<RoundState<Action>>,
+	submission: Readable<SubmissionState<Action>>,
 	/** The player's own avatar as the board holds it, accepted actions included. */
 	mine: Readable<{lastTurn?: ResolvedTurnView} | undefined>,
 ): Readable<RevealOutcome | undefined> {
-	const remembered = rememberTurn(round);
+	const remembered = rememberTurn(submission);
 	return derived(
-		[round, mine, remembered],
-		([$round, $mine, $remembered]): RevealOutcome | undefined => {
-			if ($round.step !== 'Revealed') return undefined;
-			// THE BOARD'S ACCOUNT OF THE ROUND THAT WAS JUST REVEALED, matched by
+		[submission, mine, remembered],
+		([$submission, $mine, $remembered]): RevealOutcome | undefined => {
+			if ($submission.step !== 'Revealed') return undefined;
+			// THE BOARD'S ACCOUNT OF THE CYCLE THAT WAS JUST REVEALED, matched by
 			// cycle rather than merely taken when present. The board holds the
-			// resolving round back until it is over (`world/hold.ts`), so during
-			// the reveal window `lastTurn` is still the PREVIOUS round's, and
-			// using it would describe the wrong turn confidently. Once the round
+			// resolving cycle back until it is over (`world/hold.ts`), so during
+			// the reveal window `lastTurn` is still the PREVIOUS cycle's, and
+			// using it would describe the wrong turn confidently. Once the cycle
 			// ends the cycles line up and the accepted prefix takes over.
-			if ($mine?.lastTurn?.cycleNumber === $round.cycleNumber) {
+			if ($mine?.lastTurn?.cycleNumber === $submission.cycleNumber) {
 				return outcomeOfResolved($mine.lastTurn.actions);
 			}
 			// MATCHED BY CYCLE, which the local copy of this memory never was: a
-			// turn remembered from an earlier round would otherwise describe the
+			// turn remembered from an earlier cycle would otherwise describe the
 			// one being reported now.
-			return $remembered?.cycleNumber === $round.cycleNumber
+			return $remembered?.cycleNumber === $submission.cycleNumber
 				? outcomeOf($remembered.actions)
 				: undefined;
 		},

@@ -4,7 +4,7 @@ import {get, writable, type Readable} from 'svelte/store';
 import {createPlanning} from '$lib/world/planning';
 import type {WorldConfig} from '$lib/world/config';
 import type {Action} from '$lib/world/commit-reveal';
-import type {RoundState, RoundStore} from '$lib/game/core/round';
+import type {SubmissionState, SubmissionStore} from '$lib/game/core/submission';
 import {
 	ActionType,
 	bigIntIDToXY,
@@ -45,16 +45,16 @@ const EXIT: Position = {x: 3, y: 5};
 /** The only cell an avatar can step onto the exit from. */
 const BESIDE_EXIT: Position = {x: 4, y: 5};
 
-function fakeRound(initial: Action[] = []) {
-	const state = writable<RoundState<Action>>({
+function fakeSubmission(initial: Action[] = []) {
+	const state = writable<SubmissionState<Action>>({
 		step: 'Planning',
 		cycleNumber: 1,
 		actions: initial,
-	} as RoundState<Action>);
-	let value: RoundState<Action> = get(state);
+	} as SubmissionState<Action>);
+	let value: SubmissionState<Action> = get(state);
 	state.subscribe((v) => (value = v));
 
-	const round = {
+	const submission = {
 		subscribe: state.subscribe,
 		get value() {
 			return value;
@@ -64,32 +64,32 @@ function fakeRound(initial: Action[] = []) {
 				step: 'Planning',
 				cycleNumber: 1,
 				actions: [...actions],
-			} as RoundState<Action>);
+			} as SubmissionState<Action>);
 		},
 		commit: async () => {},
 		reveal: async () => {},
 		dismiss: () => {},
 		start: () => () => {},
-	} as unknown as RoundStore<GameIdentity, Action>;
+	} as unknown as SubmissionStore<GameIdentity, Action>;
 
-	return {round, state};
+	return {submission, state};
 }
 
 const config = {numMoves: 3} as WorldConfig;
 
 function setup(opts: {at?: Position; actions?: Action[]} = {}) {
-	const {round, state} = fakeRound(opts.actions ?? []);
+	const {submission, state} = fakeSubmission(opts.actions ?? []);
 	const currentPosition: Readable<Position | undefined> = writable(
 		'at' in opts ? opts.at : START,
 	);
 	const planning = createPlanning({
-		round,
+		submission,
 		config,
 		currentPosition,
 		activeIdentity: writable(7n),
 		player: writable('0x1111111111111111111111111111111111111111'),
 	});
-	return {planning, round, state};
+	return {planning, submission, state};
 }
 
 const positionsOf = (actions: readonly Action[]) =>
@@ -97,9 +97,10 @@ const positionsOf = (actions: readonly Action[]) =>
 
 describe('planning: entering', () => {
 	it('plans an entry for an avatar that is not in the world', () => {
-		const {planning, round} = setup({at: undefined});
+		const {planning, submission} = setup({at: undefined});
 		expect(planning.enterAt({x: 0, y: 1})).toBe(true);
-		const actions = (round.value as unknown as {actions: Action[]}).actions;
+		const actions = (submission.value as unknown as {actions: Action[]})
+			.actions;
 		expect(actions).toHaveLength(1);
 		expect(actions[0].actionType).toEqual(ActionType.Enter);
 	});
@@ -120,19 +121,19 @@ describe('planning: entering', () => {
 
 describe('planning: stepping', () => {
 	it('appends an adjacent, walkable step', () => {
-		const {planning, round} = setup();
+		const {planning, submission} = setup();
 		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
 		expect(
-			positionsOf((round.value as unknown as {actions: Action[]}).actions),
+			positionsOf((submission.value as unknown as {actions: Action[]}).actions),
 		).toEqual([{x: 0, y: 2}]);
 	});
 
 	it('chains steps from where the PLAN ends, not from where the avatar is', () => {
-		const {planning, round} = setup();
+		const {planning, submission} = setup();
 		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
 		expect(planning.stepTo({x: 0, y: 3})).toBe(true);
 		expect(
-			positionsOf((round.value as unknown as {actions: Action[]}).actions),
+			positionsOf((submission.value as unknown as {actions: Action[]}).actions),
 		).toEqual([
 			{x: 0, y: 2},
 			{x: 0, y: 3},
@@ -153,7 +154,7 @@ describe('planning: stepping', () => {
 	});
 
 	it('refuses to step past the move allowance', () => {
-		const {planning, round} = setup();
+		const {planning, submission} = setup();
 		// down the corridor and then east, because y=4 is solid
 		expect(planning.stepTo({x: 0, y: 2})).toBe(true);
 		expect(planning.stepTo({x: 0, y: 3})).toBe(true);
@@ -162,7 +163,7 @@ describe('planning: stepping', () => {
 		// numMoves is 3, and the contract silently ignores the rest
 		expect(planning.stepTo({x: 2, y: 3})).toBe(false);
 		expect(
-			(round.value as unknown as {actions: Action[]}).actions,
+			(submission.value as unknown as {actions: Action[]}).actions,
 		).toHaveLength(3);
 	});
 
@@ -186,12 +187,12 @@ describe('planning: stepping by direction', () => {
 	 * WHERE the direction is measured from.
 	 */
 	it('steps from the end of the plan, not from where the avatar stands', () => {
-		const {planning, round} = setup();
+		const {planning, submission} = setup();
 		// START is (0,1); south twice down the corridor.
 		expect(planning.stepBy({x: 0, y: 1})).toBe(true);
 		expect(planning.stepBy({x: 0, y: 1})).toBe(true);
 		expect(
-			positionsOf((round.value as unknown as {actions: Action[]}).actions),
+			positionsOf((submission.value as unknown as {actions: Action[]}).actions),
 		).toEqual([
 			{x: 0, y: 2},
 			{x: 0, y: 3},
@@ -202,10 +203,10 @@ describe('planning: stepping by direction', () => {
 		// (0,0) is a wall, so north from START is refused rather than planned. That
 		// IS the assertion: a direction that flipped the sign would step to (0,2),
 		// which is legal, and nothing else here would notice.
-		const {planning, round} = setup();
+		const {planning, submission} = setup();
 		expect(planning.stepBy({x: 0, y: -1})).toBe(false);
 		expect(
-			(round.value as unknown as {actions: Action[]}).actions,
+			(submission.value as unknown as {actions: Action[]}).actions,
 		).toHaveLength(0);
 	});
 
@@ -217,9 +218,10 @@ describe('planning: stepping by direction', () => {
 
 describe('planning: leaving the world', () => {
 	it('plans an exit from the exit tile the avatar stands on', () => {
-		const {planning, round} = setup({at: EXIT});
+		const {planning, submission} = setup({at: EXIT});
 		expect(planning.exitAt()).toBe(true);
-		const actions = (round.value as unknown as {actions: Action[]}).actions;
+		const actions = (submission.value as unknown as {actions: Action[]})
+			.actions;
 		expect(actions).toHaveLength(1);
 		expect(actions[0].actionType).toEqual(ActionType.Exit);
 		expect(bigIntIDToXY(actions[0].data)).toEqual(EXIT);
@@ -231,10 +233,11 @@ describe('planning: leaving the world', () => {
 		// the exit is legal and where it happens. Judged from the starting cell,
 		// this walk onto the exit would be refused, and the marker would be drawn
 		// on the wrong square.
-		const {planning, round} = setup({at: BESIDE_EXIT});
+		const {planning, submission} = setup({at: BESIDE_EXIT});
 		expect(planning.stepTo(EXIT)).toBe(true);
 		expect(planning.exitAt()).toBe(true);
-		const actions = (round.value as unknown as {actions: Action[]}).actions;
+		const actions = (submission.value as unknown as {actions: Action[]})
+			.actions;
 		expect(actions).toHaveLength(2);
 		expect(bigIntIDToXY(actions[1].data)).toEqual(EXIT);
 	});
@@ -268,7 +271,7 @@ describe('planning: leaving the world', () => {
 
 	it('refuses to exit while the position is still UNKNOWN, plan or no plan', () => {
 		// The case the check above cannot reach on its own, and the one that
-		// actually happens: on a reload the round comes back from storage with its
+		// actually happens: on a reload the submission comes back from storage with its
 		// moves intact, while `currentPosition` is undefined until the account's
 		// avatars have been read. The plan then has an end, so an exit built from
 		// the plan alone looks perfectly valid, and would be committed for an
@@ -289,11 +292,11 @@ describe('planning: leaving the world', () => {
 	});
 
 	it('refuses a second exit', () => {
-		const {planning, round} = setup({at: EXIT});
+		const {planning, submission} = setup({at: EXIT});
 		expect(planning.exitAt()).toBe(true);
 		expect(planning.exitAt()).toBe(false);
 		expect(
-			(round.value as unknown as {actions: Action[]}).actions,
+			(submission.value as unknown as {actions: Action[]}).actions,
 		).toHaveLength(1);
 	});
 
@@ -318,9 +321,9 @@ describe('planning: leaving the world', () => {
 		]);
 	});
 
-	it('refuses to exit once the round is no longer plannable', () => {
+	it('refuses to exit once the submission is no longer plannable', () => {
 		const {planning, state} = setup({at: EXIT});
-		state.set({step: 'Committed'} as unknown as RoundState<Action>);
+		state.set({step: 'Committed'} as unknown as SubmissionState<Action>);
 		expect(planning.exitAt()).toBe(false);
 	});
 });
@@ -349,34 +352,34 @@ describe('planning: whether leaving is offered at all', () => {
 		expect(get(setup({at: undefined}).planning.canExit)).toBe(false);
 	});
 
-	it('is false once an exit is already planned, and while the round is closed', () => {
+	it('is false once an exit is already planned, and while the submission is closed', () => {
 		const {planning} = setup({at: EXIT});
 		planning.exitAt();
 		expect(get(planning.canExit)).toBe(false);
 
 		const closed = setup({at: EXIT});
-		closed.state.set({step: 'Committed'} as unknown as RoundState<Action>);
+		closed.state.set({step: 'Committed'} as unknown as SubmissionState<Action>);
 		expect(get(closed.planning.canExit)).toBe(false);
 	});
 });
 
 describe('planning: undo, clear and reporting', () => {
 	it('takes back the last step only', () => {
-		const {planning, round} = setup();
+		const {planning, submission} = setup();
 		planning.stepTo({x: 0, y: 2});
 		planning.stepTo({x: 0, y: 3});
 		planning.undo();
 		expect(
-			positionsOf((round.value as unknown as {actions: Action[]}).actions),
+			positionsOf((submission.value as unknown as {actions: Action[]}).actions),
 		).toEqual([{x: 0, y: 2}]);
 	});
 
 	it('clears everything', () => {
-		const {planning, round} = setup();
+		const {planning, submission} = setup();
 		planning.stepTo({x: 0, y: 2});
 		planning.clear();
 		expect(
-			(round.value as unknown as {actions: Action[]}).actions,
+			(submission.value as unknown as {actions: Action[]}).actions,
 		).toHaveLength(0);
 	});
 
@@ -388,9 +391,9 @@ describe('planning: undo, clear and reporting', () => {
 		expect(plan.planned).toEqual([{type: 'move', to: {x: 0, y: 2}}]);
 	});
 
-	it('refuses everything once the round is no longer plannable', () => {
+	it('refuses everything once the submission is no longer plannable', () => {
 		const {planning, state} = setup();
-		state.set({step: 'Committed'} as unknown as RoundState<Action>);
+		state.set({step: 'Committed'} as unknown as SubmissionState<Action>);
 		expect(get(planning.canPlan)).toBe(false);
 		expect(planning.stepTo({x: 0, y: 2})).toBe(false);
 		expect(planning.enterAt({x: 0, y: 2})).toBe(false);

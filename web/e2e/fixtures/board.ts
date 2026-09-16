@@ -1,7 +1,7 @@
 import {expect, type Page} from '@playwright/test';
 
 /**
- * Reading and driving THIS game's board, for the suites that play a round.
+ * Reading and driving THIS game's board, for the suites that play a submission.
  *
  * A DELIBERATELY NEW PATH, not `fixtures/game.ts`. That file is the parent
  * template's game fixture and is listed in `.offshoot-omissions`: it reads a
@@ -16,7 +16,7 @@ import {expect, type Page} from '@playwright/test';
  * of the world or standing at a position. A turn is planned as a sequence of
  * actions (enter, move, exit), committed as a hash, and revealed in the next
  * phase; only the reveal puts anything on the board, which is the property the
- * commit-reveal round exists to have.
+ * commit-reveal submission exists to have.
  *
  * Everything here reads the app's own stores rather than pixels. The board is a
  * canvas, so there is nothing to query in the DOM, and an assertion about what
@@ -35,7 +35,7 @@ const READ = `
 `;
 
 export type BoardState = {
-	/** The commit-reveal round: Idle, Planning, Committing, Committed, Revealing, Revealed, Missed. */
+	/** The commit-reveal submission: Idle, Planning, Committing, Committed, Revealing, Revealed, Missed. */
 	step: string;
 	/** How many actions the player has planned this turn. */
 	planned: number;
@@ -59,14 +59,14 @@ export async function boardState(page: Page): Promise<BoardState> {
 	return page.evaluate(`(() => {
 		${READ}
 		const context = globalThis.context;
-		const round = read(context.game.round);
+		const submission = read(context.game.submission);
 		const plan = read(context.game.planning.plan);
 		const position = read(context.game.currentPosition);
 		const deposited = read(context.game.deposited);
 		const planned = plan && plan.planned ? plan.planned : [];
 		const first = planned[0];
 		return {
-			step: round.step,
+			step: submission.step,
 			planned: planned.length,
 			plannedAction: first
 				? {type: first.type, to: {x: first.to.x, y: first.to.y}}
@@ -81,7 +81,7 @@ export async function boardState(page: Page): Promise<BoardState> {
 	})()`) as Promise<BoardState>;
 }
 
-/** Where the round clock currently is. */
+/** Where the cycle clock currently is. */
 export async function currentPhase(
 	page: Page,
 ): Promise<{phase: string; timeLeft: number}> {
@@ -292,7 +292,7 @@ export async function stepInAnyDirection(
 	for (const key of keys) {
 		await page.keyboard.press(key);
 		// The plan is read out of the app rather than off the screen, so this is
-		// waiting for the round to change and not for a repaint.
+		// waiting for the cycle to change and not for a repaint.
 		for (let attempt = 0; attempt < 10; attempt++) {
 			if ((await boardState(page)).planned > 0) return key;
 			await page.waitForTimeout(200);

@@ -1,8 +1,8 @@
 /**
- * WHAT THIS GAME KEYS A ROUND BY.
+ * WHAT THIS GAME KEYS A SUBMISSION BY.
  *
- * The framework never names a concrete identity: `createRound`,
- * `CommitRevealAdapter`, `createDerivedSecret` and `createRoundRecovery` are
+ * The framework never names a concrete identity: `createSubmission`,
+ * `CommitRevealAdapter`, `createDerivedSecret` and `createSubmissionRecovery` are
  * all generic over `TIdentity extends PlayerIdentity`, deliberately, because
  * the games this template exists for disagree about what a player IS. An
  * account-keyed game plays as an address; reveal-or-die and bomber-world
@@ -26,8 +26,9 @@
  *   address in every game and every configuration. `Game.identity` is that,
  *   and so are the avatar purchase's `owner`, `deposited`'s owner and
  *   everything in `onchain/delegation.ts`.
- * - the GAME IDENTITY is who PLAYS. The round, the commitment, the secret's
- *   domain separation and the round's storage key are all keyed by it, and it
+ * - the GAME IDENTITY is who PLAYS. The submission, the commitment, the
+ *   secret's domain separation and the submission's storage key are all keyed
+ *   by it, and it
  *   is what changes shape between games.
  *
  * HERE THEY ARE DIFFERENT VALUES OF DIFFERENT TYPES, which is the case the

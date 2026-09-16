@@ -97,13 +97,13 @@ export type ViewStateStore<TView> = {
 // ----------------------------------------------------------------------------
 
 /**
- * The two contract calls that make a commit-reveal round, as the game exposes
- * them.
+ * The two contract calls that make a commit-reveal submission, as the game
+ * exposes them.
  *
- * The framework owns the ROUND: it decides when committing is still allowed,
- * keeps the secret until the reveal phase, and drives the reveal. It does not
- * know the contract's function names or argument order, because those differ
- * per game (some commit as msg.sender and take a player argument only on
+ * The framework owns the SUBMISSION: it decides when committing is still
+ * allowed, keeps the secret until the reveal phase, and drives the reveal. It
+ * does not know the contract's function names or argument order, because those
+ * differ per game (some commit as msg.sender and take a player argument only on
  * reveal, so that a third party can reveal on the player's behalf).
  */
 export type CommitRevealAdapter<TIdentity extends PlayerIdentity, TAction> = {
@@ -120,8 +120,8 @@ export type CommitRevealAdapter<TIdentity extends PlayerIdentity, TAction> = {
 	/**
 	 * Submit the commitment for this cycle.
 	 *
-	 * This deliberately receives everything the round knows, not just the hash.
-	 * Two reasons, both taken from games that already exist:
+	 * This deliberately receives everything the submission knows, not just the
+	 * hash. Two reasons, both taken from games that already exist:
 	 *
 	 * `actions`, because what a game puts at stake AT COMMIT TIME is usually a
 	 * function of what was planned: the template bonds the exact cost of its
@@ -139,9 +139,9 @@ export type CommitRevealAdapter<TIdentity extends PlayerIdentity, TAction> = {
 	 * moment it can be done.
 	 *
 	 * Scheduling is an ADDITION, never a replacement: the player can always
-	 * reveal themselves, and a game with a short round (or a hot-seat setup where
+	 * reveal themselves, and a game with a short cycle (or a hot-seat setup where
 	 * turns are simply waited out) needs no scheduler at all. See `autoReveal` on
-	 * the round for how the two combine.
+	 * the submission for how the two combine.
 	 *
 	 * Handing over the secret is not a leak: this runs in the player's own
 	 * client, and the adapter is the code that will disclose it a phase later

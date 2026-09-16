@@ -24,7 +24,7 @@ const loaded = (...avatars: DepositedAvatar[]): DepositedState => ({
 /**
  * What `commitWhenIdle` is actually asking.
  *
- * The client commits an empty turn every round the player stands still,
+ * The client commits an empty turn every cycle the player stands still,
  * because this contract kills an avatar that goes quiet. The question that
  * decides whether to spend that gas is "does this avatar have anything to
  * lose", and it was being answered with "is it standing somewhere", which is a
@@ -39,7 +39,7 @@ describe('whether an avatar has anything to lose by going quiet', () => {
 		// The body stays where it fell, so it still reads as "in the world" with a
 		// position. Nothing about it is at stake any more, and `_makeCommitment`
 		// reverts with `AvatarIsDead`: committing for it is a transaction the
-		// signer pays for and the contract refuses, once a round, forever.
+		// signer pays for and the contract refuses, once a cycle, forever.
 		expect(isAtRisk(loaded(avatar({life: 0})), 1n)).toBe(false);
 	});
 

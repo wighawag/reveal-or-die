@@ -1,5 +1,5 @@
 /**
- * A commitment the chain holds and this browser has no round for.
+ * A commitment the chain holds and this browser has no submission for.
  *
  * NOT a storage feature, which is the thing to get right before reading any of
  * it. A cleared browser, a second device, a second browser, a private window, a
@@ -45,14 +45,15 @@
  *
  * **D10 SCOPED THE FRAMEWORK TO ONE METHOD AND THAT WAS TOO TIGHT**, which was
  * only knowable once a second game wanted this. The decision's reasoning holds
- * exactly as written - the isolation requirement, no new `RoundState` member,
- * the game keeping its chain read and its enumeration - and the sentence that
- * was wrong is the one that put the offer-and-check beside them. It is
- * identical in both games, down to the two silent failure modes below, and a
- * thing written twice in this tree is a thing that should have been moved.
+ * exactly as written - the isolation requirement, no new `SubmissionState`
+ * member, the game keeping its chain read and its enumeration - and the
+ * sentence that was wrong is the one that put the offer-and-check beside them.
+ * It is identical in both games, down to the two silent failure modes below,
+ * and a thing written twice in this tree is a thing that should have been
+ * moved.
  */
 import {derived, get, writable, type Readable} from 'svelte/store';
-import type {RoundState, RoundStore} from './round';
+import type {SubmissionState, SubmissionStore} from './submission';
 import type {PlayerIdentity} from './seams';
 
 /** A commitment the contract is holding for the cycle now in progress. */
@@ -63,7 +64,9 @@ export type LiveCommitment = {
 };
 
 export type RecoveryState =
-	/** Nothing to recover: no live commitment, or the round already has it. */
+	/**
+	 * Nothing to recover: no live commitment, or the submission already has it.
+	 */
 	| {step: 'Idle'}
 	/** The chain holds a commitment this browser cannot open yet. */
 	| {step: 'Found'; cycleNumber: number}
@@ -83,11 +86,11 @@ export type RecoveryState =
 
 /**
  * THERE IS NO `Recovered` STATE, and its absence is the design rather than an
- * omission. A recovered round is a RESTORED round: the moment `adopt` takes
- * it, the round reports `Committed` and owes a reveal exactly as it would have
- * if this browser had never forgotten, and this store goes quiet. A state
- * saying "recovered" would be the one thing in the app able to tell the two
- * apart, which is the property D10 is built around. It was written, and the
+ * omission. A recovered submission is a RESTORED submission: the moment `adopt`
+ * takes it, the submission reports `Committed` and owes a reveal exactly as it
+ * would have if this browser had never forgotten, and this store goes quiet. A
+ * state saying "recovered" would be the one thing in the app able to tell the
+ * two apart, which is the property D10 is built around. It was written, and the
  * test that reached for it could not: it is unreachable by construction.
  */
 
@@ -96,22 +99,23 @@ export type RecoveryStore<TAction> = Readable<RecoveryState> & {
 	/**
 	 * Offer a plan as the one that was committed. Resolves to whether it was.
 	 *
-	 * On a match the round takes it up and carries on as though it had never
+	 * On a match the submission takes it up and carries on as though it had never
 	 * forgotten, which means the reveal goes out by itself when the phase opens.
 	 */
 	offer(actions: readonly TAction[]): Promise<boolean>;
 };
 
 /**
- * Whether the round already accounts for the commitment the chain is holding.
+ * Whether the submission already accounts for the commitment the chain is
+ * holding.
  *
- * `Planning` deliberately does NOT count, even for the same cycle. It means
- * the player has clicked some cells and nothing has been sent, while the chain
- * says a commitment exists - so this browser has lost the round and the player
+ * `Planning` deliberately does NOT count, even for the same cycle. It means the
+ * player has clicked some cells and nothing has been sent, while the chain says
+ * a commitment exists - so this browser has lost the submission and the player
  * is halfway to re-entering it without being told that is what they are doing.
  */
-function roundAccountsFor<TAction>(
-	state: RoundState<TAction>,
+function submissionAccountsFor<TAction>(
+	state: SubmissionState<TAction>,
 	cycleNumber: number,
 ): boolean {
 	switch (state.step) {
@@ -138,11 +142,11 @@ function sameHash(a: string, b: string): boolean {
 	return a.toLowerCase() === b.toLowerCase();
 }
 
-export function createRoundRecovery<
+export function createSubmissionRecovery<
 	TIdentity extends PlayerIdentity,
 	TAction,
 >(params: {
-	round: RoundStore<TIdentity, TAction>;
+	submission: SubmissionStore<TIdentity, TAction>;
 	/**
 	 * The live commitment from the chain, or undefined.
 	 *
@@ -154,7 +158,7 @@ export function createRoundRecovery<
 	/** Who is playing, and whose commitment this is. */
 	identity: Readable<TIdentity | undefined>;
 	/**
-	 * The SAME derivation the round commits with. Passed in rather than
+	 * The SAME derivation the submission commits with. Passed in rather than
 	 * re-derived here, because two derivations that drift apart produce a
 	 * refusal with no symptom and no error.
 	 */
@@ -168,18 +172,19 @@ export function createRoundRecovery<
 		secret: `0x${string}`;
 	}) => {hash: `0x${string}`};
 }): RecoveryStore<TAction> {
-	const {round, commitment, identity, makeSecret, buildCommitment} = params;
+	const {submission, commitment, identity, makeSecret, buildCommitment} =
+		params;
 
 	/** Set while a candidate is being checked or has just been refused. */
 	const attempt = writable<RecoveryState | undefined>(undefined);
 
 	const state = derived(
-		[round, commitment, attempt],
-		([$round, $commitment, $attempt]): RecoveryState => {
+		[submission, commitment, attempt],
+		([$submission, $commitment, $attempt]): RecoveryState => {
 			if (!$commitment) return {step: 'Idle'};
-			if (roundAccountsFor($round, $commitment.cycleNumber)) {
-				// Includes the round this store just handed over: once adopted, the
-				// round IS the answer and there is nothing left to report.
+			if (submissionAccountsFor($submission, $commitment.cycleNumber)) {
+				// Includes the submission this store just handed over: once adopted, the
+				// submission IS the answer and there is nothing left to report.
 				return {step: 'Idle'};
 			}
 			if (
@@ -200,7 +205,7 @@ export function createRoundRecovery<
 		const live = get(commitment);
 		const player = get(identity);
 		// `=== undefined` rather than falsy: a token id of `0n` is a real identity
-		// and a falsy value. See `hasIdentity` in `./round.ts`.
+		// and a falsy value. See `hasIdentity` in `./submission.ts`.
 		if (!live || player === undefined) return false;
 		if (
 			value.step !== 'Found' &&
@@ -224,8 +229,8 @@ export function createRoundRecovery<
 
 			// NOTHING IS SENT. The commitment is already on chain; what was missing
 			// was the ability to open it, and that is now local knowledge. The
-			// round reveals it on the phase change like any other.
-			const adopted = round.adopt({
+			// submission reveals it on the phase change like any other.
+			const adopted = submission.adopt({
 				cycleNumber: live.cycleNumber,
 				actions,
 				secret,
@@ -235,11 +240,11 @@ export function createRoundRecovery<
 				// The cycle turned over while the player was typing, or a commit of
 				// their own is mid-flight. Neither is a wrong plan, so it must not be
 				// reported as one: the missed-reveal path picks the first up on its
-				// next check and the round itself owns the second.
+				// next check and the submission itself owns the second.
 				attempt.set(undefined);
 				return false;
 			}
-			// Nothing to report: the round is `Committed` now and is the only thing
+			// Nothing to report: the submission is `Committed` now and is the only thing
 			// that should be describing itself.
 			attempt.set(undefined);
 			return true;

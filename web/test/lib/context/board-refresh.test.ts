@@ -1,6 +1,6 @@
 import {describe, expect, it, vi, afterEach} from 'vitest';
 import {get, writable} from 'svelte/store';
-import {canTakeTurnNow, onEachNewRound} from '$lib/context/game';
+import {canTakeTurnNow, onEachNewCycle} from '$lib/context/game';
 
 /**
  * What is left of this file after `refreshDuringReveal` and
@@ -48,7 +48,7 @@ describe('canTakeTurnNow', () => {
 	 * The move gate. Setup alone used to decide it; the play window was added
 	 * because everything a plan is built from is stale outside it - during the
 	 * reveal the avatar's next position is exactly what is being decided, and
-	 * during the catch-up the board has not caught up with the round that just
+	 * during the catch-up the board has not caught up with the cycle that just
 	 * resolved.
 	 */
 	const set = {step: 'deposit'} as const;
@@ -57,7 +57,7 @@ describe('canTakeTurnNow', () => {
 		expect(canTakeTurnNow(undefined, 'play')).toBe(true);
 	});
 
-	it('blocks the other three parts of the round, however ready the player is', () => {
+	it('blocks the other three parts of the cycle, however ready the player is', () => {
 		for (const phase of ['commit', 'reveal', 'catching-up'] as const) {
 			expect(canTakeTurnNow(undefined, phase)).toBe(false);
 		}
@@ -73,17 +73,17 @@ describe('canTakeTurnNow', () => {
  *
  * `_getResolvedAvatar` computes `life` from how far `lastEpoch` has fallen
  * behind the cycle being asked about, so an avatar is killed by the passage of
- * rounds with nobody sending anything. The account read used to be refreshed
+ * cycles with nobody sending anything. The account read used to be refreshed
  * only when something this client did SUCCEEDED, which is exactly the wrong
  * condition for hearing about a death: a death is what happens when this
  * client stops succeeding, and nothing succeeds afterwards either, because
  * `_makeCommitment` then reverts with `AvatarIsDead`.
  */
-describe('onEachNewRound', () => {
-	it('runs on the turnover, once per round', () => {
+describe('onEachNewCycle', () => {
+	it('runs on the turnover, once per cycle', () => {
 		const cycleInfo = writable({currentCycleNumber: 7});
 		const run = vi.fn();
-		const stop = onEachNewRound({cycleInfo, run});
+		const stop = onEachNewCycle({cycleInfo, run});
 
 		cycleInfo.set({currentCycleNumber: 8});
 		expect(run).toHaveBeenCalledTimes(1);
@@ -94,20 +94,20 @@ describe('onEachNewRound', () => {
 
 	it('does not run on the first emission, which is not a turnover', () => {
 		// `start()` has just done the initial reads; treating "the cycle became
-		// known" as a round change would double every one of them on load.
+		// known" as a cycle change would double every one of them on load.
 		const cycleInfo = writable({currentCycleNumber: 7});
 		const run = vi.fn();
-		const stop = onEachNewRound({cycleInfo, run});
+		const stop = onEachNewCycle({cycleInfo, run});
 		expect(run).not.toHaveBeenCalled();
 		stop();
 	});
 
-	it('does not run on a re-emission of the same round', () => {
+	it('does not run on a re-emission of the same cycle', () => {
 		// The cycle store ticks with the clock: without this it would be a read
-		// per second rather than one per round.
+		// per second rather than one per cycle.
 		const cycleInfo = writable({currentCycleNumber: 7});
 		const run = vi.fn();
-		const stop = onEachNewRound({cycleInfo, run});
+		const stop = onEachNewCycle({cycleInfo, run});
 		cycleInfo.set({currentCycleNumber: 7});
 		cycleInfo.set({currentCycleNumber: 7});
 		expect(run).not.toHaveBeenCalled();
@@ -117,7 +117,7 @@ describe('onEachNewRound', () => {
 	it('stops when it is unsubscribed', () => {
 		const cycleInfo = writable({currentCycleNumber: 7});
 		const run = vi.fn();
-		onEachNewRound({cycleInfo, run})();
+		onEachNewCycle({cycleInfo, run})();
 		cycleInfo.set({currentCycleNumber: 8});
 		expect(run).not.toHaveBeenCalled();
 	});

@@ -9,7 +9,8 @@ import type {DepositedState} from '$lib/world/deposited';
  * Two opposite failures, both invisible from reading it. Too LOOSE and the
  * board invites a turn that cannot be committed: `commit` resolves the sender
  * against the account's registered delegates and reverts with `NotDelegate`, so
- * an unauthorised browser lets someone plan a whole round and then fails as the
+ * an unauthorised browser lets someone plan a whole submission and then fails
+ * as the
  * phase closes, which is when it is too late to fix. Too STRICT and it hides a
  * perfectly playable board behind a demand the player has already met - and
  * since both answers arrive from chain reads, the obvious way to get that wrong

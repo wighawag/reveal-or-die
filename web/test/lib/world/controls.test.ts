@@ -8,7 +8,7 @@ import type {ControlIntent} from '$lib/game/render/intents';
  * The half of the input layer that knows what game this is.
  *
  * Everything it decides is one line long, which is the point: `planning` and
- * `round` already refuse what cannot be done, so a mapping that started
+ * `submission` already refuse what cannot be done, so a mapping that started
  * re-deciding those would be a second copy of a rule that exists. What is
  * tested here is the translation itself, and the two things it adds on top.
  */
@@ -23,14 +23,14 @@ function setup(
 		exitAt: vi.fn(() => true),
 		undo: vi.fn(),
 	};
-	const round = {commit: vi.fn(async () => {})};
+	const submission = {commit: vi.fn(async () => {})};
 	const controls = createControls({
 		planning,
-		round,
+		submission,
 		missedReveal: {value: options.missedReveal ?? {step: 'Clear'}},
 		readyToPlay: writable(options.ready ?? true),
 	});
-	return {controls, planning, round};
+	return {controls, planning, submission};
 }
 
 const direction = (d: 'up' | 'down' | 'left' | 'right'): ControlIntent => ({
@@ -75,10 +75,10 @@ describe('what a press does to this game', () => {
 		expect(planning.undo).toHaveBeenCalledTimes(1);
 	});
 
-	it('commits the round on confirm', () => {
-		const {controls, round} = setup();
+	it('commits the submission on confirm', () => {
+		const {controls, submission} = setup();
 		controls.handle({type: 'confirm'});
-		expect(round.commit).toHaveBeenCalledTimes(1);
+		expect(submission.commit).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -86,8 +86,8 @@ describe('the two things it refuses', () => {
 	it('does nothing at all until the player could take a turn', () => {
 		// The same gate a click passes in `context/game.ts`. Letting someone plan a
 		// whole turn they cannot commit is worse than not letting them start: the
-		// moves look accepted, and the failure arrives when the round is closing.
-		const {controls, planning, round} = setup({ready: false});
+		// moves look accepted, and the failure arrives when the cycle is closing.
+		const {controls, planning, submission} = setup({ready: false});
 		controls.handle(direction('up'));
 		controls.handle({type: 'secondary'});
 		controls.handle({type: 'cancel'});
@@ -95,20 +95,20 @@ describe('the two things it refuses', () => {
 		expect(planning.stepBy).not.toHaveBeenCalled();
 		expect(planning.exitAt).not.toHaveBeenCalled();
 		expect(planning.undo).not.toHaveBeenCalled();
-		expect(round.commit).not.toHaveBeenCalled();
+		expect(submission.commit).not.toHaveBeenCalled();
 	});
 
 	it('will not commit while an unrevealed commitment is in the way', () => {
-		// The one condition `round.commit()` cannot see for itself: the contract
+		// The one condition `submission.commit()` cannot see for itself: the contract
 		// rejects the new commitment with `PreviousCommitmentNotRevealed`, so this
-		// would spend gas to be told no and leave the round showing an error the
+		// would spend gas to be told no and leave the submission showing an error the
 		// player did not cause. The HUD disables its own button for the same
 		// reason; a key must not be a way round a disabled button.
-		const {controls, round, planning} = setup({
+		const {controls, submission, planning} = setup({
 			missedReveal: {step: 'Blocked', cycleNumber: 3} as MissedRevealState,
 		});
 		controls.handle({type: 'confirm'});
-		expect(round.commit).not.toHaveBeenCalled();
+		expect(submission.commit).not.toHaveBeenCalled();
 		// Planning is still allowed: the moves are kept, and acknowledging the old
 		// commitment is what unblocks sending them.
 		controls.handle(direction('up'));

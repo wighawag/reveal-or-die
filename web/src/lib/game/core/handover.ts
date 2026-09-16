@@ -1,14 +1,14 @@
 /**
- * The handover between the local round and the board.
+ * The handover between the local submission and the board.
  *
  * A turn in a commit-reveal game is drawn twice by two different things, and
- * the moment they change hands is not free. BEFORE the round resolves, what is
- * on screen is LOCAL INTENT, built from the actions the round is carrying.
- * AFTER it resolves, the same turn is drawn from the BOARD, which is whatever
- * the game's onchain-state store says. Both halves of that swap are here,
- * because they have to happen at the SAME moment and there is exactly one way
- * to guarantee that: publish the moment rather than letting each side work out
- * "roughly now" for itself.
+ * the moment they change hands is not free. BEFORE the submission resolves,
+ * what is on screen is LOCAL INTENT, built from the actions the submission is
+ * carrying. AFTER it resolves, the same turn is drawn from the BOARD, which is
+ * whatever the game's onchain-state store says. Both halves of that swap are
+ * here, because they have to happen at the SAME moment and there is exactly one
+ * way to guarantee that: publish the moment rather than letting each side work
+ * out "roughly now" for itself.
  *
  * Two framework facts make this a framework problem rather than one game's
  * cosmetic bug, and every game on this template would hit both.
@@ -22,12 +22,12 @@
  * {@link holdBoardUntilCycleEnds} withholds the resolving cycle's changes
  * until the cycle is over, and then lets them out together.
  *
- * **The round drops its actions at `Revealed`.** {@link RoundState} carries
- * them at every step up to and including `Revealing` and not after, which is
- * correct - there is nothing left to change - but it means the local overlay
- * vanishes the instant the reveal transaction lands, seconds before the board
- * is willing to show what that transaction did. Between those two moments a
- * player is shown NEITHER copy of their own turn. {@link rememberTurn} is the
+ * **The submission drops its actions at `Revealed`.** {@link SubmissionState}
+ * carries them at every step up to and including `Revealing` and not after,
+ * which is correct - there is nothing left to change - but it means the local
+ * overlay vanishes the instant the reveal transaction lands, seconds before the
+ * board is willing to show what that transaction did. Between those two moments
+ * a player is shown NEITHER copy of their own turn. {@link rememberTurn} is the
  * smallest memory that closes it, and {@link heldTurnUntilBoardReleases} ties
  * that memory to the board's own release signal.
  *
@@ -40,7 +40,7 @@
  * and the game owns its content.
  */
 import {derived, type Readable} from 'svelte/store';
-import type {RoundState} from './round';
+import type {SubmissionState} from './submission';
 import type {PlayWindow} from './refresh';
 import type {OnchainStateStore, OnchainStateValue} from './seams';
 
@@ -189,33 +189,36 @@ function loaded<TState>(state: TState): OnchainStateValue<TState> {
 	return {...(state as object), step: 'Loaded'} as OnchainStateValue<TState>;
 }
 
-/** A turn the round was carrying, and which round it belonged to. */
+/** A turn the submission was carrying, and which cycle it belonged to. */
 export type RememberedTurn<TAction> = {
 	cycleNumber: number;
 	actions: readonly TAction[];
 };
 
 /**
- * The last turn the round carried.
+ * The last turn the submission carried.
  *
  * Exists because `Revealed` deliberately carries no actions, so anything that
  * still has something to say about the turn just played has to have been
  * WATCHING. This is the smallest thing that can be: one value, replaced
- * whenever the round holds a turn at all.
+ * whenever the submission holds a turn at all.
  *
  * THE LAST ONE WINS, EMPTY INCLUDED. A player who plans a path and then clears
  * it has planned nothing, and a memory that only accepted non-empty turns
- * would redraw the path they deleted for the whole of the round it resolves
+ * would redraw the path they deleted for the whole of the cycle it resolves
  * in. For a game that commits empty turns to stay alive (`commitWhenIdle`),
  * an empty turn is also the ordinary case rather than an edge one.
  */
 export function rememberTurn<TAction>(
-	round: Readable<RoundState<TAction>>,
+	submission: Readable<SubmissionState<TAction>>,
 ): Readable<RememberedTurn<TAction> | undefined> {
 	let last: RememberedTurn<TAction> | undefined;
-	return derived(round, ($round) => {
-		if ('actions' in $round) {
-			last = {cycleNumber: $round.cycleNumber, actions: $round.actions};
+	return derived(submission, ($submission) => {
+		if ('actions' in $submission) {
+			last = {
+				cycleNumber: $submission.cycleNumber,
+				actions: $submission.actions,
+			};
 		}
 		return last;
 	});
@@ -223,7 +226,7 @@ export function rememberTurn<TAction>(
 
 /**
  * The turn to keep drawing as local intent, or undefined to draw whatever the
- * round currently says.
+ * submission currently says.
  *
  * The bridge across the handover: it answers with the remembered turn for
  * exactly as long as the board is withholding the cycle that turn belongs to,
@@ -233,18 +236,19 @@ export function rememberTurn<TAction>(
  * from an earlier cycle is resurrected over a cycle in which the player
  * planned nothing at all.
  *
- * IT WINS OVER THE LIVE ROUND while it answers, even when the round still
- * holds the same actions. It is never staler: anything derived from the round
- * re-derives when the round changes, so a consumer that preferred the live
- * value would draw one frame of a turn that has already moved on.
+ * IT WINS OVER THE LIVE SUBMISSION while it answers, even when the submission
+ * still holds the same actions. It is never staler: anything derived from the
+ * submission re-derives when the submission changes, so a consumer that
+ * preferred the live value would draw one frame of a turn that has already
+ * moved on.
  *
- * FOR DISPLAY ONLY. Nothing that CONTROLS a turn should read this: undo,
- * clear, a planned count and every affordance around them keep reading the
- * round, because once a turn is committed there is nothing left to undo and a
- * held display copy must not make the UI offer it.
+ * FOR DISPLAY ONLY. Nothing that CONTROLS a turn should read this: undo, clear,
+ * a planned count and every affordance around them keep reading the submission,
+ * because once a turn is committed there is nothing left to undo and a held
+ * display copy must not make the UI offer it.
  */
 export function heldTurnUntilBoardReleases<TAction>(params: {
-	round: Readable<RoundState<TAction>>;
+	submission: Readable<SubmissionState<TAction>>;
 	/**
 	 * Which cycle the board is holding back, from the board itself.
 	 *
@@ -253,7 +257,7 @@ export function heldTurnUntilBoardReleases<TAction>(params: {
 	 */
 	holding: Readable<number | undefined>;
 }): Readable<readonly TAction[] | undefined> {
-	const remembered = rememberTurn(params.round);
+	const remembered = rememberTurn(params.submission);
 	return derived(
 		[remembered, params.holding],
 		([$remembered, $holding]): readonly TAction[] | undefined => {

@@ -3,17 +3,17 @@ import {get, writable} from 'svelte/store';
 import {
 	createHud,
 	describeMissedReveal,
-	describeRound,
+	describeSubmission,
 	describeSetup,
 	purchaseBusyLabel,
 } from '$lib/world/ui/hud';
 import type {Context} from '$lib/context/types';
 import {SignerOutOfFundsError} from '$lib/world/errors';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 import type {Action} from '$lib/world/commit-reveal';
 import type {DepositedAvatar} from '$lib/world/deposited';
 import type {RecoveryState} from '$lib/game/core/recovery';
-import type {AutoRecoveryState} from '$lib/world/recover-round';
+import type {AutoRecoveryState} from '$lib/world/recover-submission';
 import type {RevealOutcome} from '$lib/world/reveal-outcome';
 import type {CyclePhase} from '$lib/context/game';
 
@@ -27,7 +27,7 @@ import type {CyclePhase} from '$lib/context/game';
  * player's money.
  */
 
-type State = RoundState<Action>;
+type State = SubmissionState<Action>;
 
 const action: Action = {actionType: 1, data: 1n};
 
@@ -43,15 +43,15 @@ const failed = (during: 'commit' | 'reveal', error: unknown): State => ({
 });
 
 /**
- * The situation the round is ABOUT, which the round state cannot say for itself.
+ * The situation the submission is ABOUT, which the submission state cannot say for itself.
  * Standing in the world is the ordinary case; the cases where it is not are
  * their own describe block below.
  */
 const inTheWorld = {inWorld: true} as const;
 
-describe('what the HUD says about a failed round', () => {
+describe('what the HUD says about a failed submission', () => {
 	it('names the gas problem, not the transaction, when the signer is empty', () => {
-		const commit = describeRound(
+		const commit = describeSubmission(
 			failed('commit', new SignerOutOfFundsError(new Error('whatever'))),
 			inTheWorld,
 		);
@@ -60,7 +60,7 @@ describe('what the HUD says about a failed round', () => {
 		);
 		expect(commit.tone).toBe('bad');
 
-		const reveal = describeRound(
+		const reveal = describeSubmission(
 			failed('reveal', new SignerOutOfFundsError(new Error('whatever'))),
 			inTheWorld,
 		);
@@ -74,7 +74,7 @@ describe('what the HUD says about a failed round', () => {
 		// funds". True, and misleading here: the account is a signer the player
 		// was never told about, so they read "this account" as their wallet and go
 		// and look at a balance that is fine. The game names whose shortfall it is.
-		const {label} = describeRound(
+		const {label} = describeSubmission(
 			failed('commit', new SignerOutOfFundsError(new Error('whatever'))),
 			inTheWorld,
 		);
@@ -85,7 +85,7 @@ describe('what the HUD says about a failed round', () => {
 	it('reports any other failure as itself, with the message', () => {
 		// Including a revert that mentions funds. The remedy on offer must follow
 		// what the boundary decided, not what the text happens to say.
-		const {label, tone} = describeRound(
+		const {label, tone} = describeSubmission(
 			failed('commit', new Error('execution reverted: insufficient funds')),
 			inTheWorld,
 		);
@@ -95,7 +95,7 @@ describe('what the HUD says about a failed round', () => {
 	});
 
 	it('tells the player to retry a failed reveal before the phase ends', () => {
-		const {label} = describeRound(
+		const {label} = describeSubmission(
 			failed('reveal', new Error('nonce too low')),
 			inTheWorld,
 		);
@@ -115,7 +115,7 @@ describe('what a missed reveal actually costs, in this game', () => {
 	 * which is a thing they can act on.
 	 */
 	it('reports being blocked, not a forfeit', () => {
-		const {label, tone} = describeRound(
+		const {label, tone} = describeSubmission(
 			{step: 'Missed', cycleNumber: 7} as unknown as State,
 			inTheWorld,
 		);
@@ -135,7 +135,7 @@ describe('what a missed reveal actually costs, in this game', () => {
 
 	it('still offers the button after a failed acknowledgement', () => {
 		// The commitment is exactly where it was, so treating the failure as
-		// "clear" would let the round commit and be refused on chain, which costs
+		// "clear" would let the submission commit and be refused on chain, which costs
 		// gas to learn nothing.
 		const state = describeMissedReveal({
 			step: 'Failed',
@@ -208,7 +208,7 @@ const avatar = (o: Partial<DepositedAvatar> = {}): DepositedAvatar => ({
 
 /** A context with only the parts `createHud` reads. */
 function fakeContext(
-	round: State,
+	submission: State,
 	overrides: {
 		hasLocalSigner?: boolean;
 		avatars?: DepositedAvatar[];
@@ -233,7 +233,7 @@ function fakeContext(
 				overrides.twoPhase ?? {phase: 'play', timeLeft: 10, duration: 20},
 			),
 			phase: writable(overrides.phase ?? 'play'),
-			round: writable(round),
+			submission: writable(submission),
 			planning: {
 				movesLeft: writable(10),
 				plan: writable({planned: []}),
@@ -341,7 +341,7 @@ describe('an avatar that is not in the world', () => {
 	 * Everything on screen was written for an avatar standing somewhere. Out of
 	 * the world it read as a set of small lies: a clock saying "make your move"
 	 * to something that cannot take a step, a move allowance for moves it cannot
-	 * spend, and a round panel reporting "nothing planned" when what is missing
+	 * spend, and a submission panel reporting "nothing planned" when what is missing
 	 * is the avatar itself.
 	 */
 	it('asks for a spawn rather than a move, on the clock', () => {
@@ -365,12 +365,13 @@ describe('an avatar that is not in the world', () => {
 		expect(inWorld.avatarLine).toMatch(/10 moves left/);
 	});
 
-	it('says what is missing in the round panel, rather than "nothing planned"', () => {
+	it('says what is missing in the submission panel, rather than "nothing planned"', () => {
 		expect(
-			describeRound({step: 'Idle'} as unknown as State, {inWorld: false}).label,
+			describeSubmission({step: 'Idle'} as unknown as State, {inWorld: false})
+				.label,
 		).toMatch(/not in the world/i);
 		expect(
-			describeRound({step: 'Idle'} as unknown as State, inTheWorld).label,
+			describeSubmission({step: 'Idle'} as unknown as State, inTheWorld).label,
 		).toBe('Nothing planned');
 	});
 
@@ -380,16 +381,16 @@ describe('an avatar that is not in the world', () => {
 			cycleNumber: 3,
 			actions: [action],
 		} as unknown as State;
-		expect(describeRound(planning, {inWorld: false}).label).toMatch(
+		expect(describeSubmission(planning, {inWorld: false}).label).toMatch(
 			/where to appear/i,
 		);
-		expect(describeRound(planning, inTheWorld).label).toBe(
+		expect(describeSubmission(planning, inTheWorld).label).toBe(
 			'Planned, not yet committed',
 		);
 	});
 });
 
-describe('the four parts of a round, on the clock', () => {
+describe('the four parts of a cycle, on the clock', () => {
 	/**
 	 * The old model folded the commit lock and the reveal into one "wait" and
 	 * had no word at all for the catch-up. Each part now has its own label,
@@ -490,7 +491,7 @@ describe('the four parts of a round, on the clock', () => {
 
 describe('what the reveal actually did', () => {
 	/**
-	 * It said "Revealed. Your avatar has moved." after EVERY reveal. The round
+	 * It said "Revealed. Your avatar has moved." after EVERY reveal. The submission
 	 * that commits itself when nothing is planned - which is how an idle avatar
 	 * stays alive - therefore told a player standing still that they had moved,
 	 * once a cycle, forever. So did the turn that left the world, about an
@@ -500,7 +501,7 @@ describe('what the reveal actually did', () => {
 
 	it('names each outcome, and claims movement only for a turn that moved', () => {
 		const label = (outcome: RevealOutcome) =>
-			describeRound(revealed, {inWorld: true, outcome}).label;
+			describeSubmission(revealed, {inWorld: true, outcome}).label;
 		expect(label('moved')).toMatch(/has moved/);
 		expect(label('stayed')).toMatch(/stayed where it was/);
 		expect(label('stayed')).not.toMatch(/has moved/);
@@ -510,10 +511,10 @@ describe('what the reveal actually did', () => {
 	});
 
 	it('says only that the turn landed when it did not watch it happen', () => {
-		// A page opened after the reveal cannot know what was in it: the round
+		// A page opened after the reveal cannot know what was in it: the submission
 		// drops the actions when it flips to `Revealed`. Guessing "moved" is how
 		// this went wrong in the first place.
-		const {label, tone} = describeRound(revealed, {inWorld: true});
+		const {label, tone} = describeSubmission(revealed, {inWorld: true});
 		expect(label).toMatch(/on chain/i);
 		expect(label).not.toMatch(/has moved/);
 		expect(tone).toBe('good');
@@ -569,7 +570,7 @@ describe('a killed avatar', () => {
 
 	it('is not reported until the cycle it died in has passed', () => {
 		// `lastEpoch` is when it last acted, so the kill is only readable from the
-		// next cycle onwards; reporting sooner would announce a death mid-round.
+		// next cycle onwards; reporting sooner would announce a death mid-cycle.
 		const model = get(
 			createHud(
 				fakeContext(

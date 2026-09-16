@@ -1,7 +1,7 @@
 /**
  * Turning clicks into a plan.
  *
- * The plan itself lives in the framework's round (it is what gets hashed, and
+ * The plan itself lives in the framework's submission (it is what gets hashed,
  * it has to survive a reload), so this keeps no second copy. It only translates
  * "the player clicked here" into a new list of actions, and exposes that list
  * in the shape the view merge wants.
@@ -14,7 +14,7 @@
  */
 import type {GameIdentity} from '$lib/game/identity';
 import {derived, type Readable} from 'svelte/store';
-import type {RoundState, RoundStore} from '$lib/game/core/round';
+import type {SubmissionState, SubmissionStore} from '$lib/game/core/submission';
 import {
 	cellTypeAt,
 	CellType,
@@ -29,8 +29,8 @@ import type {Action} from './commit-reveal';
 import {toPlannedActions, type LocalPlan} from './view';
 import type {WorldConfig} from './config';
 
-/** The plan is only changeable while the round has not been committed. */
-export function isPlannable(state: RoundState<Action>): boolean {
+/** The plan is only changeable while the submission is not committed. */
+export function isPlannable(state: SubmissionState<Action>): boolean {
 	return (
 		state.step === 'Idle' ||
 		state.step === 'Planning' ||
@@ -40,7 +40,7 @@ export function isPlannable(state: RoundState<Action>): boolean {
 	);
 }
 
-function actionsOf(state: RoundState<Action>): Action[] {
+function actionsOf(state: SubmissionState<Action>): Action[] {
 	if (!('actions' in state)) return [];
 	return [...state.actions];
 }
@@ -126,7 +126,7 @@ export type PlanningStore = {
 };
 
 export function createPlanning(params: {
-	round: RoundStore<GameIdentity, Action>;
+	submission: SubmissionStore<GameIdentity, Action>;
 	config: WorldConfig;
 	/** Where the avatar stands on chain; undefined when it is not in the world. */
 	currentPosition: Readable<Position | undefined>;
@@ -139,9 +139,11 @@ export function createPlanning(params: {
 	/** The ACCOUNT that owns them, which is a different question. */
 	player: Readable<`0x${string}` | undefined>;
 }): PlanningStore {
-	const {round, config, currentPosition, activeIdentity, player} = params;
+	const {submission, config, currentPosition, activeIdentity, player} = params;
 
-	const plannedStore = derived(round, ($round) => actionsOf($round));
+	const plannedStore = derived(submission, ($submission) =>
+		actionsOf($submission),
+	);
 
 	const plan = derived(
 		[plannedStore, activeIdentity, player],
@@ -157,7 +159,9 @@ export function createPlanning(params: {
 		($planned): readonly Action[] => $planned,
 	);
 
-	const canPlan = derived(round, ($round) => isPlannable($round));
+	const canPlan = derived(submission, ($submission) =>
+		isPlannable($submission),
+	);
 
 	const movesLeft = derived(plannedStore, ($planned) => {
 		const moves = $planned.filter(
@@ -177,7 +181,7 @@ export function createPlanning(params: {
 	}
 
 	function currentPlan() {
-		return actionsOf(round.value);
+		return actionsOf(submission.value);
 	}
 
 	/**
@@ -191,7 +195,7 @@ export function createPlanning(params: {
 	 * EXIT TILE, which `_exit` now reads off the cell the avatar is standing on.
 	 */
 	function exitAllowed(
-		state: RoundState<Action>,
+		state: SubmissionState<Action>,
 		planned: readonly Action[],
 		onchain: Position | undefined,
 	): Position | undefined {
@@ -208,13 +212,13 @@ export function createPlanning(params: {
 	}
 
 	const canExit = derived(
-		[round, plannedStore, currentPosition],
-		([$round, $planned, $onchain]) =>
-			exitAllowed($round, $planned, $onchain) !== undefined,
+		[submission, plannedStore, currentPosition],
+		([$submission, $planned, $onchain]) =>
+			exitAllowed($submission, $planned, $onchain) !== undefined,
 	);
 
 	function enterAt(position: Position): boolean {
-		if (!isPlannable(round.value)) return false;
+		if (!isPlannable(submission.value)) return false;
 
 		let onchain: Position | undefined;
 		currentPosition.subscribe((v) => (onchain = v))();
@@ -226,7 +230,7 @@ export function createPlanning(params: {
 		// neighbour unwalkable. Refused here rather than relied on there.
 		if (isObstacle(position.x, position.y)) return false;
 
-		round.plan([
+		submission.plan([
 			{
 				actionType: ActionType.Enter,
 				data: xyToBigIntID(position.x, position.y),
@@ -236,7 +240,7 @@ export function createPlanning(params: {
 	}
 
 	function stepTo(position: Position): boolean {
-		if (!isPlannable(round.value)) return false;
+		if (!isPlannable(submission.value)) return false;
 
 		const planned = currentPlan();
 		// An Enter or an Exit ends the reveal, so nothing can follow either.
@@ -254,7 +258,7 @@ export function createPlanning(params: {
 
 		if (!isValidMove(from, position)) return false;
 
-		round.plan([
+		submission.plan([
 			...planned,
 			{actionType: ActionType.Move, data: xyToBigIntID(position.x, position.y)},
 		]);
@@ -278,13 +282,13 @@ export function createPlanning(params: {
 		let onchain: Position | undefined;
 		currentPosition.subscribe((v) => (onchain = v))();
 
-		const from = exitAllowed(round.value, planned, onchain);
+		const from = exitAllowed(submission.value, planned, onchain);
 		if (!from) return false;
 
 		// The position is carried for DISPLAY only: `_exit` ignores its action data
 		// entirely and reads the cell under the avatar instead. It is what lets the
 		// renderer draw the exit marker on the cell the turn ends at.
-		round.plan([
+		submission.plan([
 			...planned,
 			{actionType: ActionType.Exit, data: xyToBigIntID(from.x, from.y)},
 		]);
@@ -292,15 +296,15 @@ export function createPlanning(params: {
 	}
 
 	function undo() {
-		if (!isPlannable(round.value)) return;
+		if (!isPlannable(submission.value)) return;
 		const planned = currentPlan();
 		if (planned.length === 0) return;
-		round.plan(planned.slice(0, -1));
+		submission.plan(planned.slice(0, -1));
 	}
 
 	function clear() {
-		if (!isPlannable(round.value)) return;
-		round.plan([]);
+		if (!isPlannable(submission.value)) return;
+		submission.plan([]);
 	}
 
 	return {

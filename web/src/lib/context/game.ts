@@ -24,10 +24,10 @@ import {
 	type TwoPhase,
 } from '$lib/game/core/cycle';
 import {
-	createRound,
-	type RoundStorage,
-	type RoundStore,
-} from '$lib/game/core/round';
+	createSubmission,
+	type SubmissionStorage,
+	type SubmissionStore,
+} from '$lib/game/core/submission';
 import {createDerivedSecret} from '$lib/game/core/secret';
 import {holdBoardUntilCycleEnds} from '$lib/game/core/handover';
 // The framework's, not this app's. Both used to be COPIED into this file - the
@@ -37,7 +37,10 @@ import {
 	refreshDuringReveal,
 	settleBoardWhenCycleStarts,
 } from '$lib/game/core/refresh';
-import {createRoundRecovery, type RecoveryStore} from '$lib/game/core/recovery';
+import {
+	createSubmissionRecovery,
+	type RecoveryStore,
+} from '$lib/game/core/recovery';
 import {
 	boardIsBehindClock,
 	cyclePhaseOf,
@@ -75,17 +78,17 @@ import {
 	type Action,
 } from '$lib/world/commit-reveal';
 import {
-	createRoundStorage,
-	noRoundStorage,
-	roundStorageKey,
+	createSubmissionStorage,
+	noSubmissionStorage,
+	submissionStorageKey,
 } from '$lib/world/storage';
 import {createPlanning, type PlanningStore} from '$lib/world/planning';
 import {createControls, type Controls} from '$lib/world/controls';
-import {holdResolvingRound} from '$lib/world/hold';
+import {holdResolvingCycle} from '$lib/world/hold';
 import {
 	recoverByEnumeration,
 	type AutoRecoveryState,
-} from '$lib/world/recover-round';
+} from '$lib/world/recover-submission';
 import {holdPlanUntilBoardReleases} from '$lib/world/display-plan';
 import {
 	createRevealOutcome,
@@ -132,14 +135,15 @@ export type Game = {
 	 * every avatar the contract holds is filed under this address, while a
 	 * different key pays the gas and sends the moves.
 	 *
-	 * NOT what the round is keyed by. That is `activeIdentity`, and here the two
-	 * are genuinely different values of different types - an address that OWNS
-	 * avatars, and the avatar being played. The template holds one value under
+	 * NOT what the submission is keyed by. That is `activeIdentity`, and here
+	 * the two are genuinely different values of different types - an address
+	 * that OWNS avatars, and the avatar being played. The template holds one
+	 * value under
 	 * both names, which is why the two names exist at all.
 	 */
 	identity: Readable<`0x${string}` | undefined>;
 	/**
-	 * WHO IS PLAYING: what the round, the commitment, the secret's domain
+	 * WHO IS PLAYING: what the submission, the commitment, the secret's domain
 	 * separation and the storage key are all keyed by. See `$lib/game/identity`.
 	 *
 	 * The framework's concept, and this game's answer to it is an avatar, plus
@@ -156,15 +160,15 @@ export type Game = {
 	threePhase: Readable<ThreePhase>;
 	/** The same, collapsed to play / wait. */
 	twoPhase: Readable<TwoPhase>;
-	/** The commit-reveal round: what is planned, committed, revealed. */
-	round: RoundStore<GameIdentity, Action>;
+	/** The commit-reveal submission: what is planned, committed, revealed. */
+	submission: SubmissionStore<GameIdentity, Action>;
 	/** Clicks into a planned entry or a planned path. */
 	planning: PlanningStore;
 	/**
-	 * What the turn that just resolved DID, while the round is reporting a
+	 * What the turn that just resolved DID, while the submission is reporting a
 	 * reveal.
 	 *
-	 * Here rather than in the HUD because it REMEMBERS: the round drops the
+	 * Here rather than in the HUD because it REMEMBERS: the submission drops the
 	 * actions when it flips to `Revealed`, so whatever answers this has to have
 	 * been watching, and a store built per component would answer differently
 	 * depending on when that component mounted.
@@ -188,8 +192,8 @@ export type Game = {
 	 * stake, and what there is to play with.
 	 *
 	 * This is where the template keeps a token RESERVE. The shapes differ because
-	 * the stakes do - an NFT in custody rather than a balance bonded per round -
-	 * so there is no amount and no per-round cost here, which is why `reserve`
+	 * the stakes do - an NFT in custody rather than a balance bonded per cycle -
+	 * so there is no amount and no per-cycle cost here, which is why `reserve`
 	 * and `cost` are gone rather than renamed.
 	 */
 	deposited: DepositedStore;
@@ -208,14 +212,14 @@ export type Game = {
 	 */
 	missedReveal: MissedRevealStore;
 	/**
-	 * A commitment the chain holds for the round in progress that this browser
+	 * A commitment the chain holds for the cycle in progress that this browser
 	 * has no memory of - a cleared browser, a second device, a private window.
 	 * The turn is still revealable while the cycle lasts.
 	 */
 	recovery: RecoveryStore<Action>;
 	/**
 	 * Whether the app is currently working the lost turn out for itself, and
-	 * what is left if it cannot. See `$lib/world/recover-round`.
+	 * what is left if it cannot. See `$lib/world/recover-submission`.
 	 */
 	autoRecovery: Readable<AutoRecoveryState>;
 	/**
@@ -226,8 +230,8 @@ export type Game = {
 	 */
 	currentPosition: Readable<Position | undefined>;
 	/**
-	 * Which part of the round this is: play, the commit lock, the reveal, or the
-	 * catch-up while the board fetches what the new round assumes.
+	 * Which part of the cycle this is: play, the commit lock, the reveal, or the
+	 * catch-up while the board fetches what the new cycle assumes.
 	 *
 	 * The clock and the move gate both read this, and the HUD words itself from
 	 * it. See {@link CyclePhase} for why the old two-phase model was not enough.
@@ -236,12 +240,12 @@ export type Game = {
 	/**
 	 * Whether the player can actually take a turn right now: an identity to play
 	 * as, permission for this browser to act as it, an avatar to move, and the
-	 * round being in the window where moves mean anything.
+	 * cycle being in the window where moves mean anything.
 	 *
 	 * Clicks do nothing while this is false. Letting someone plan a whole turn
 	 * they cannot commit is worse than not letting them start: the moves look
 	 * accepted, and the failure only arrives at the commit, by which point the
-	 * round is over.
+	 * cycle is over.
 	 */
 	readyToPlay: Readable<boolean>;
 	/** What is still missing before a turn can be taken, if anything. */
@@ -266,18 +270,18 @@ export type SetupNeeded =
 export type SetupAction = 'authorise' | 'buy';
 
 /**
- * The four parts of a round, as the player experiences them.
+ * The four parts of a cycle, as the player experiences them.
  *
  * A cycle is: a window to plan and commit in, a lock while those commits land,
  * the reveal in which every planned move resolves, and - at the boundary - a
- * moment while the board fetches the state the new round assumes. The old
+ * moment while the board fetches the state the new cycle assumes. The old
  * two-phase model folded the middle two into one "wait", which is fine to
  * play on and useless to debug against, and had no slot at all for the fourth.
  *
  * `catching-up` lasts until the board's own cycle catches up with the clock's,
  * which is however long the chain takes to mine past the boundary (see
  * `settleBoardWhenCycleStarts` for why the clock is ahead of the chain there),
- * and it disappears the moment a fetch lands the new round's data. The
+ * and it disappears the moment a fetch lands the new cycle's data. The
  * COUNTDOWN during it is the play window it is holding up, so "when can I
  * move" keeps ticking while it lasts.
  */
@@ -286,7 +290,7 @@ export type SetupAction = 'authorise' | 'buy';
  *
  * Its own function, like `setupNeeded` beside it, because it is a GATE and the
  * two ways to get a gate wrong are opposites: too strict and a ready player
- * watches the board refuse them for a fifth of every round; too loose and a
+ * watches the board refuse them for a fifth of every cycle; too loose and a
  * plan gets built from a position that is about to be invalidated. Neither is
  * visible by reading the wiring.
  *
@@ -336,7 +340,7 @@ export type GameContext = {
  * the fix happens elsewhere (the top-up flow, reachable from the HUD and the
  * navbar). Watching the SIGNER'S BALANCE rather than the flow keeps the two
  * decoupled: whatever put gas in the account - the flow, a faucet, a transfer
- * by hand - the round resumes.
+ * by hand - the submission resumes.
  *
  * It matters most for a reveal, where the window is short and the commitment is
  * already made: asking the player to notice the failure, top up, and then also
@@ -350,13 +354,13 @@ export type GameContext = {
  * context. Exported for the tests and used only just below.
  */
 export function resumeWhenGasArrives(params: {
-	round: Pick<
-		RoundStore<GameIdentity, Action>,
+	submission: Pick<
+		SubmissionStore<GameIdentity, Action>,
 		'subscribe' | 'value' | 'commit' | 'reveal'
 	>;
 	signerBalance: Readable<{step: string; value?: bigint}>;
 }): () => void {
-	const {round, signerBalance} = params;
+	const {submission, signerBalance} = params;
 	let gasSeen: bigint | undefined;
 
 	return signerBalance.subscribe(($balance) => {
@@ -368,22 +372,22 @@ export function resumeWhenGasArrives(params: {
 		// balance that fell is the failed move's own gas being spent elsewhere.
 		if (previous === undefined || $balance.value <= previous) return;
 
-		const $round = round.value;
+		const $submission = submission.value;
 		// The type the game constructed at its own boundary, not a fresh look at
 		// the node's wording. This decides whether to SPEND the player's gas
 		// unprompted, so it must resume only for the failure the arriving money
 		// actually fixes: any other error is still an error once the balance rises,
 		// and retrying it just burns the top-up.
 		if (
-			$round.step !== 'Error' ||
-			!($round.error instanceof SignerOutOfFundsError)
+			$submission.step !== 'Error' ||
+			!($submission.error instanceof SignerOutOfFundsError)
 		) {
 			return;
 		}
 		// Which one is not a detail: revealing when a commit failed would send a
 		// reveal for a commitment that was never made.
-		if ($round.during === 'reveal') void round.reveal();
-		else void round.commit();
+		if ($submission.during === 'reveal') void submission.reveal();
+		else void submission.commit();
 	});
 }
 
@@ -441,7 +445,7 @@ export function setupNeeded(params: {
 }
 
 /**
- * Run something once per round, on the turnover.
+ * Run something once per cycle, on the turnover.
  *
  * `cycleInfo` re-emits on every tick of the clock, so the trigger is the
  * CHANGE and not the value; without that, anything hung off it runs once a
@@ -453,7 +457,7 @@ export function setupNeeded(params: {
  * unprompted - it spends RPC calls with nobody asking - and a test of it
  * should not need an app context.
  */
-export function onEachNewRound(params: {
+export function onEachNewCycle(params: {
 	cycleInfo: Readable<{currentCycleNumber: number}>;
 	run: () => void;
 }): () => void {
@@ -559,7 +563,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	/**
-	 * The settle that runs when a round begins. Constructed here - which is
+	 * The settle that runs when a cycle begins. Constructed here - which is
 	 * inert, since `watch()` is what opens the subscription, and opening it
 	 * here would start the chain clock at construction time against ADR-0002 -
 	 * and `start()` is what watches.
@@ -583,7 +587,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	/**
-	 * Is the board still showing the round that just ended?
+	 * Is the board still showing the cycle that just ended?
 	 *
 	 * NOT THE SETTLE'S TIMER: a settle can still be running once a fetch has
 	 * landed, and the board can be unfetched without any settle having been
@@ -650,21 +654,22 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * Storage that follows the avatar being played.
 	 *
 	 * Resolved per call rather than captured once: the account and the active
-	 * avatar can both change while the app is running, and a pending round
+	 * avatar can both change while the app is running, and a pending submission
 	 * belonging to a different avatar would fail to reveal and read as a contract
-	 * bug. See `roundStorageKey` for why the avatar is part of the key at all.
+	 * bug. See `submissionStorageKey` for why the avatar is part of the key at
+	 * all.
 	 */
-	const storage: RoundStorage<Action> = {
+	const storage: SubmissionStorage<Action> = {
 		load: () => forCurrentAvatar().load(),
-		save: (round) => forCurrentAvatar().save(round),
+		save: (submission) => forCurrentAvatar().save(submission),
 		clear: () => forCurrentAvatar().clear(),
 	};
 
-	function forCurrentAvatar(): RoundStorage<Action> {
+	function forCurrentAvatar(): SubmissionStorage<Action> {
 		const avatarID = get(activeIdentity);
-		if (avatarID === undefined) return noRoundStorage;
-		return createRoundStorage({
-			key: roundStorageKey({
+		if (avatarID === undefined) return noSubmissionStorage;
+		return createSubmissionStorage({
+			key: submissionStorageKey({
 				chainID: deployments.chain.id,
 				gameAddress: deployments.contracts.Game.address,
 				avatarID,
@@ -698,9 +703,9 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * commit, which is what the signer exists to remove.
 	 *
 	 * It THROWS when there is no signer rather than falling back to a random
-	 * secret. A silent fallback would produce a round that looks identical and is
-	 * not recoverable, which is the failure this is here to prevent, and the
-	 * setup gate already refuses to let anyone commit before signing in.
+	 * secret. A silent fallback would produce a submission that looks identical
+	 * and is not recoverable, which is the failure this is here to prevent,
+	 * and the setup gate already refuses to let anyone commit before signing in.
 	 */
 	async function signAsSigner(message: string): Promise<`0x${string}`> {
 		const executor = get(core.signerExecutor);
@@ -723,7 +728,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	}
 
 	/**
-	 * ONE derivation, shared by the round, by recovery and by the search.
+	 * ONE derivation, shared by the submission, by recovery and by the search.
 	 *
 	 * Built here rather than inline below because all three have to reproduce
 	 * EXACTLY what was committed with. Separate call sites would compile, agree
@@ -736,17 +741,17 @@ export function createGameContext(core: CoreServices): GameContext {
 		contract: deployments.contracts.Game.address,
 	});
 
-	const round = createRound<GameIdentity, Action>({
+	const submission = createSubmission<GameIdentity, Action>({
 		cycleInfo,
 		/**
 		 * DERIVED, not random, so a cleared browser does not cost the avatar.
 		 *
 		 * Restores what the port dropped. The pre-port build derived the secret
 		 * from a signature (`lib/private/localState.ts` in bomber-world), and the
-		 * round here fell back to 32 random bytes in local storage - which matters
-		 * more in this game than in the template's, because what is at stake is an
-		 * avatar that DIES after `numMissesAllowed` missed rounds. Clearing site
-		 * data mid-round cost it.
+		 * submission here fell back to 32 random bytes in local storage - which
+		 * matters more in this game than in the template's, because what is at
+		 * stake is an avatar that DIES after `numMissesAllowed` missed cycles.
+		 * Clearing site data mid-cycle cost it.
 		 *
 		 * The identity is the AVATAR, not the account, which is why the framework
 		 * passes it: a player who owns two avatars must not derive one secret for
@@ -781,7 +786,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		 * continuously commit+reveal". With `numMissesAllowed = 3`, an avatar whose
 		 * `lastEpoch` falls more than four cycles behind is set to `life = 0`.
 		 * `lastEpoch` only advances on a REVEAL, so a player who watches a few
-		 * rounds without moving loses the avatar they paid for, having done nothing
+		 * cycles without moving loses the avatar they paid for, having done nothing
 		 * wrong and been warned by nothing.
 		 *
 		 * Only while the avatar has something to LOSE by going quiet, which is
@@ -791,7 +796,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		 * left to protect: it keeps a position, so a check on that alone kept the
 		 * loop running for a corpse, and `_makeCommitment` reverts with
 		 * `AvatarIsDead` - a transaction the signer pays for and the contract
-		 * refuses, once a round, for as long as the tab is open.
+		 * refuses, once a cycle, for as long as the tab is open.
 		 */
 		commitWhenIdle: () => isAtRisk(get(deposited), get(activeIdentity)),
 		// The AVATAR, not the account: `commit` and `reveal` both take an avatar id
@@ -799,8 +804,9 @@ export function createGameContext(core: CoreServices): GameContext {
 		// `bigint | 0x${string}` for exactly this, so nothing has to widen.
 		identity: activeIdentity,
 		onSettled: async () => {
-			// A settled round moves the avatar, which changes both the board and the
-			// account's own read of where it stands. Awaited by the round before it
+			// A settled submission moves the avatar, which changes both the board and
+			// the account's own read of where it stands. Awaited by the submission
+			// before it
 			// reports itself revealed, so the confirmed position is in place by the
 			// time the planned path stops being drawn: no flicker of the moves
 			// disappearing and coming back.
@@ -809,7 +815,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	const planning = createPlanning({
-		round,
+		submission,
 		config,
 		currentPosition,
 		activeIdentity,
@@ -820,10 +826,10 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * The chain says a commitment exists; this browser may not know that.
 	 *
 	 * Wired from the read `missedReveal` was already making, and from the same
-	 * secret and hashing the round commits with. Nothing is fetched for it.
+	 * secret and hashing the submission commits with. Nothing is fetched for it.
 	 */
-	const recovery = createRoundRecovery<GameIdentity, Action>({
-		round,
+	const recovery = createSubmissionRecovery<GameIdentity, Action>({
+		submission,
 		commitment: missedReveal.commitment,
 		identity: activeIdentity,
 		makeSecret,
@@ -834,9 +840,10 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * ...and this game can usually work out WHAT was committed, without asking.
 	 *
 	 * A turn here is a walk over walkable cells, and the maze keeps that small
-	 * enough to search: see `$lib/world/recover-round`, which is also where the
-	 * measurement and the budget are. Where the search cannot answer - an avatar
-	 * that was ENTERING, or a map more open than the budget - it says so and the
+	 * enough to search: see `$lib/world/recover-submission`, which is also where
+	 * the measurement and the budget are. Where the search cannot answer - an
+	 * avatar that was ENTERING, or a map more open than the budget - it says so
+	 * and the
 	 * player re-enters the turn, which is the route the template's game uses for
 	 * everything.
 	 */
@@ -855,9 +862,9 @@ export function createGameContext(core: CoreServices): GameContext {
 	 *
 	 * Reveals arrive one transaction at a time and in whatever order the mempool
 	 * delivers them, so a board that draws each as it lands shows a simultaneous
-	 * round playing out in payment order. The WHEN is the framework's
+	 * cycle playing out in payment order. The WHEN is the framework's
 	 * (`$lib/game/core/handover`); what is held back is this game's own rule
-	 * (`$lib/world/hold`), and only until the round is over.
+	 * (`$lib/world/hold`), and only until the cycle is over.
 	 *
 	 * Everything about FETCHING - the settle, the catching-up phase, the RPC
 	 * health - keeps reading the raw store, because those are about what the
@@ -868,28 +875,28 @@ export function createGameContext(core: CoreServices): GameContext {
 			state: onchainState,
 			phase: twoPhase,
 			cycleNumber: currentCycleNumber,
-			hold: holdResolvingRound,
+			hold: holdResolvingCycle,
 		},
 	);
 
 	const viewState = createViewState({
 		onchainState: heldBoard.board,
 		/**
-		 * THE DISPLAY COPY of the plan, not the round's live one.
+		 * THE DISPLAY COPY of the plan, not the submission's live one.
 		 *
 		 * The two halves of a turn - the local overlay before it resolves, the
 		 * board's account of it after - have to hand over with nothing in
-		 * between, and the round drops its actions the moment it reaches
+		 * between, and the submission drops its actions the moment it reaches
 		 * `Revealed`, seconds before the board releases what they did. See
 		 * `$lib/world/display-plan`. It is released by the board's OWN signal, so
-		 * the two cannot disagree about when the round ended.
+		 * the two cannot disagree about when the cycle ended.
 		 *
 		 * ONLY WHAT IS DRAWN. `planning.plan` itself is untouched, and everything
-		 * that acts on a turn keeps reading it and the round: a held display copy
-		 * must not make the HUD offer an Undo for a turn that is already on chain.
+		 * that acts on a turn keeps reading it and the submission: a held display
+		 * copy must not make the HUD offer an Undo for a turn already on chain.
 		 */
 		localState: holdPlanUntilBoardReleases({
-			round,
+			submission,
 			plan: planning.plan,
 			holding: heldBoard.holding,
 		}),
@@ -901,7 +908,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	 *
 	 * Used for what the chain ACCEPTED of the last turn: `lastTurn` on it is the
 	 * resolved prefix out of `CommitmentRevealed`, which is the truth about what
-	 * the turn did where the round's own memory only knows what was revealed.
+	 * the turn did where the submission's own memory only knows what was revealed.
 	 * Undefined whenever the avatar is not in the fetched zones - out of the
 	 * world, or panned away from - which is why it is a fallback and not the
 	 * only input.
@@ -914,7 +921,7 @@ export function createGameContext(core: CoreServices): GameContext {
 				: undefined,
 	);
 
-	const revealOutcome = createRevealOutcome(round, myAvatarOnBoard);
+	const revealOutcome = createRevealOutcome(submission, myAvatarOnBoard);
 
 	const gameRenderer = createGameRenderer({
 		viewState,
@@ -962,7 +969,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * outside it, because everything the plan would be built from is stale
 	 * there. During the reveal the avatar's next position is exactly the thing
 	 * being decided; during the catch-up the board has not caught up with the
-	 * round that just resolved. Planning from either is planning from a guess,
+	 * cycle that just resolved. Planning from either is planning from a guess,
 	 * and a plan the contract then refuses costs the turn to `stopProcessing`
 	 * silently.
 	 *
@@ -986,13 +993,13 @@ export function createGameContext(core: CoreServices): GameContext {
 	 */
 	const controls = createControls({
 		planning,
-		round,
+		submission,
 		missedReveal,
 		readyToPlay,
 	});
 
 	function start() {
-		const stopRound = round.start();
+		const stopSubmission = submission.start();
 
 		// A click is only a click to the canvas; what it MEANS is decided here, so
 		// the render layer stays free of game rules.
@@ -1033,19 +1040,20 @@ export function createGameContext(core: CoreServices): GameContext {
 		});
 
 		// Same question, asked again for a different avatar. Switching avatars in
-		// one browser is exactly the case where the local round says nothing and
+		// one browser is exactly the case where the local submission says nothing and
 		// the chain may still be holding an unrevealed commitment.
 		const unsubscribeAvatar = activeIdentity.subscribe(() => {
 			void missedReveal.check();
 		});
 
-		// A round that ends in Missed locally is very likely blocked on chain too.
-		const unsubscribeRound = round.subscribe(($round) => {
-			if ($round.step === 'Missed') void missedReveal.check();
+		// A submission that ends in Missed locally is very likely blocked on chain
+		// too.
+		const unsubscribeSubmission = submission.subscribe(($submission) => {
+			if ($submission.step === 'Missed') void missedReveal.check();
 		});
 
 		const unsubscribeGas = resumeWhenGasArrives({
-			round,
+			submission,
 			signerBalance: core.signerBalance,
 		});
 
@@ -1054,7 +1062,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		// is invisible from here; at the commit phase's start it is a settle that
 		// retries until the board has actually caught up, because the client's
 		// clock crosses the cycle boundary ahead of the chain and a fetch that
-		// gives up into backoff leaves the new round playing on last cycle's
+		// gives up into backoff leaves the new cycle drawn on the previous one's
 		// board.
 		const stopSettleWatch = settle.watch();
 		const stopRevealRefresh = refreshDuringReveal({
@@ -1071,10 +1079,10 @@ export function createGameContext(core: CoreServices): GameContext {
 			onSettled: () => void deposited.update(),
 		});
 
-		// Ask the chain about this ACCOUNT again whenever the round turns over.
+		// Ask the chain about this ACCOUNT again whenever the cycle turns over.
 		//
 		// Both of these are questions about the CURRENT CYCLE rather than fixed
-		// properties, which is what makes a per-round re-read the right cadence
+		// properties, which is what makes a per-cycle re-read the right cadence
 		// rather than a poll bolted on.
 		//
 		// Whether a commitment counts as MISSED changes by itself: the very same
@@ -1096,7 +1104,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		// until the page was reloaded, and everything downstream inherited that -
 		// no death notice, a corpse still selected as the active avatar, and the
 		// missed-reveal panel demanding an acknowledgement for it.
-		const unsubscribeCycle = onEachNewRound({
+		const unsubscribeCycle = onEachNewCycle({
 			cycleInfo,
 			run: () => {
 				void missedReveal.check();
@@ -1105,11 +1113,11 @@ export function createGameContext(core: CoreServices): GameContext {
 		});
 
 		return () => {
-			stopRound();
+			stopSubmission();
 			eventEmitter.off('clicked', onClicked);
 			unsubscribeAccount();
 			unsubscribeAvatar();
-			unsubscribeRound();
+			unsubscribeSubmission();
 			unsubscribeCycle();
 			unsubscribeGas();
 			unsubscribePurchase();
@@ -1133,7 +1141,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			cycleInfo,
 			threePhase,
 			twoPhase,
-			round,
+			submission,
 			planning,
 			revealOutcome,
 			controls,

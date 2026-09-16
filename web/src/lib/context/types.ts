@@ -246,7 +246,7 @@ export type Context = {
 	 */
 	onchainState: OnchainStateStore<WorldState & {cycleNumber: number}>;
 	viewState: ViewStateStore<WorldView>;
-	/** The commit-reveal game: cycles, the round, what is at stake. */
+	/** The commit-reveal game: cycles, the submission, what is at stake. */
 	game: Game;
 	/** The render surface and the camera that scopes what is loaded. */
 	render: Render;

@@ -2,7 +2,7 @@
 	reveal-or-die.
 
 	A shared world of avatars: click to plan where yours appears or which way it
-	steps, the round commits as the phase closes, and reveals in the reveal
+	steps, the submission commits as the phase closes, and reveals in the reveal
 	phase. The seams in `$lib/game/core/seams.ts` are what it plugs into - the
 	state store, the commit-reveal adapter, the view merge and the renderer are
 	all filled by `$lib/world`, against a real chain.

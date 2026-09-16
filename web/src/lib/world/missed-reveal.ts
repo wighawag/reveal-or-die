@@ -16,12 +16,12 @@
  *
  * ONE READ, TWO QUESTIONS, and the second one used to be thrown away. Asking
  * `getCommitment` answers "am I blocked?" - a commitment left over from an
- * EARLIER cycle - and it equally answers "is there a commitment for the round
+ * EARLIER cycle - and it equally answers "is there a commitment for the
  * in progress that this browser knows nothing about?". The second is the one
  * that costs a turn and, three of them in a row, the avatar; it was being
  * reported as `Clear` and dropped, because blocking was the only thing anyone
  * had ever asked. It is published as {@link MissedRevealStore.commitment} now
- * and `world/recover-round.ts` is what does something with it. Nothing extra is
+ * and `world/recover-submission.ts` is what does something with it. Nothing extra is
  * fetched.
  */
 import {get, writable, type Readable} from 'svelte/store';
@@ -50,7 +50,7 @@ export type MissedRevealStore = Readable<MissedRevealState> & {
 	 *
 	 * It blocks nothing, which is why the state above says `Clear` beside it.
 	 * What it does say is that a reveal is owed this cycle whatever this browser
-	 * happens to remember, and `world/recover-round.ts` acts on that.
+	 * happens to remember, and `world/recover-submission.ts` acts on that.
 	 *
 	 * Undefined whenever the read has not happened, failed, or found nothing: an
 	 * absent answer is never evidence that no commitment exists.
@@ -63,7 +63,7 @@ export type MissedRevealStore = Readable<MissedRevealState> & {
  *
  * `Failed` counts. An acknowledgement that did not go through leaves the
  * commitment exactly where it was, so treating the failure as "clear" would
- * let the round try to commit and fail again on chain, which costs gas to
+ * let the submission try to commit and fail again on chain, which costs gas to
  * learn nothing.
  */
 export function blocksCommitting(state: MissedRevealState): boolean {
@@ -118,7 +118,7 @@ export function createMissedReveal(params: {
 			})) as {hash: `0x${string}`; epoch: bigint};
 
 			const cycleNumber = Number(onChain.epoch);
-			// Cycle 0 means no commitment; one for the CURRENT cycle is the round in
+			// Cycle 0 means no commitment; one for the CURRENT cycle is the cycle in
 			// progress and blocks nothing. Only an older one bars the way, which is
 			// exactly the condition `_makeCommitment` tests.
 			if (cycleNumber === 0) {

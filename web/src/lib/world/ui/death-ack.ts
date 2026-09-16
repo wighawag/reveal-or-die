@@ -4,7 +4,7 @@
  * The death itself is a fact on chain and stays one until the body is
  * withdrawn; the ACKNOWLEDGEMENT is a fact about this browser's UI and exists
  * nowhere on chain at all. So it is kept here, in local storage, scoped like
- * the round storage (chain + game), and the distinction matters: the rule this
+ * the submission storage (chain + game), and the distinction matters: the rule
  * repo keeps is "never persist a second copy of what the operations ledger
  * holds", and the ledger holds transactions. This holds a dismissal.
  *

@@ -2,8 +2,9 @@
  * Whether the player has been shown round the board yet, and the tour itself.
  *
  * The flag used to be a field on `private/localState.ts`, the pre-port store
- * that also held the pending round, the chosen avatar and the planned actions.
- * All three of those have proper homes now (the framework's round,
+ * that also held the pending submission, the chosen avatar and the planned
+ * actions.
+ * All three of those have proper homes now (the framework's submission,
  * `../active-avatar`, `../planning`), and this was the only thing left, so it
  * lives here rather than keeping that module alive for one boolean.
  *
@@ -111,7 +112,7 @@ export function startTour(onFinished?: () => void) {
 			onFinished?.();
 		},
 	});
-	// The HUD moves as the round changes (a missed-reveal panel appears, the
+	// The HUD moves as the cycle changes (a missed-reveal panel appears, the
 	// avatar picker grows), and driver.js measures once.
 	refresh = setInterval(() => driverObj.refresh(), 200);
 	driverObj.drive();

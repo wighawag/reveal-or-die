@@ -71,7 +71,7 @@ describe('acknowledging a death', () => {
 		);
 	});
 
-	it('is scoped per chain and game, like the round storage', () => {
+	it('is scoped per chain and game, like the submission storage', () => {
 		const storage = memory();
 		scoped(storage).acknowledge({avatarID: 5n, deathCycleNumber: 12});
 		const elsewhere = createDeathAcknowledgement({

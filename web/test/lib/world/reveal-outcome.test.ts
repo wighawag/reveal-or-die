@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {createRevealOutcome, outcomeOf} from '$lib/world/reveal-outcome';
 import type {Action} from '$lib/world/commit-reveal';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 import {ActionType, xyToBigIntID} from 'reveal-or-die-contracts';
 
 const enter: Action = {actionType: ActionType.Enter, data: xyToBigIntID(0, 1)};
@@ -32,15 +32,15 @@ describe('what a revealed turn amounts to', () => {
 	});
 });
 
-describe('remembering the turn the round forgot', () => {
+describe('remembering the turn the submission forgot', () => {
 	/**
-	 * `RoundState` carries the actions up to `Revealing` and drops them on
+	 * `SubmissionState` carries the actions up to `Revealing` and drops them on
 	 * `Revealed`, so anything that wants to say what a reveal DID has to have
 	 * been watching. That is the whole reason this store exists rather than a
-	 * pure function over the round state.
+	 * pure function over the submission state.
 	 */
-	function round(
-		initial: RoundState<Action>,
+	function submission(
+		initial: SubmissionState<Action>,
 		mine: {
 			lastTurn?: {
 				cycleNumber: number;
@@ -60,20 +60,23 @@ describe('remembering the turn the round forgot', () => {
 		};
 	}
 
-	const planning = (actions: Action[]): RoundState<Action> =>
-		({step: 'Planning', cycleNumber: 3, actions}) as RoundState<Action>;
-	const revealing = (actions: Action[]): RoundState<Action> =>
-		({step: 'Revealing', cycleNumber: 3, actions}) as RoundState<Action>;
-	const revealed = {step: 'Revealed', cycleNumber: 3} as RoundState<Action>;
+	const planning = (actions: Action[]): SubmissionState<Action> =>
+		({step: 'Planning', cycleNumber: 3, actions}) as SubmissionState<Action>;
+	const revealing = (actions: Action[]): SubmissionState<Action> =>
+		({step: 'Revealing', cycleNumber: 3, actions}) as SubmissionState<Action>;
+	const revealed = {
+		step: 'Revealed',
+		cycleNumber: 3,
+	} as SubmissionState<Action>;
 
 	describe('what the chain says it accepted, in the same words', () => {
-		it('ignores a board copy from a DIFFERENT round', () => {
-			// The board holds the resolving round back until it is over
+		it('ignores a board copy from a DIFFERENT submission', () => {
+			// The board holds the resolving cycle back until it is over
 			// (`world/hold.ts`), so during the reveal window its `lastTurn` is
-			// still the PREVIOUS round's. Taking it because it is merely present
-			// would describe the wrong turn, and confidently: the round says
+			// still the PREVIOUS cycle's. Taking it because it is merely present
+			// would describe the wrong turn, and confidently: the submission says
 			// cycle 3, the board still says 2.
-			const {state, mineState, outcome} = round(revealing([move]));
+			const {state, mineState, outcome} = submission(revealing([move]));
 			const seen: (string | undefined)[] = [];
 			const stop = outcome.subscribe((v) => seen.push(v));
 			mineState.set({
@@ -86,9 +89,9 @@ describe('remembering the turn the round forgot', () => {
 
 		it('reads the board\u2019s copy when there is one', () => {
 			// `lastTurn` is the accepted prefix out of `CommitmentRevealed`: a step
-			// into a wall is absent from it. The round's own memory knows only what
+			// into a wall is absent from it. The submission's own memory knows only what
 			// was revealed, so this is the input that makes the sentence true.
-			const {state, mineState, outcome} = round(revealed);
+			const {state, mineState, outcome} = submission(revealed);
 			const seen: (string | undefined)[] = [];
 			const stop = outcome.subscribe((v) => seen.push(v));
 
@@ -108,7 +111,7 @@ describe('remembering the turn the round forgot', () => {
 			// The player's own avatar is not always in the fetched zones: out of the
 			// world, or panned away from. The remembered actions still describe their
 			// turn, less precisely.
-			const {state, outcome} = round(revealing([move]));
+			const {state, outcome} = submission(revealing([move]));
 			const seen: (string | undefined)[] = [];
 			const stop = outcome.subscribe((v) => seen.push(v));
 			state.set(revealed);
@@ -117,8 +120,8 @@ describe('remembering the turn the round forgot', () => {
 		});
 	});
 
-	it('reports the actions that were in the round when it was revealed', () => {
-		const {state, outcome} = round(planning([move]));
+	it('reports the actions that were in the submission when it was revealed', () => {
+		const {state, outcome} = submission(planning([move]));
 		// Subscribed throughout, as the HUD is: the value has to be watched for
 		// the actions to be seen at all.
 		const seen: (string | undefined)[] = [];
@@ -131,7 +134,7 @@ describe('remembering the turn the round forgot', () => {
 	});
 
 	it('says nothing at any other step', () => {
-		const {state, outcome} = round(planning([move]));
+		const {state, outcome} = submission(planning([move]));
 		const seen: (string | undefined)[] = [];
 		const stop = outcome.subscribe((v) => seen.push(v));
 		expect(seen.at(-1)).toBeUndefined();
@@ -140,16 +143,16 @@ describe('remembering the turn the round forgot', () => {
 			step: 'Committed',
 			cycleNumber: 3,
 			actions: [move],
-		} as RoundState<Action>);
+		} as SubmissionState<Action>);
 		expect(seen.at(-1)).toBeUndefined();
 		stop();
 	});
 
 	it('does not carry an old turn into the next one', () => {
-		// The round goes back to Idle for the new cycle and then reveals again.
-		// A remembered outcome that outlived its round would report the previous
+		// The cycle goes back to Idle for the new cycle and then reveals again.
+		// A remembered outcome that outlived its submission would report the previous
 		// turn's story about this one.
-		const {state, outcome} = round(planning([move]));
+		const {state, outcome} = submission(planning([move]));
 		const seen: (string | undefined)[] = [];
 		const stop = outcome.subscribe((v) => seen.push(v));
 
@@ -157,7 +160,7 @@ describe('remembering the turn the round forgot', () => {
 		state.set(revealed);
 		expect(seen.at(-1)).toBe('moved');
 
-		state.set({step: 'Idle'} as RoundState<Action>);
+		state.set({step: 'Idle'} as SubmissionState<Action>);
 		expect(seen.at(-1)).toBeUndefined();
 		state.set(revealing([exit]));
 		state.set(revealed);
@@ -168,7 +171,7 @@ describe('remembering the turn the round forgot', () => {
 	it('admits it does not know about a reveal it never saw', () => {
 		// A page opened after the fact. Better than guessing: guessing is exactly
 		// how every reveal came to be reported as movement.
-		const {outcome} = round(revealed);
+		const {outcome} = submission(revealed);
 		expect(get(outcome)).toBeUndefined();
 	});
 });

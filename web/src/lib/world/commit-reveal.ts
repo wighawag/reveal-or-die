@@ -1,7 +1,7 @@
 /**
  * This game's `CommitRevealAdapter`.
  *
- * The framework's round decides WHEN these are called and keeps the secret
+ * The framework's submission decides WHEN these are called and keeps the secret
  * between the two; this file is only the translation into the Game contract's
  * own calls. That split is the seam: a game with a different identity model, or
  * a contract that names things differently, replaces this file and nothing
@@ -59,7 +59,7 @@ export function buildWorldCommitment(params: {
  * What the adapter needs.
  *
  * `signerExecutor`, NOT `accountExecutor`: commit and reveal are signed by the
- * local signer so the player is never prompted mid-round, and so an account
+ * local signer so the player is never prompted mid-cycle, and so an account
  * with no wallet provider (email or social sign-in) can play at all.
  */
 export type CommitRevealDeps = Pick<
@@ -82,7 +82,8 @@ export type CommitRevealDeps = Pick<
  * reach, gets a hash, and is never mined.
  *
  * The cost lands squarely on the feature this file is most careful about.
- * `resumeWhenGasArrives` exists so a player who tops up has their round carry on
+ * `resumeWhenGasArrives` exists so a player who tops up has their submission
+ * carry on
  * by itself; if the failed send burned a nonce, the retry can never mine, and a
  * turn that was recoverable is lost to a stuck `Committing` instead. Worse here
  * than in the template it came from: a reveal that never lands also blocks the
@@ -124,7 +125,7 @@ function refuseWhenTheSignerHoldsNothing(deps: CommitRevealDeps): void {
  *
  * Waiting for inclusion matters more than it looks. `writeContract` resolves as
  * soon as the transaction is BROADCAST, so without this a commitment that
- * reverts would still resolve happily, the round would call itself Committed,
+ * reverts would still resolve happily, the submission would call itself Committed,
  * and the only symptom would be a baffling `NothingToReveal` a phase later.
  */
 async function send(
@@ -173,7 +174,7 @@ export function createWorldCommitReveal(params: {
 	deps: CommitRevealDeps;
 	/**
 	 * Run before a commitment is built or sent, to refuse one that cannot
-	 * succeed. Throwing here surfaces as the round's Error state, so whatever is
+	 * succeed. Throwing here surfaces as the submission's Error state, so whatever is
 	 * thrown is read by the player and should say what to do about it.
 	 *
 	 * This game needs it for the unrevealed-commitment case. `_makeCommitment`
@@ -209,7 +210,7 @@ export function createWorldCommitReveal(params: {
 			const {executor, deployments} = await ready();
 
 			// No bond. This game's stake is the AVATAR, already in the contract's
-			// custody from the deposit, so there is nothing to bond per round the
+			// custody from the deposit, so there is nothing to bond per cycle the
 			// way a token reserve would be. What a player loses by going quiet is
 			// liveness on that avatar, not a sum named here.
 			return {

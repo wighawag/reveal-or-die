@@ -14,7 +14,7 @@
  * guarantee; it is what stops two tabs committing over each other, and a player
  * who wants to run two avatars opens a second browser.
  *
- * It is also why the round's storage key includes the avatar id
+ * It is also why the submission's storage key includes the avatar id
  * (see ./storage.ts): switching the active avatar with a key that did not would
  * load the previous avatar's planned actions and commit them for the new one.
  */

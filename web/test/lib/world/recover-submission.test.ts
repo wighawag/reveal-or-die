@@ -6,7 +6,7 @@ import {
 	searchForTurn,
 	SEARCH_BUDGET,
 	type SearchOutcome,
-} from '$lib/world/recover-round';
+} from '$lib/world/recover-submission';
 import type {LiveCommitment, RecoveryState} from '$lib/game/core/recovery';
 import {
 	ActionType,
@@ -138,7 +138,7 @@ describe('searching for the turn behind a commitment', () => {
 
 	it('says EXHAUSTED rather than found when the hash is not a turn from here', async () => {
 		// It must not return something. A wrong turn adopted is a reveal that
-		// reverts, and the round would have spent the window believing it was safe.
+		// reverts, and the submission would have spent the window believing it was safe.
 		const outcome = await search({
 			numMoves: 3,
 			hash: '0x000000000000000000000000000000000000000000000000' as `0x${string}`,
@@ -254,7 +254,7 @@ describe('searching whenever the chain turns out to hold a lost turn', () => {
 
 	it('adopts a turn it finds, THROUGH the framework rather than by itself', async () => {
 		// The search is an ORACLE, not an authority. If it could adopt directly, a
-		// bug in it could put a wrong turn into the round and the reveal would
+		// bug in it could put a wrong turn into the submission and the reveal would
 		// revert with the window already closing.
 		const found: Action[] = [
 			{actionType: ActionType.Move, data: xyToBigIntID(1, 1)},
@@ -280,8 +280,8 @@ describe('searching whenever the chain turns out to hold a lost turn', () => {
 		t.stop();
 	});
 
-	it('searches ONCE per round, however often the state re-emits', async () => {
-		// The recovery state is derived from the round and from a chain read, both
+	it('searches ONCE per submission, however often the state re-emits', async () => {
+		// The recovery state is derived from the submission and from a chain read, both
 		// of which change constantly. A search costs a second, so restarting on
 		// every emission would mean it never finishes and the tab never idles -
 		// the worst of both outcomes.
@@ -295,7 +295,7 @@ describe('searching whenever the chain turns out to hold a lost turn', () => {
 		t.stop();
 	});
 
-	it('does not retry a round it has already failed on', async () => {
+	it('does not retry a submission it has already failed on', async () => {
 		const t = setup({outcome: {step: 'exhausted', tried: 10}});
 		await settle();
 		t.recoveryState.set({step: 'Idle'});

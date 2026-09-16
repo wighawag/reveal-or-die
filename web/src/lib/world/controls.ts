@@ -21,7 +21,7 @@
  *
  * WHAT IT DOES NOT DECIDE. The window in which a press is legal is not
  * re-derived here: `planning` already refuses anything the contract would
- * refuse, and `round.commit()` already refuses a commit outside the phase, with
+ * refuse, and `submission.commit()` already refuses a commit outside the phase,
  * nothing planned, or from a step that cannot commit. Asking those questions
  * again would be a second copy of an answer that exists, and the two copies
  * would eventually differ.
@@ -31,7 +31,7 @@ import {get, type Readable} from 'svelte/store';
 import type {ControlIntent, Direction} from '$lib/game/render/intents';
 import {attachKeys, type KeyOptions} from '$lib/game/render/keys';
 import {attachGamepad, type GamepadOptions} from '$lib/game/render/gamepad';
-import type {RoundStore} from '$lib/game/core/round';
+import type {SubmissionStore} from '$lib/game/core/submission';
 import type {Position} from 'reveal-or-die-contracts';
 import type {Action} from './commit-reveal';
 import type {PlanningStore} from './planning';
@@ -80,19 +80,19 @@ export type Controls = {
 
 export function createControls(params: {
 	planning: Pick<PlanningStore, 'stepBy' | 'exitAt' | 'undo'>;
-	round: Pick<RoundStore<GameIdentity, Action>, 'commit'>;
+	submission: Pick<SubmissionStore<GameIdentity, Action>, 'commit'>;
 	missedReveal: Pick<MissedRevealStore, 'value'>;
 	/**
 	 * Whether the player could actually take a turn.
 	 *
 	 * The same gate a click passes through in `context/game.ts`, and for the same
 	 * reason: letting someone plan a whole turn they cannot commit is worse than
-	 * not letting them start, because the failure only arrives when the round is
+	 * not letting them start, because the failure only arrives when the cycle is
 	 * already closing.
 	 */
 	readyToPlay: Readable<boolean>;
 }): Controls {
-	const {planning, round, missedReveal, readyToPlay} = params;
+	const {planning, submission, missedReveal, readyToPlay} = params;
 
 	function handle(intent: ControlIntent) {
 		if (!get(readyToPlay)) return;
@@ -104,21 +104,21 @@ export function createControls(params: {
 			case 'secondary':
 				// LEAVING THE WORLD. The one action with no pointer equivalent: a
 				// click names a cell, and "leave" names none. It is undoable until
-				// the round commits, which is what makes it safe to put on a key.
+				// the submission commits, which is what makes it safe to put on a key.
 				planning.exitAt();
 				return;
 			case 'cancel':
 				planning.undo();
 				return;
 			case 'confirm':
-				// Send the round now rather than waiting for the phase to close.
+				// Send the submission now rather than waiting for the phase to close.
 				// Refused while an unrevealed commitment is in the way, which is the
-				// one condition `round.commit()` cannot see for itself: it would send
+				// one condition `submission.commit()` cannot see for itself: it would send
 				// a commitment the contract rejects with
 				// `PreviousCommitmentNotRevealed`, spending gas to be told no and
-				// leaving the round in an error state the player did not cause.
+				// leaving the submission in an error state the player did not cause.
 				if (blocksCommitting(missedReveal.value)) return;
-				void round.commit();
+				void submission.commit();
 				return;
 		}
 	}

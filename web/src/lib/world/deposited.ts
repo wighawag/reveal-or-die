@@ -3,8 +3,8 @@
  *
  * This is where the template keeps a token RESERVE. The shapes are different
  * because the stakes are: there, a player tops up an ERC-20 balance and bonds
- * part of it per round; here, a player deposits an avatar NFT and the game
- * holds it. So there is no amount, no top-up and no per-round bond, and what
+ * part of it per cycle; here, a player deposits an avatar NFT and the game
+ * holds it. So there is no amount, no top-up and no per-cycle bond, and what
  * the context actually wants to know from either is the same single question:
  * can this player take a turn at all.
  */
@@ -141,7 +141,7 @@ export const derivedHasAvatar = (
  * committing empty turns for one would burn gas to prevent nothing. AND ALIVE,
  * because a dead avatar has already lost everything the loop was protecting -
  * and `_makeCommitment` reverts with `AvatarIsDead`, so the client would be
- * paying for a transaction the contract refuses, once per round, forever.
+ * paying for a transaction the contract refuses, once per cycle, forever.
  *
  * Its own predicate rather than "is it standing somewhere", which is what this
  * used to be read as. The two differ only for a corpse, which is exactly the

@@ -8,7 +8,7 @@ import {
 } from '../fixtures/board';
 
 /**
- * A commit-reveal round on THIS board, end to end in a real browser.
+ * A commit-reveal submission on THIS board, end to end in a real browser.
  *
  * WHY THIS FILE EXISTS RATHER THAN `game.e2e.ts`. The template's game suite
  * plays a different game - a placement staked on a CELL, asserted through that
@@ -21,13 +21,13 @@ import {
  * without ever conflicting with this one, which is the whole point of omitting
  * that file rather than overwriting it.
  *
- * THE PROPERTY UNDER TEST is the one the round exists for: what is committed is
+ * THE PROPERTY UNDER TEST is the one the submission exists for: what is committed is
  * hidden until it is revealed. A test that only checked "the avatar ends up
  * where I clicked" would pass just as well against a game with no commit phase
  * at all, so the middle assertion - nothing on the board while the commitment
- * stands - is the one that would catch the round collapsing into a plain move.
+ * stands - is the one that would catch the submission collapsing into a plain move.
  */
-describe('A commit-reveal round', () => {
+describe('A commit-reveal submission', () => {
 	// One open commitment per player per cycle, so this file takes its own burner
 	// account (the contracts suite uses index 1).
 	test.use({walletAccountIndex: 0});
@@ -36,7 +36,7 @@ describe('A commit-reveal round', () => {
 		connectedPage,
 		authoriseBrowser,
 	}) => {
-		// A full round has to wait out a commit phase and a reveal phase.
+		// A full cycle has to wait out a commit phase and a reveal phase.
 		test.slow();
 		// Already on `/play` with the canvas mounted and a wallet connected: that
 		// is what `connectedPage` is. Navigating again here tore the app down and
@@ -44,8 +44,8 @@ describe('A commit-reveal round', () => {
 		const page = connectedPage;
 
 		// WHO OWNS AND WHO SENDS ARE DIFFERENT ADDRESSES, and that is the design
-		// rather than an implementation detail. A round is two transactions every
-		// cycle, so sending them from the wallet would prompt twice a round for
+		// rather than an implementation detail. A submission is two transactions every
+		// cycle, so sending them from the wallet would prompt twice a cycle for
 		// ever; hence a local signer. But that signer is a key this browser made,
 		// holding nothing and lost with the site data, so it must not BE the
 		// player: the account owns the avatar, and the signer merely acts for it.
@@ -96,11 +96,11 @@ describe('A commit-reveal round', () => {
 
 		// OUT OF THE WORLD FIRST, which is what makes the assertion after the
 		// reveal mean something. If the avatar were already standing somewhere,
-		// "it is on the board" would have been true before the round started.
+		// "it is on the board" would have been true before the submission started.
 		const before = await boardState(page);
 		expect(
 			before.position,
-			'this round is about ENTERING, so the avatar must start out of the world',
+			'this submission is about ENTERING, so the avatar must start out of the world',
 		).toBeUndefined();
 
 		// Plan the entry by clicking the board. Out of the world a click chooses
@@ -108,7 +108,9 @@ describe('A commit-reveal round', () => {
 		await planOnCanvas(page, {x: 40, y: 30});
 
 		const planned = await boardState(page);
-		expect(planned.step, 'planning should open the round').toBe('Planning');
+		expect(planned.step, 'planning should open the submission').toBe(
+			'Planning',
+		);
 		expect(
 			planned.plannedAction?.type,
 			'a click from out of the world plans an entry',
@@ -118,10 +120,11 @@ describe('A commit-reveal round', () => {
 			'planning must not move the avatar: nothing is on chain yet',
 		).toBeUndefined();
 		const target = planned.plannedAction?.to;
-		if (!target) throw new Error('the round planned nothing to enter with');
+		if (!target)
+			throw new Error('the submission planned nothing to enter with');
 
 		// Commit. Pressing the button while it is live keeps the test short, but
-		// the round also commits itself as the phase closes, so this deliberately
+		// the submission also commits itself as the phase closes, so this deliberately
 		// does not REQUIRE the button: waiting for it to be enabled would race the
 		// auto-commit and then wait for ever for a button that has done its job.
 		const commit = page.getByRole('button', {name: /commit now/i});
@@ -138,7 +141,7 @@ describe('A commit-reveal round', () => {
 
 		// THE ASSERTION THIS SUITE IS FOR. The commitment is on chain and the
 		// avatar is still nowhere: only this browser knows where it is about to
-		// appear. A round that put the avatar on the board here would have no
+		// appear. A submission that put the avatar on the board here would have no
 		// hidden phase at all, and every other assertion in this file would still
 		// pass.
 		expect(
@@ -146,12 +149,12 @@ describe('A commit-reveal round', () => {
 			'a commitment must not put anything on the board',
 		).toBeUndefined();
 
-		// The reveal is driven by the round when the phase turns over: an
+		// The reveal is driven by the submission when the phase turns over: an
 		// unrevealed commitment blocks all further play, so it is never left to
 		// the player to remember.
 		await expect
 			.poll(async () => (await boardState(page)).step, {
-				message: 'the round should reveal itself in the reveal phase',
+				message: 'the submission should reveal itself in the reveal phase',
 				timeout: 120_000,
 			})
 			.toBe('Revealed');

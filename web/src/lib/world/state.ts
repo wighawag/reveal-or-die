@@ -408,7 +408,7 @@ export function createWorldReader(params: {
 		// commits move no avatar, so nothing the board reads can change between
 		// the clock crossing and the chain crossing. Anything that does change
 		// on-chain state is a transaction, which mines the block itself. So a
-		// fetch that lands after the clock ticks already holds the new round's
+		// fetch that lands after the clock ticks already holds the new cycle's
 		// data in full, and the cycle it was FOR is the honest answer to "is the
 		// board caught up".
 		return {avatars: byID, cycleNumber: expectedCycleNumber};

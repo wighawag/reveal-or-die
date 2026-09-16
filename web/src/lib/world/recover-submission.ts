@@ -2,7 +2,7 @@
  * Recovering a turn this browser forgot, by SEARCHING for it.
  *
  * The framework does the judging (`game/core/recovery.ts`): it is handed a
- * candidate turn, recomputes the secret, hashes it and adopts the round if the
+ * candidate turn, recomputes the secret, hashes it and adopts the submission if
  * hash is the one the chain is holding. What it deliberately does not have is
  * an opinion about where a candidate comes from, because only a game knows
  * whether its turns can be enumerated at all.
@@ -214,7 +214,7 @@ export async function searchForTurn(params: {
  * the question yourself is worse than either.
  */
 export type AutoRecoveryState =
-	/** Nothing to recover, or the round already has it. */
+	/** Nothing to recover, or the submission already has it. */
 	| {step: 'Idle'}
 	| {step: 'Searching'; cycleNumber: number}
 	/**
@@ -238,11 +238,11 @@ export type AutoRecoveryState =
  * an app context, which matters because the thing it must not do is subtle.
  *
  * ONCE PER CYCLE, and that is the whole of the bookkeeping. The recovery state
- * re-emits on every change of the round and of the chain read, and a search
+ * re-emits on every change of the submission and of the chain read, and a search
  * costs a second; without this it would restart continuously and never finish,
  * which is the worst of both outcomes - the tab busy and the turn still lost.
  *
- * IT DOES NOT RETRY A ROUND IT FAILED ON. If the commitment is not a turn from
+ * IT DOES NOT RETRY A SUBMISSION IT FAILED ON. If the commitment is not a turn
  * where this avatar stands, searching again will not change that, and the
  * player is being shown the question in the meantime.
  */

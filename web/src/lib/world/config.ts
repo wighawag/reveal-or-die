@@ -29,8 +29,8 @@ export type WorldConfig = {
 	 */
 	numMoves: number;
 	/**
-	 * How many rounds an avatar may go without revealing before the contract
-	 * kills it. It dies in the round after that.
+	 * How many cycles an avatar may go without revealing before the contract
+	 * kills it. It dies in the cycle after that.
 	 *
 	 * Read rather than assumed, because it is the whole of the only way to die
 	 * in this game and the client is the ONLY thing that can ever explain a
@@ -114,7 +114,7 @@ type GameLinkedData = DeclaredValues & {
  *
  * Deliberately generous, and the reveal far more so than the commit. A commit
  * writes one hash; a reveal walks up to `numMoves` actions, each of which can
- * touch a zone index. Running out of gas mid-round is not a slow turn, it is a
+ * touch a zone index. Running out of gas mid-cycle is not a slow turn, it is a
  * missed reveal, which loses the turn AND blocks the next cycle until it is
  * acknowledged. Over-reserving costs a slightly larger first payment.
  */
@@ -126,7 +126,8 @@ const REVEAL_GAS = 5_000_000n;
  *
  * The whole point of the stipend is that a player who has just bought an avatar
  * can play for a while without thinking about gas at all. When it does run out
- * the top-up flow is the remedy (and `resumeWhenGasArrives` picks the round back
+ * the top-up flow is the remedy (and `resumeWhenGasArrives` picks the submission
+ * back
  * up by itself), so this is a starting float rather than a budget.
  */
 const TURNS_OF_GAS = 100n;

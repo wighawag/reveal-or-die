@@ -249,7 +249,7 @@ export class AvatarObject extends Container {
 				// own - it happens where the moves end - so a dot like the others would
 				// be invisible under the last step. A ring round that cell is the
 				// difference between a player seeing their turn and pressing a key that
-				// appears to do nothing until their avatar vanishes a round later.
+				// appears to do nothing until their avatar vanishes a cycle later.
 				const half = this.cellSize / 2;
 				const ring = new Graphics()
 					.rect(-half + 1, -half + 1, this.cellSize - 2, this.cellSize - 2)

@@ -83,7 +83,7 @@ describe('a move the signer demonstrably cannot pay for', () => {
 	 * chain will never reach.
 	 *
 	 * That lands on the one feature this file is most careful about.
-	 * `resumeWhenGasArrives` retries the round once the player tops up, and a
+	 * `resumeWhenGasArrives` retries the submission once the player tops up, and a
 	 * retry at a burned nonce can never mine, so a turn that was recoverable is
 	 * lost instead. Here it also blocks the NEXT cycle, because a reveal that
 	 * never lands needs `acknowledgeMissedReveal` before anything else can
@@ -131,7 +131,7 @@ describe('a move the signer demonstrably cannot pay for', () => {
 		expect(sent, 'nothing should have been dispatched').toBe(0);
 	});
 
-	it('is the app\u2019s own error type, so the round offers the top-up', () => {
+	it('is the app\u2019s own error type, so the submission offers the top-up', () => {
 		// `resumeWhenGasArrives` and the HUD both branch on this exact type. A
 		// plain Error here would be reported as an unexplained failure with no
 		// remedy, which is the state the player cannot act on.
