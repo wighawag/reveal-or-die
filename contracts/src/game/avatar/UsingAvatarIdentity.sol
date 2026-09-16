@@ -39,7 +39,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
     /// @notice Only the recorded owner may take an avatar back out.
     error NotAvatarOwner(uint256 avatarID, address owner);
     /// @notice The avatar is bound to a commitment that is still open.
-    error AvatarIsCommitted(uint256 avatarID, uint64 epoch);
+    error AvatarIsCommitted(uint256 avatarID, uint64 cycleNumber);
 
     /// @notice An avatar entered the game, and is at stake from now on.
     event AvatarDeposited(uint256 indexed avatarID, address indexed owner);
@@ -204,8 +204,8 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
             revert NotAvatarOwner(avatarID, owner);
         }
         Commitment storage commitment = _commitments[avatarID];
-        if (commitment.epoch != 0) {
-            revert AvatarIsCommitted(avatarID, commitment.epoch);
+        if (commitment.cycleNumber != 0) {
+            revert AvatarIsCommitted(avatarID, commitment.cycleNumber);
         }
         _avatarOwner[avatarID] = address(0);
         _stopWaitingFor(avatarID);
