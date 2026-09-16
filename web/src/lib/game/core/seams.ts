@@ -15,7 +15,7 @@
  *   state by replaying events through an indexer rather than reading contracts
  *
  * Anything those four disagree about is a seam. Anything they agree about
- * (notably the epoch maths) belongs to the framework.
+ * (notably the cycle maths) belongs to the framework.
  */
 import type {Readable} from 'svelte/store';
 
@@ -82,10 +82,10 @@ export type OnchainStateStore<TState> = {
 /**
  * What the renderer draws: onchain state with the player's local, not-yet-onchain
  * intent layered on top. Games define the entity shape; the framework only needs
- * to know which epoch the view belongs to, so it can tell stale from current.
+ * to know which cycle the view belongs to, so it can tell stale from current.
  */
 export type ViewStateValue<TView> =
-	{step: 'Unloaded'} | ({step: 'Loaded'; epoch: number} & TView);
+	{step: 'Unloaded'} | ({step: 'Loaded'; cycleNumber: number} & TView);
 
 export type ViewStateStore<TView> = {
 	subscribe: Readable<ViewStateValue<TView>>['subscribe'];
@@ -118,7 +118,7 @@ export type CommitRevealAdapter<TIdentity extends PlayerIdentity, TAction> = {
 	}): {hash: `0x${string}`; encoded: `0x${string}`};
 
 	/**
-	 * Submit the commitment for this epoch.
+	 * Submit the commitment for this cycle.
 	 *
 	 * This deliberately receives everything the round knows, not just the hash.
 	 * Two reasons, both taken from games that already exist:
@@ -152,9 +152,9 @@ export type CommitRevealAdapter<TIdentity extends PlayerIdentity, TAction> = {
 		hash: `0x${string}`;
 		actions: readonly TAction[];
 		secret: `0x${string}`;
-		epoch: number;
+		cycleNumber: number;
 		/**
-		 * Chain time, in seconds, at which the reveal phase for this epoch opens.
+		 * Chain time, in seconds, at which the reveal phase for this cycle opens.
 		 * Undefined on a manually advanced chain, which has no clock to predict.
 		 */
 		revealDueAt?: number;

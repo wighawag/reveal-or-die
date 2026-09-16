@@ -43,7 +43,7 @@ export type SignMessage = (message: string) => Promise<`0x${string}`>;
 /**
  * Build the `makeSecret` a round takes.
  *
- * The message is `Commit:<chainId>:<contract>:<identity>:<epoch>`, which names
+ * The message is `Commit:<chainId>:<contract>:<identity>:<cycle>`, which names
  * every axis along which two secrets must differ.
  *
  * THE IDENTITY IS IN THE MESSAGE, and leaving it out is a real hole rather than
@@ -57,7 +57,7 @@ export type SignMessage = (message: string) => Promise<`0x${string}`>;
  * across identities.
  *
  * The chain id and the contract are in it for the ordinary reason: the same
- * epoch of the same game on another chain, or another deployment on the same
+ * cycle of the same game on another chain, or another deployment on the same
  * chain, is a different round.
  */
 export function createDerivedSecret<TIdentity extends PlayerIdentity>(params: {
@@ -66,7 +66,10 @@ export function createDerivedSecret<TIdentity extends PlayerIdentity>(params: {
 	chainId: number | string;
 	/** The game contract. For a routed game, the address the player calls. */
 	contract: `0x${string}`;
-}): (params: {epoch: number; identity: TIdentity}) => Promise<`0x${string}`> {
+}): (params: {
+	cycleNumber: number;
+	identity: TIdentity;
+}) => Promise<`0x${string}`> {
 	const {sign} = params;
 	// NORMALISED ONCE, HERE, and this is the sharp edge of the whole module. The
 	// message is a string, so any difference in spelling is a different
@@ -79,8 +82,8 @@ export function createDerivedSecret<TIdentity extends PlayerIdentity>(params: {
 	const chainId = String(params.chainId);
 	const contract = params.contract.toLowerCase();
 
-	return async ({epoch, identity}) => {
-		const message = `Commit:${chainId}:${contract}:${identityToMessagePart(identity)}:${epoch}`;
+	return async ({cycleNumber, identity}) => {
+		const message = `Commit:${chainId}:${contract}:${identityToMessagePart(identity)}:${cycleNumber}`;
 		// Hashed rather than used raw: a signature is 65 bytes and the commitment
 		// wants 32, and hashing also means the secret is not itself a valid
 		// signature over anything if it ever leaks.

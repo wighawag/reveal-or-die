@@ -76,7 +76,7 @@ function cell(x: number, y: number, over: Partial<CellView> = {}): CellView {
 function setup(cells: CellView[]) {
 	const store = writable<ViewStateValue<BoardView>>({
 		step: 'Loaded',
-		epoch: 1,
+		cycleNumber: 1,
 		cells: new Map(cells.map((c) => [c.cellID, c])),
 	});
 	const viewState: ViewStateStore<BoardView> = {

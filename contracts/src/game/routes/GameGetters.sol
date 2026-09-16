@@ -13,7 +13,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
         view
         returns (uint64 cycleNumber, bool commiting)
     {
-        return _epoch();
+        return _cycleNumber();
     }
 
     /// @inheritdoc IGameGetters
@@ -27,8 +27,8 @@ contract GameGetters is IGameGetters, UsingGameInternal {
         view
         returns (Attendance memory attendance)
     {
-        (uint64 epoch, ) = _epoch();
-        return _attendance(epoch);
+        (uint64 cycleNumber, ) = _cycleNumber();
+        return _attendance(cycleNumber);
     }
 
     /// @inheritdoc IGameGetters
@@ -52,7 +52,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
             time: TIME,
             tokens: TOKENS,
             placementCost: PLACEMENT_COST,
-            cyclePolicy: EPOCH_POLICY
+            cyclePolicy: CYCLE_POLICY
         });
     }
 
@@ -104,8 +104,8 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     ///      is why this was survivable, not why it was acceptable.
     function _cellsInZones(
         uint64[] memory zones
-    ) internal view returns (CellAt[] memory cells, uint64 epoch) {
-        (epoch, ) = _epoch();
+    ) internal view returns (CellAt[] memory cells, uint64 cycleNumber) {
+        (cycleNumber, ) = _cycleNumber();
 
         // Every indexed cell is a claimed cell, so the count is known up front
         // and there is nothing to filter.

@@ -6,7 +6,7 @@
  * both reported from play rather than found by testing:
  *
  * DURING THE REVEAL WINDOW. Everything on the board changes at exactly one
- * moment in an epoch: the reveal phase, as each player's commitment resolves,
+ * moment in a cycle: the reveal phase, as each player's commitment resolves,
  * one transaction at a time. A browser that does not itself hold the round (a
  * second player watching, the same player in another window) has nothing local
  * to tell it any of that happened, so it learns about a move up to a whole
@@ -15,8 +15,8 @@
  * short cadence for the window instead.
  *
  * AT THE CYCLE BOUNDARY. The client's clock interpolates from the wall clock
- * between blocks, so it crosses into the new epoch BEFORE the chain has mined a
- * block past it. The poller asks for the new epoch, the contract answers from
+ * between blocks, so it crosses into the new cycle BEFORE the chain has mined a
+ * block past it. The poller asks for the new cycle, the contract answers from
  * its latest block with the old one, and a reader that requires an exact match
  * refuses the read. The catch-up budget then expires, the refusal reaches the
  * polling store as a FAILED fetch, and exponential backoff starts behind an
@@ -25,7 +25,7 @@
  * the board has actually caught up, which is bomber-world's retry-until-success
  * expressed as a policy with a budget.
  *
- * BOTH ARE FRAMEWORK, not app wiring. The epoch model is the framework's, so
+ * BOTH ARE FRAMEWORK, not app wiring. The cycle model is the framework's, so
  * the consequences of it are too: a game should not have to discover either of
  * these for itself, and every game on this template would discover them
  * identically. `onchain/state.ts` runs them for its poller; they live here,
@@ -44,15 +44,15 @@ import {get, type Readable} from 'svelte/store';
  * and neither compiler nor reviewer would notice: both are structurally about
  * phases.
  *
- * Structurally a subset of {@link TwoPhase}, so the epoch tracker's output
+ * Structurally a subset of {@link TwoPhase}, so the cycle tracker's output
  * satisfies it directly and these policies stay testable with an object
  * literal.
  */
 export type PlayWindow = {phase: 'play' | 'wait'};
 
 /** What the board reports about itself: whether it is loaded, and for when. */
-export type BoardEpochState =
-	{step: 'Unloaded'} | {step: 'Loaded'; epoch: number};
+export type BoardCycleState =
+	{step: 'Unloaded'} | {step: 'Loaded'; cycleNumber: number};
 
 /**
  * Refresh on a short cadence while a cycle is resolving. Returns the teardown.
@@ -102,7 +102,7 @@ export function refreshDuringReveal(params: {
 	/**
 	 * The interval checks the grace ITSELF rather than waiting for the phase to
 	 * re-emit. A phase store derived from a clock ticks constantly and one
-	 * derived from a manual epoch does not, and correctness that depends on a
+	 * derived from a manual cycle does not, and correctness that depends on a
 	 * store continuing to emit is correctness borrowed rather than owned.
 	 */
 	function tick() {
@@ -158,10 +158,10 @@ export function refreshDuringReveal(params: {
  */
 export function settleBoardWhenCycleStarts(params: {
 	phase: Readable<PlayWindow>;
-	/** The clock's epoch: which cycle the client believes is current. */
-	epoch: Readable<number>;
-	/** The board's own state, whose `epoch` says which cycle it has reached. */
-	state: Readable<BoardEpochState>;
+	/** The clock's cycle: which cycle the client believes is current. */
+	cycleNumber: Readable<number>;
+	/** The board's own state, whose `cycleNumber` says which cycle it reached. */
+	state: Readable<BoardCycleState>;
 	refresh: () => Promise<unknown> | unknown;
 	/** How often to retry while the chain is behind the clock. Default 400ms. */
 	retryMs?: number;
@@ -171,7 +171,7 @@ export function settleBoardWhenCycleStarts(params: {
 	/** Open the phase subscription. Call from `start()`; returns the teardown. */
 	watch(): () => void;
 } {
-	const {phase, epoch, state, refresh} = params;
+	const {phase, cycleNumber, state, refresh} = params;
 	const retryMs = params.retryMs ?? 400;
 	const budgetMs = params.budgetMs ?? 10_000;
 
@@ -192,7 +192,7 @@ export function settleBoardWhenCycleStarts(params: {
 				// or the read failed. Retrying cannot help this cycle, and the poller
 				// owns the recovery.
 				if ($state.step !== 'Loaded') break;
-				if ($state.epoch >= get(epoch)) break;
+				if ($state.cycleNumber >= get(cycleNumber)) break;
 				await new Promise((resolve) => setTimeout(resolve, retryMs));
 			}
 		} finally {

@@ -9,7 +9,7 @@ import {UsingDelegation} from "@etherplay/delegation/contracts/UsingDelegation.s
 /// A player's moves are sent by a LOCAL SIGNER: a key this browser generated,
 /// which the player never sees, holds nothing, and can lose without losing
 /// anything. That is what makes a cycle playable, since a commit and a reveal
-/// every epoch through a wallet prompt is not a game. It is also the whole
+/// every cycle through a wallet prompt is not a game. It is also the whole
 /// danger, and delegation is what makes it safe.
 ///
 /// The template used to make that key the PLAYER: the reserve was its reserve

@@ -20,7 +20,7 @@ interface UsingGameErrors {
     /// @notice an earlier commitment was never revealed; resolve it first
     error PreviousCommitmentNotRevealed();
 
-    /// @notice the commitment belongs to a different epoch
+    /// @notice the commitment belongs to a different cycle
     error InvalidCycle(uint64 currentCycleNumber, uint64 commitmentCycleNumber);
 
     /// @notice the revealed placements do not hash to what was committed
@@ -43,7 +43,7 @@ interface UsingGameErrors {
     error BondTooLow(uint256 bond, uint256 required);
 
     /// @notice this game's cycle is advanced by the clock and by nothing else
-    /// @dev A purely timed epoch needs no transaction at all - it simply is
+    /// @dev A purely timed cycle needs no transaction at all - it simply is
     ///      what the clock says - so there is nothing for a caller to do here
     ///      and pretending otherwise would let one look like it had.
     error NextPhaseNotAllowed();
@@ -72,9 +72,9 @@ interface UsingGameErrors {
     /// @notice cannot stop being a member while a turn of yours is still open
     error CommitmentStillOpen(uint64 cycleNumber);
 
-    /// @notice some of the members the epoch waits for have not committed yet
+    /// @notice some of the members the cycle waits for have not committed yet
     error StillWaitingToCommit(uint64 committed, uint64 waitedFor);
 
-    /// @notice some of this epoch's commitments have not been revealed yet
+    /// @notice some of this cycle's commitments have not been revealed yet
     error StillWaitingToReveal(uint64 revealed, uint64 committed);
 }

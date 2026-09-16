@@ -15,6 +15,36 @@ import type {Placement} from './commit-reveal';
 
 const PREFIX = '__placement_round__';
 
+/**
+ * THE ON-DISK SHAPE, AND IT DELIBERATELY STILL SAYS `epoch`.
+ *
+ * This type and the key above are a COMPATIBILITY SURFACE with a stake behind
+ * it, which is what makes them the one exception to the `epoch` -> `cycle`
+ * rename. A record written by the previous build is read by this one, and a
+ * record this build cannot read is discarded by `load()` - so renaming the
+ * field or the key would orphan a commitment in flight, losing the secret that
+ * opens it and the bond with it.
+ *
+ * The failure is silent in the worst way: every suite stays green, because the
+ * tests are renamed alongside the code and nothing here reads a record written
+ * by an older build. It would be found by a player, at their own expense.
+ *
+ * The argument that the ABI was free to rename does NOT transfer here. That one
+ * rests on nothing being deployed with users; a browser's local storage is a
+ * developer's browser too, and this is a template that ships to games which
+ * will have users.
+ *
+ * So the in-memory name moved and the serialised name did not, and the two are
+ * mapped explicitly in `load()` and `save()` below. STEP 4 OWNS CHANGING THIS,
+ * as a deliberate migrating read - accept the old shape, write the new, drop
+ * the tolerance a release later - rather than as a side effect of a sweep.
+ *
+ * A MECHANICAL RE-RUN OF THE STEP 3 SWEEP REVERSES THIS, and does it silently.
+ * The exception is a judgement no mapping file encodes, so it was verified by
+ * running the sweep a second time and watching this file - and only this file -
+ * come back. If you are re-running a rename over this tree, this is the line to
+ * look at afterwards.
+ */
 type StoredRound = {
 	epoch: number;
 	/** bigint has no JSON representation, so cell ids travel as strings. */
@@ -71,7 +101,9 @@ export function createRoundStorage(params: {
 					return undefined;
 				}
 				return {
-					epoch: stored.epoch,
+					// `epoch` on disk, `cycleNumber` in memory: see {@link StoredRound}.
+					// The old name is the one a record in flight was written with.
+					cycleNumber: stored.epoch,
 					actions: stored.actions.map((cellID) => ({cellID: BigInt(cellID)})),
 					secret: stored.secret,
 					committed: !!stored.committed,
@@ -86,7 +118,9 @@ export function createRoundStorage(params: {
 		save(round) {
 			if (typeof localStorage === 'undefined') return;
 			const stored: StoredRound = {
-				epoch: round.epoch,
+				// Written back under the name the previous build reads. See
+				// {@link StoredRound}: changing it costs a player their stake.
+				epoch: round.cycleNumber,
 				actions: round.actions.map((placement) => placement.cellID.toString()),
 				secret: round.secret,
 				committed: round.committed,
@@ -104,7 +138,7 @@ export function createRoundStorage(params: {
 				localStorage.removeItem(key);
 			} catch {
 				// Nothing useful to do; a stale entry is handled on load by the
-				// round, which discards anything from a past epoch.
+				// round, which discards anything from a past cycle.
 			}
 		},
 	};

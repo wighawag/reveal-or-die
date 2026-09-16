@@ -142,7 +142,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
         address owner = _avatarOwner[player];
         if (owner != address(0)) {
             _avatarOwner[player] = address(0);
-            // A seized avatar cannot commit again, so the epoch must stop
+            // A seized avatar cannot commit again, so the cycle must stop
             // waiting for it - otherwise settling a missed reveal would leave
             // a denominator nobody can ever answer, and a game with no clock
             // would be frozen by the very act of punishing the player who
@@ -176,7 +176,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
         _avatarsOf[owner].push(avatarID);
         // CUSTODY IS MEMBERSHIP HERE, which is this branch's answer to the
         // question `main` answers with a funded reserve: what lets you play is
-        // what the epoch waits for. An avatar in the game is a player who can
+        // what the cycle waits for. An avatar in the game is a player who can
         // commit, so the round blocks on it under a policy that advances on
         // unanimity, and stops blocking the moment it leaves.
         _startWaitingFor(avatarID);
@@ -190,11 +190,11 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
     ///      prompt; letting it take the avatar OUT would hand whatever got
     ///      hold of that key the thing the player paid for.
     ///
-    ///      An OPEN commitment blocks it, whatever epoch it belongs to, and
-    ///      both cases matter. A commitment in the CURRENT epoch is a turn the
+    ///      An OPEN commitment blocks it, whatever cycle it belongs to, and
+    ///      both cases matter. A commitment in the CURRENT cycle is a turn the
     ///      player has taken and not yet opened, so withdrawing would be
     ///      committing and then walking away, which is the costless exit this
-    ///      game exists to prevent. One from a PAST epoch is a missed reveal
+    ///      game exists to prevent. One from a PAST cycle is a missed reveal
     ///      that nobody has settled: the avatar is already forfeit and
     ///      `acknowledgeMissedReveal` is what makes it so, so letting the
     ///      owner rescue it first would make the penalty optional.

@@ -244,9 +244,9 @@ export type Context = {
 	 * descendant points these two at its own shapes, which is the only change
 	 * this file needs.
 	 */
-	onchainState: OnchainStateStore<BoardState & {epoch: number}>;
+	onchainState: OnchainStateStore<BoardState & {cycleNumber: number}>;
 	viewState: ViewStateStore<BoardView>;
-	/** The commit-reveal game: epochs, the round, what is at stake. */
+	/** The commit-reveal game: cycles, the round, what is at stake. */
 	game: Game;
 	/** The render surface and the camera that scopes what is loaded. */
 	render: Render;

@@ -44,7 +44,7 @@ export type HudModel = {
 	secondsLeft: number;
 	/** How far through the phase, 0..1, for a progress bar. */
 	progress: number;
-	epoch: number;
+	cycleNumber: number;
 	/**
 	 * Clicking now plans for the NEXT round, because this one has closed. Worth
 	 * saying: the moves still appear on the board, and without this the player
@@ -122,7 +122,7 @@ export type HudModel = {
 	/**
 	 * Set when the chain holds a commitment for the round in progress that this
 	 * browser has no memory of. The stake is still recoverable, and only for as
-	 * long as the epoch lasts, so this is the most time-critical thing the HUD
+	 * long as the cycle lasts, so this is the most time-critical thing the HUD
 	 * ever has to say.
 	 */
 	recovery?: {
@@ -146,7 +146,7 @@ export function describeRound(state: RoundState<Placement>): {
 		case 'Committing':
 			return {label: 'Sending commitment...', tone: 'busy'};
 		case 'Committed':
-			return {label: 'Committed. Reveal is owed this epoch.', tone: 'busy'};
+			return {label: 'Committed. Reveal is owed this cycle.', tone: 'busy'};
 		case 'Revealing':
 			return {label: 'Revealing...', tone: 'busy'};
 		case 'Revealed':
@@ -158,7 +158,7 @@ export function describeRound(state: RoundState<Placement>): {
 			return {
 				// The one message that costs the player money, so it says what
 				// happened rather than just that something went wrong.
-				label: `Missed the reveal for epoch ${state.epoch}. The bond is forfeit.`,
+				label: `Missed the reveal for cycle ${state.cycleNumber}. The bond is forfeit.`,
 				tone: 'bad',
 			};
 		case 'Error':
@@ -207,7 +207,7 @@ export function describeMissedReveal(
 ): HudModel['missedReveal'] {
 	if (state.step === 'Clear' || state.step === 'Unknown') return undefined;
 
-	const headline = `You missed the reveal for epoch ${state.epoch}.`;
+	const headline = `You missed the reveal for cycle ${state.cycleNumber}.`;
 
 	if (state.step === 'Acknowledging') {
 		return {
@@ -360,20 +360,20 @@ export function describeRecovery(
 ): HudModel['recovery'] {
 	if (state.step === 'Idle') return undefined;
 
-	const headline = `This browser has lost the round you committed for epoch ${state.epoch}.`;
+	const headline = `This browser has lost the round you committed for cycle ${state.cycleNumber}.`;
 	if (state.step === 'Checking') {
 		return {headline, detail: 'Checking...', busy: true, canRecover: false};
 	}
 
 	const detail =
 		state.step === 'Refused'
-			? 'Those are not the placements that were committed. Try again: nothing is spent, and the round can still be revealed until this epoch ends.'
+			? 'Those are not the placements that were committed. Try again: nothing is spent, and the round can still be revealed until this cycle ends.'
 			: state.step === 'Failed'
 				? // NOT phrased as a wrong plan. The app could not ask, which is a
 					// different thing, and the remedy is to press again rather than to
 					// go looking for a misremembered turn.
 					`The round could not be checked: ${state.message}. Nothing is lost yet - try again.`
-				: 'The commitment is still on chain and can still be revealed, but only this epoch. Click the same cells you planned and recover the round.';
+				: 'The commitment is still on chain and can still be revealed, but only this cycle. Click the same cells you planned and recover the round.';
 
 	return {headline, detail, busy: false, canRecover: plannedCount > 0};
 }
@@ -389,7 +389,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.planning.count,
 			game.cost,
 			game.reserve,
-			game.epochInfo,
+			game.cycleInfo,
 			game.missedReveal,
 			game.setup,
 			game.acquisition,
@@ -402,7 +402,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			$count,
 			$cost,
 			$reserve,
-			$epoch,
+			$cycle,
 			$missedReveal,
 			$setup,
 			$acquisition,
@@ -448,7 +448,7 @@ export function createHud(context: Context): Readable<HudModel> {
 				secondsLeft: Math.max(0, Math.ceil(timeLeft)),
 				progress:
 					duration > 0 ? Math.min(1, Math.max(0, 1 - timeLeft / duration)) : 0,
-				epoch: $epoch.currentEpoch,
+				cycleNumber: $cycle.currentCycleNumber,
 				// Outside the play window the current round is closed, so a click now
 				// is a plan for the next one. The round stamps it that way. Not worth
 				// saying to someone who cannot play at all yet.

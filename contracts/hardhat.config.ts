@@ -66,7 +66,7 @@ const config: HardhatUserConfig = {
 						default: {
 							type: 'edr-simulated',
 							chainType: 'l1',
-							// the game advances by epochs, so several blocks may
+							// the game advances by cycles, so several blocks may
 							// legitimately share a timestamp
 							allowBlocksWithSameTimestamp: true,
 							gasPrice: 1n,
@@ -88,15 +88,15 @@ const config: HardhatUserConfig = {
 							throwOnTransactionFailures: false,
 							// ONE SECOND, and it is the app's clock that needs it.
 							//
-							// Epochs are defined against `block.timestamp`, and the web
+							// Cycles are defined against `block.timestamp`, and the web
 							// client's clock interpolates from the wall clock between
 							// blocks (`game/core/chain-time.ts`), so the client crosses a
-							// round boundary as soon as real time says so while the chain
+							// cycle boundary as soon as real time says so while the chain
 							// only crosses when a block carries a later timestamp. Every
 							// second of the mining interval is a second of that gap, and
 							// the gap is what produces both of the faults the refresh
 							// policy in `onchain/state.ts` exists to absorb: a board stuck
-							// showing the previous round at every boundary, and a reveal
+							// showing the previous cycle at every boundary, and a reveal
 							// landing in the gap appearing seconds into the next window.
 							//
 							// A deployed chain has its own block time and this is not a

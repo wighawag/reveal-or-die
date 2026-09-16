@@ -9,7 +9,7 @@
  *
  * Pure and synchronous: no scene graph, no framework, no side effects. That is
  * what lets the awkward cases (an entity that vanishes, a reload back to
- * Unloaded, an epoch boundary) be tested without a GPU, which is the only way
+ * Unloaded, a cycle boundary) be tested without a GPU, which is the only way
  * they ever get tested at all.
  */
 

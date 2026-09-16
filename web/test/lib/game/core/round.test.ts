@@ -2,14 +2,14 @@ import {describe, expect, it, vi} from 'vitest';
 import {get, writable, type Readable} from 'svelte/store';
 import {createRound, type RoundStorage} from '$lib/game/core/round';
 import {
-	calculateEpochInfo,
-	type EpochConfig,
-	type EpochInfo,
-	type EpochInfoStore,
-} from '$lib/game/core/epoch';
+	calculateCycleInfo,
+	type CycleConfig,
+	type CycleInfo,
+	type CycleInfoStore,
+} from '$lib/game/core/cycle';
 import type {CommitRevealAdapter} from '$lib/game/core/seams';
 
-const config: EpochConfig = {
+const config: CycleConfig = {
 	commitPhaseDuration: 40,
 	revealPhaseDuration: 4,
 	startTime: 0,
@@ -18,7 +18,7 @@ const config: EpochConfig = {
 };
 
 /**
- * An epoch store driven by a clock the test moves by hand.
+ * A cycle store driven by a clock the test moves by hand.
  *
  * `policy` is a parameter because the round must behave the same under every
  * policy that HAS a clock. It used to be assumed: two of the round's automatic
@@ -26,24 +26,24 @@ const config: EpochConfig = {
  * clock, so a deployment on the hybrid policy silently lost both - including
  * the fallback reveal, which exists to protect the stake.
  */
-function fakeEpochs(initialTime: number, policy: 'timed' | 'hybrid' = 'timed') {
+function fakeCycles(initialTime: number, policy: 'timed' | 'hybrid' = 'timed') {
 	const time = writable(initialTime);
 	let $time = initialTime;
 	time.subscribe((t) => ($time = t));
 
-	const infoAt = (t: number): EpochInfo => {
-		const timed = calculateEpochInfo(t, config);
+	const infoAt = (t: number): CycleInfo => {
+		const timed = calculateCycleInfo(t, config);
 		return policy === 'timed' ? timed : {...timed, type: 'hybrid'};
 	};
 
-	const store: EpochInfoStore = {
+	const store: CycleInfoStore = {
 		subscribe(run) {
 			return time.subscribe((t) => run(infoAt(t)));
 		},
 		now: () => infoAt($time),
 		fromTime: (t: number) => infoAt(t),
 	};
-	return {epochInfo: store, setTime: (t: number) => time.set(t)};
+	return {cycleInfo: store, setTime: (t: number) => time.set(t)};
 }
 
 function fakeStorage<TAction>(): RoundStorage<TAction> & {
@@ -96,11 +96,11 @@ const player = '0x1111111111111111111111111111111111111111' as const;
 const identity: Readable<`0x${string}` | undefined> = writable(player);
 
 describe('the commit-reveal round', () => {
-	it('plans, commits and reveals across the phases of one epoch', async () => {
-		const {epochInfo, setTime} = fakeEpochs(0);
+	it('plans, commits and reveals across the phases of one cycle', async () => {
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 42n}]);
@@ -118,7 +118,7 @@ describe('the commit-reveal round', () => {
 			actions: [{cellID: 42n}],
 		});
 
-		// Into the reveal phase of the SAME epoch.
+		// Into the reveal phase of the SAME cycle.
 		setTime(41);
 		await vi.waitFor(() => expect(calls.reveal).toHaveLength(1));
 		await vi.waitFor(() => expect(round.value.step).toBe('Revealed'));
@@ -135,24 +135,24 @@ describe('the commit-reveal round', () => {
 		// FOUND BY MUTATION. `revealDueAt` used to be recomputed here from the
 		// deployment's start time, which agrees with the round on a purely timed
 		// chain and is why nothing noticed. Under a policy where unanimity can
-		// bring a phase forward, an early advance re-origins the epoch, so the
+		// bring a phase forward, an early advance re-origins the cycle, so the
 		// recomputed answer is for a grid the chain has left behind - and a
 		// scheduled reveal is the one thing that cannot be asked again later:
 		// what it costs to aim it at the wrong moment is the stake.
 		const reAnchored = {
-			...calculateEpochInfo(0, config),
-			// The epoch began later than the deployment's grid implies, so its
+			...calculateCycleInfo(0, config),
+			// The cycle began later than the deployment's grid implies, so its
 			// reveal opens later too.
 			revealOpensAt: 1_234,
 		};
-		const epochInfo: EpochInfoStore = {
-			subscribe: writable<EpochInfo>(reAnchored).subscribe,
+		const cycleInfo: CycleInfoStore = {
+			subscribe: writable<CycleInfo>(reAnchored).subscribe,
 			now: () => reAnchored,
 			fromTime: () => reAnchored,
 		};
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage: fakeStorage<Action>(),
 			identity,
@@ -166,7 +166,7 @@ describe('the commit-reveal round', () => {
 	});
 
 	it('persists the secret BEFORE the commitment is sent', async () => {
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		let storedWhenCommitCalled: unknown;
 		const {adapter} = fakeAdapter({
@@ -175,7 +175,7 @@ describe('the commit-reveal round', () => {
 				return {hash: '0xcommit'};
 			},
 		});
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 7n}]);
@@ -184,7 +184,7 @@ describe('the commit-reveal round', () => {
 		// A reload during the wallet prompt must still be able to reveal, so the
 		// secret has to be on disk by the time the call goes out.
 		expect(storedWhenCommitCalled).toMatchObject({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 7n}],
 		});
 		expect((storedWhenCommitCalled as {secret: string}).secret).toMatch(
@@ -196,7 +196,7 @@ describe('the commit-reveal round', () => {
 	it('reveals a commitment made before a reload', async () => {
 		const storage = fakeStorage<Action>();
 		storage.save({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 9n}],
 			secret: `0x${'ab'.repeat(32)}`,
 			committed: true,
@@ -204,9 +204,9 @@ describe('the commit-reveal round', () => {
 
 		// The page loads part-way through the reveal phase: there is no phase
 		// TRANSITION to observe, only the standing fact that a reveal is owed.
-		const {epochInfo} = fakeEpochs(42);
+		const {cycleInfo} = fakeCycles(42);
 		const {adapter, calls} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		await vi.waitFor(() => expect(calls.reveal).toHaveLength(1));
@@ -217,12 +217,12 @@ describe('the commit-reveal round', () => {
 	it('keeps the secret when a reveal fails, so it can be retried', async () => {
 		const storage = fakeStorage<Action>();
 		storage.save({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 9n}],
 			secret: `0x${'cd'.repeat(32)}`,
 			committed: true,
 		});
-		const {epochInfo} = fakeEpochs(42);
+		const {cycleInfo} = fakeCycles(42);
 		let attempts = 0;
 		const {adapter} = fakeAdapter({
 			reveal: async () => {
@@ -231,7 +231,7 @@ describe('the commit-reveal round', () => {
 				return {hash: '0xreveal'};
 			},
 		});
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		await vi.waitFor(() => expect(round.value.step).toBe('Error'));
@@ -244,32 +244,32 @@ describe('the commit-reveal round', () => {
 		stop();
 	});
 
-	it('reports a commitment the epoch moved past as missed', async () => {
-		const {epochInfo, setTime} = fakeEpochs(0);
+	it('reports a commitment the cycle moved past as missed', async () => {
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
-		// A reveal that never lands, so the round stays open into the next epoch.
+		// A reveal that never lands, so the round stays open into the next cycle.
 		const {adapter} = fakeAdapter({
 			reveal: () => new Promise(() => {}),
 		});
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 1n}]);
 		await round.commit();
 		expect(round.value.step).toBe('Committed');
 
-		setTime(44); // next epoch's commit phase
+		setTime(44); // next cycle's commit phase
 		expect(round.value.step).toBe('Missed');
 		expect(storage.current).toBeUndefined();
 		stop();
 	});
 
-	it('drops an uncommitted plan when the epoch turns over', () => {
-		const {epochInfo, setTime} = fakeEpochs(0);
+	it('drops an uncommitted plan when the cycle turns over', () => {
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage,
 			identity,
@@ -293,10 +293,10 @@ describe('the commit-reveal round', () => {
 		// wrong question. On a hybrid deployment auto-commit never fired and
 		// the fallback reveal never fired, so a game whose stake decays with
 		// silence forfeited it while the app sat there looking correct.
-		const {epochInfo, setTime} = fakeEpochs(0, 'hybrid');
+		const {cycleInfo, setTime} = fakeCycles(0, 'hybrid');
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage: fakeStorage<Action>(),
 			identity,
@@ -314,10 +314,10 @@ describe('the commit-reveal round', () => {
 	});
 
 	it('commits automatically as the commit phase closes', async () => {
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 5n}]);
@@ -331,10 +331,10 @@ describe('the commit-reveal round', () => {
 	});
 
 	it('ignores changes to the plan once the commitment is out', async () => {
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 1n}]);
@@ -350,18 +350,18 @@ describe('the commit-reveal round', () => {
 	});
 
 	it('tells makeSecret WHO is committing, not only when', async () => {
-		// A derivation that sees only the epoch produces one secret for every
+		// A derivation that sees only the cycle produces one secret for every
 		// identity an account holds, and a secret shared between two identities
 		// lets either open the other's commitment by enumerating a small action
 		// space against the published hash. So the identity has to reach the
 		// derivation, and nothing else in this suite would notice if it stopped:
 		// checked by removing it, which passed all sixteen other tests.
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter} = fakeAdapter();
-		const seen: {epoch: number; identity: `0x${string}`}[] = [];
+		const seen: {cycleNumber: number; identity: `0x${string}`}[] = [];
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage,
 			identity,
@@ -375,7 +375,7 @@ describe('the commit-reveal round', () => {
 		round.plan([{cellID: 1n}]);
 		await round.commit();
 
-		expect(seen).toEqual([{epoch: 2, identity: player}]);
+		expect(seen).toEqual([{cycleNumber: 2, identity: player}]);
 		stop();
 	});
 
@@ -391,7 +391,7 @@ describe('the commit-reveal round', () => {
 		// half of the identity refactor that is not a rename - the moment the
 		// identity stops being guaranteed to be an address, `if (!player)` stops
 		// meaning what it says.
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const calls = {commit: [] as unknown[], reveal: [] as unknown[]};
 		const adapter: CommitRevealAdapter<bigint, Action> = {
@@ -406,7 +406,7 @@ describe('the commit-reveal round', () => {
 			},
 		};
 		const round = createRound<bigint, Action>({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage,
 			identity: writable(0n),
@@ -427,18 +427,18 @@ describe('the commit-reveal round', () => {
 
 	it('lets a game DERIVE the secret instead of randomising it', async () => {
 		// reveal-or-die, bomber-world and stratagems all derive the secret from a
-		// signature over the epoch, so that it can be recomputed on another device
+		// signature over the cycle, so that it can be recomputed on another device
 		// rather than existing only in this browser's storage.
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage,
 			identity,
-			makeSecret: async ({epoch}) =>
-				`0x${epoch.toString(16).padStart(64, '0')}` as `0x${string}`,
+			makeSecret: async ({cycleNumber}) =>
+				`0x${cycleNumber.toString(16).padStart(64, '0')}` as `0x${string}`,
 		});
 		const stop = round.start();
 
@@ -456,10 +456,10 @@ describe('the commit-reveal round', () => {
 		// they hand a timelock-encrypted reveal transaction to a scheduler, so an
 		// offline player still reveals. That is only possible if commit sees the
 		// secret and knows when the reveal becomes due.
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 1n}]);
@@ -467,23 +467,23 @@ describe('the commit-reveal round', () => {
 
 		const sent = calls.commit[0] as {
 			secret: string;
-			epoch: number;
+			cycleNumber: number;
 			revealDueAt?: number;
 		};
-		expect(sent.epoch).toBe(2);
+		expect(sent.cycleNumber).toBe(2);
 		expect(sent.secret).toMatch(/^0x[0-9a-f]{64}$/);
-		// Epoch 2 starts at t=0, so its reveal phase opens once the 40s commit
+		// Cycle 2 starts at t=0, so its reveal phase opens once the 40s commit
 		// phase is over.
 		expect(sent.revealDueAt).toBe(40);
 		stop();
 	});
 
 	it('leaves the reveal to a scheduler, but the player can still do it', async () => {
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage,
 			identity,
@@ -507,11 +507,11 @@ describe('the commit-reveal round', () => {
 	});
 
 	it('falls back to revealing itself when the scheduler has not delivered', async () => {
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage,
 			identity,
@@ -541,12 +541,12 @@ describe('the commit-reveal round', () => {
 		// from the board. Reporting Revealed first would clear the planned overlay
 		// while the board was still a fetch behind, and the player would watch
 		// their own moves vanish and then reappear.
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter} = fakeAdapter();
 		const order: string[] = [];
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage,
 			identity,
@@ -573,30 +573,30 @@ describe('the commit-reveal round', () => {
 
 	it('keeps a plan made during the reveal phase, for the next round', async () => {
 		// Clicking while the round resolves is planning ahead, not a mistake. The
-		// plan used to be stamped with the CURRENT epoch and then dropped as stale
-		// the instant the epoch turned over, so the moves silently disappeared.
-		const {epochInfo, setTime} = fakeEpochs(41); // reveal phase of epoch 2
+		// plan used to be stamped with the CURRENT cycle and then dropped as stale
+		// the instant the cycle turned over, so the moves silently disappeared.
+		const {cycleInfo, setTime} = fakeCycles(41); // reveal phase of cycle 2
 		const storage = fakeStorage<Action>();
 		const {adapter} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 7n}]);
-		expect(round.value).toMatchObject({step: 'Planning', epoch: 3});
+		expect(round.value).toMatchObject({step: 'Planning', cycleNumber: 3});
 
-		// Into the commit phase of epoch 3: the plan is now current, not stale.
+		// Into the commit phase of cycle 3: the plan is now current, not stale.
 		setTime(44);
 		expect(round.value).toMatchObject({
 			step: 'Planning',
-			epoch: 3,
+			cycleNumber: 3,
 			actions: [{cellID: 7n}],
 		});
 
-		// Still epoch 3 at t=87 (44 + 43), so it is still live.
+		// Still cycle 3 at t=87 (44 + 43), so it is still live.
 		setTime(87);
 		expect(round.value.step).toBe('Planning');
 
-		// It only expires once its own epoch has gone by: epoch 4 starts at 88.
+		// It only expires once its own cycle has gone by: cycle 4 starts at 88.
 		setTime(88);
 		expect(round.value.step).toBe('Idle');
 		stop();
@@ -606,7 +606,7 @@ describe('the commit-reveal round', () => {
 		// The game classifies failures to decide what to offer: a signer with no
 		// gas can be topped up and the move retried, a reverted commitment cannot.
 		// Matching on the message would work until someone reworded it.
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const cause = new Error('insufficient funds for gas * price + value');
 		const {adapter} = fakeAdapter({
@@ -614,7 +614,7 @@ describe('the commit-reveal round', () => {
 				throw cause;
 			},
 		});
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 1n}]);
@@ -626,11 +626,11 @@ describe('the commit-reveal round', () => {
 	});
 
 	it('does nothing without a player', async () => {
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage,
 			identity: writable(undefined),
@@ -650,7 +650,7 @@ describe('a game where silence costs the player their stake', () => {
 	 * `commitWhenIdle` exists for a game whose stake DECAYS rather than sitting
 	 * in a bond. The shape, taken from the game on this template that has one:
 	 * the contract forces the player to continuously commit and reveal, and
-	 * zeroes what they hold once their last revealed epoch falls more than a
+	 * zeroes what they hold once their last revealed cycle falls more than a
 	 * configured number of misses behind. That counter advances only on a REVEAL,
 	 * so a player who watches a few rounds without moving loses what they paid
 	 * for, having done nothing wrong.
@@ -660,10 +660,10 @@ describe('a game where silence costs the player their stake', () => {
 	 * no way to say "send an empty turn".
 	 */
 	function idleRound(atRisk: () => boolean) {
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound<`0x${string}`, Action>({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage: fakeStorage<Action>(),
 			identity,
@@ -675,7 +675,7 @@ describe('a game where silence costs the player their stake', () => {
 	/** Just inside the commit-time allowance, where autoCommit fires. */
 	const CLOSING = config.commitPhaseDuration - 1;
 
-	it('commits an empty turn when the epoch is about to close', async () => {
+	it('commits an empty turn when the cycle is about to close', async () => {
 		const {round, calls, setTime} = idleRound(() => true);
 		const stop = round.start();
 		expect(round.value.step).toBe('Idle');
@@ -684,7 +684,7 @@ describe('a game where silence costs the player their stake', () => {
 		await vi.waitFor(() => expect(calls.commit.length).toBe(1));
 
 		// Empty, and that is the point: the contract's action loop does nothing
-		// with it, but the reveal that follows advances `lastEpoch`, which is the
+		// with it, but the reveal that follows advances `lastCycleNumber`, which is the
 		// only thing keeping the avatar alive.
 		expect((calls.commit[0] as {actions: Action[]}).actions).toEqual([]);
 		stop();
@@ -692,7 +692,7 @@ describe('a game where silence costs the player their stake', () => {
 
 	it('reveals it, which is the half that actually counts', async () => {
 		// Committing alone would be worse than useless: it spends gas AND leaves a
-		// commitment that blocks the next epoch until acknowledged.
+		// commitment that blocks the next cycle until acknowledged.
 		const {round, calls, setTime} = idleRound(() => true);
 		const stop = round.start();
 
@@ -721,32 +721,32 @@ describe('a game where silence costs the player their stake', () => {
 		stop();
 	});
 
-	it('KEEPS the loop turning, epoch after epoch, once a turn has been revealed', async () => {
+	it('KEEPS the loop turning, cycle after cycle, once a turn has been revealed', async () => {
 		// THE WHOLE POINT OF IT, and it stopped after exactly one round. A round
 		// that has been revealed stays `Revealed` - nothing put it back to `Idle`
-		// at the epoch boundary - and the idle commit only fires from `Idle`, so a
+		// at the cycle boundary - and the idle commit only fires from `Idle`, so a
 		// player who moved once and then stood still committed nothing ever again
-		// and lost what they held four epochs later. Reported from play: "after 3 turns
+		// and lost what they held four cycles later. Reported from play: "after 3 turns
 		// the avatar dies".
 		//
-		// One epoch is 44 seconds here: the commit phase closes at 40 and the
+		// One cycle is 44 seconds here: the commit phase closes at 40 and the
 		// reveal phase runs to 44.
 		const {round, calls, setTime} = idleRound(() => true);
 		const stop = round.start();
 
-		// Epoch 0: a turn the player actually planned.
+		// Cycle 0: a turn the player actually planned.
 		round.plan([{cellID: 42n}]);
 		await round.commit();
 		setTime(41);
 		await vi.waitFor(() => expect(round.value.step).toBe('Revealed'));
 
-		// Epoch 1, closing. The player has done nothing, and something is still at
+		// Cycle 1, closing. The player has done nothing, and something is still at
 		// risk, so the loop owes an empty turn.
 		setTime(44 + CLOSING);
 		await vi.waitFor(() => expect(calls.commit.length).toBe(2));
 		expect((calls.commit[1] as {actions: Action[]}).actions).toEqual([]);
 
-		// And it is the REVEAL that advances `lastEpoch`, so the round has to see
+		// And it is the REVEAL that advances `lastCycleNumber`, so the round has to see
 		// this one through as well.
 		setTime(44 + config.commitPhaseDuration + 1);
 		await vi.waitFor(() => expect(calls.reveal.length).toBe(2));
@@ -769,7 +769,7 @@ describe('a game where silence costs the player their stake', () => {
 		await round.commit();
 		expect(round.value.step).toBe('Committed');
 
-		// The epoch turns over with the commitment still open: the reveal window
+		// The cycle turns over with the commitment still open: the reveal window
 		// has gone.
 		setTime(44);
 		await vi.waitFor(() => expect(round.value.step).toBe('Missed'));
@@ -779,9 +779,9 @@ describe('a game where silence costs the player their stake', () => {
 		stop();
 	});
 
-	it('never sends a second commitment for an epoch it has already played', async () => {
+	it('never sends a second commitment for a cycle it has already played', async () => {
 		// The guard on "a finished round is nothing pending": finished IN AN
-		// EARLIER epoch. One commitment per epoch is the contract's rule, and a
+		// EARLIER cycle. One commitment per cycle is the contract's rule, and a
 		// round that has been revealed has already had its one; committing again
 		// against it would spend gas to be rejected.
 		const {round, calls, setTime} = idleRound(() => true);
@@ -790,12 +790,12 @@ describe('a game where silence costs the player their stake', () => {
 		round.plan([{cellID: 42n}]);
 		await round.commit();
 		await round.reveal();
-		// Epoch 2 is the FIRST epoch: they are numbered from 2, which `epoch.ts`
+		// Cycle 2 is the FIRST cycle: they are numbered from 2, which `cycle.ts`
 		// explains and every other test here spells out the same way.
-		expect(round.value).toMatchObject({step: 'Revealed', epoch: 2});
+		expect(round.value).toMatchObject({step: 'Revealed', cycleNumber: 2});
 		expect(calls.commit).toHaveLength(1);
 
-		// Still epoch 0, still its commit phase.
+		// Still cycle 0, still its commit phase.
 		setTime(CLOSING);
 		await round.commit();
 		await new Promise((r) => setTimeout(r, 10));
@@ -804,12 +804,12 @@ describe('a game where silence costs the player their stake', () => {
 	});
 
 	it('is off unless a game asks for it', async () => {
-		// The default has to stay "a quiet epoch just passes": for the template's
+		// The default has to stay "a quiet cycle just passes": for the template's
 		// own game an empty commitment is gas spent to say nothing.
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const {adapter, calls} = fakeAdapter();
 		const round = createRound<`0x${string}`, Action>({
-			epochInfo,
+			cycleInfo,
 			adapter,
 			storage: fakeStorage<Action>(),
 			identity,
@@ -835,18 +835,18 @@ describe('a game where silence costs the player their stake', () => {
  * round and nothing downstream may be able to tell.
  */
 describe('adopting a round from somewhere other than storage', () => {
-	it('takes up a committed round for the current epoch and reveals it', async () => {
-		const {epochInfo, setTime} = fakeEpochs(0);
+	it('takes up a committed round for the current cycle and reveals it', async () => {
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		// Nothing local: this browser has never seen the round.
 		expect(round.value.step).toBe('Idle');
 
 		const adopted = round.adopt({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 7n}],
 			secret: '0xsecret' as `0x${string}`,
 			committed: true,
@@ -856,7 +856,7 @@ describe('adopting a round from somewhere other than storage', () => {
 		// A RESTORED round, indistinguishable from one this browser committed.
 		expect(round.value).toEqual({
 			step: 'Committed',
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 7n}],
 		});
 
@@ -872,21 +872,21 @@ describe('adopting a round from somewhere other than storage', () => {
 	});
 
 	it('saves what it adopted, so a second reload is an ordinary restore', () => {
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.adopt({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 7n}],
 			secret: '0xsecret' as `0x${string}`,
 			committed: true,
 		});
 
 		expect(storage.current).toEqual({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 7n}],
 			secret: '0xsecret',
 			committed: true,
@@ -894,21 +894,21 @@ describe('adopting a round from somewhere other than storage', () => {
 		stop();
 	});
 
-	it('REFUSES a round from a past epoch, rather than owing a reveal that cannot land', async () => {
-		// The reveal window for an earlier epoch has shut. Adopting one would put
+	it('REFUSES a round from a past cycle, rather than owing a reveal that cannot land', async () => {
+		// The reveal window for an earlier cycle has shut. Adopting one would put
 		// the round into `Committed` for a round that is over, and it would then
 		// spend gas on a reveal the contract refuses. A commitment left over from
-		// an earlier epoch is a MISSED reveal, which is a settlement the player
+		// an earlier cycle is a MISSED reveal, which is a settlement the player
 		// presses for themselves - not something to recover.
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		setTime(44 * 3 + 1);
 		const adopted = round.adopt({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 7n}],
 			secret: '0xsecret' as `0x${string}`,
 			committed: true,
@@ -931,7 +931,7 @@ describe('adopting a round from somewhere other than storage', () => {
 		// whose secret is gone - the exact loss the round is arranged to prevent,
 		// arriving silently.
 		let release: (() => void) | undefined;
-		const {epochInfo} = fakeEpochs(0);
+		const {cycleInfo} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter} = fakeAdapter({
 			commit: () =>
@@ -939,7 +939,7 @@ describe('adopting a round from somewhere other than storage', () => {
 					release = () => resolve({hash: '0xcommit' as `0x${string}`});
 				}),
 		});
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.plan([{cellID: 1n}]);
@@ -948,7 +948,7 @@ describe('adopting a round from somewhere other than storage', () => {
 		const secretInFlight = (storage.current as {secret: string}).secret;
 
 		const adopted = round.adopt({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 99n}],
 			secret: '0xdifferent' as `0x${string}`,
 			committed: true,
@@ -970,14 +970,14 @@ describe('adopting a round from somewhere other than storage', () => {
 		// The same door serves `restore()`, which is where this body came from, and
 		// a stored-but-unsent round is a plan. Reporting it as `Committed` would
 		// have the round try to reveal a commitment that is not on chain.
-		const {epochInfo, setTime} = fakeEpochs(0);
+		const {cycleInfo, setTime} = fakeCycles(0);
 		const storage = fakeStorage<Action>();
 		const {adapter, calls} = fakeAdapter();
-		const round = createRound({epochInfo, adapter, storage, identity});
+		const round = createRound({cycleInfo, adapter, storage, identity});
 		const stop = round.start();
 
 		round.adopt({
-			epoch: 2,
+			cycleNumber: 2,
 			actions: [{cellID: 7n}],
 			secret: '0xsecret' as `0x${string}`,
 			committed: false,

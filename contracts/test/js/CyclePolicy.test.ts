@@ -6,10 +6,10 @@ import {
 	enterGame,
 	leaveGame,
 	deployGameWith,
-	epochClock,
-	EPOCH_POLICY,
+	cycleClock,
+	CYCLE_POLICY,
 	TURN_BOND,
-	type EpochPolicy,
+	type CyclePolicy,
 } from './utils/index.js';
 import {encodeAbiParameters, keccak256, zeroAddress} from 'viem';
 
@@ -56,27 +56,27 @@ type Cycle = {
 /**
  * A game on the named policy, with `players` accounts already in it.
  *
- * Deployed rather than configured, because an epoch policy is fixed at
+ * Deployed rather than configured, because a cycle policy is fixed at
  * construction: it decides what the clock MEANS, and a game that could change
  * its answer mid-cycle would be a game whose players had committed under
  * different rules from the ones they are judged by.
  */
-async function gameOn(policy: EpochPolicy, players = 2) {
+async function gameOn(policy: CyclePolicy, players = 2) {
 	const fixtures = await networkHelpers.loadFixture(deployAll);
 	const {env, unnamedAccounts} = fixtures;
 
-	const manual = policy === EPOCH_POLICY.Manual;
+	const manual = policy === CYCLE_POLICY.Manual;
 	const commitPhaseDuration = manual ? 0n : COMMIT_PHASE;
 	const revealPhaseDuration = manual ? 0n : REVEAL_PHASE;
 
 	const Game = await deployGameWith(fixtures, {
 		name: `Game_policy_${policy}`,
-		epochPolicy: policy,
+		cyclePolicy: policy,
 		commitPhaseDuration,
 		revealPhaseDuration,
 	});
 
-	const clock = epochClock({
+	const clock = cycleClock({
 		startTime: 0,
 		commitPhaseDuration: Number(commitPhaseDuration),
 		revealPhaseDuration: Number(revealPhaseDuration),
@@ -102,8 +102,8 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 	// because every deploy and every stake mines a block and spends a second of
 	// the window the test still needs.
 	if (!manual) {
-		const {epoch} = clock.getEpoch(await fixtures.getTimestamp());
-		await fixtures.advanceToTime(clock.epochStartTime(epoch + 2), true);
+		const {cycleNumber} = clock.getCycleNumber(await fixtures.getTimestamp());
+		await fixtures.advanceToTime(clock.cycleStartTime(cycleNumber + 2), true);
 	}
 
 	async function cycle(): Promise<Cycle> {
@@ -156,8 +156,8 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 
 	/** Wait out the clock, where there is one. */
 	async function waitForRevealPhase() {
-		const {epoch} = clock.getEpoch(await fixtures.getTimestamp());
-		await fixtures.advanceToTime(clock.revealStartTime(epoch), true);
+		const {cycleNumber} = clock.getCycleNumber(await fixtures.getTimestamp());
+		await fixtures.advanceToTime(clock.revealStartTime(cycleNumber), true);
 	}
 
 	return {
@@ -175,20 +175,20 @@ async function gameOn(policy: EpochPolicy, players = 2) {
 	};
 }
 
-describe('Epoch policy', function () {
+describe('Cycle policy', function () {
 	it('refuses to be pushed when the clock is the only thing that decides', async function () {
-		const game = await gameOn(EPOCH_POLICY.Timed);
+		const game = await gameOn(CYCLE_POLICY.Timed);
 		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);
 		await game.commit(1, [{cellID: cellAt(2, 1)}], SECRET_B);
 
-		// Unanimous, and still refused: a purely timed epoch has nothing for a
+		// Unanimous, and still refused: a purely timed cycle has nothing for a
 		// transaction to do, so offering one would let a caller look like they
 		// had moved something.
 		await expect(game.advance()).toBeRejectedWith(/NextPhaseNotAllowed/);
 	});
 
 	it('will not advance a game nobody is waiting for', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 1);
+		const game = await gameOn(CYCLE_POLICY.Manual, 1);
 
 		// The one member leaves, so unanimity has no denominator. Without this
 		// refusal a single caller could spin an empty game forward as fast as
@@ -200,7 +200,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('refuses a turn from someone who never entered the game', async function () {
-		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 1);
+		const game = await gameOn(CYCLE_POLICY.TimedWithEarlyAdvance, 1);
 		const stranger = game.unnamedAccounts[5] as `0x${string}`;
 
 		// THE NUMERATOR AND THE DENOMINATOR MUST COUNT THE SAME SET. Nothing
@@ -226,12 +226,12 @@ describe('Epoch policy', function () {
 	});
 
 	it('will not let a player stop being waited for with a turn still open', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 2);
+		const game = await gameOn(CYCLE_POLICY.Manual, 2);
 
 		// An EMPTY turn, which bonds nothing - what an idle player's automatic
 		// commit sends. A zero bond locks no reserve, so without a rule of its
 		// own this player could empty their reserve, cease to be waited for,
-		// and leave the epoch counting their commitment while no longer
+		// and leave the cycle counting their commitment while no longer
 		// counting them. One member would then satisfy unanimity for two and
 		// close the commit phase on somebody who had not acted.
 		// Rejected, and again the COUNTS are the assertion: this game refuses it
@@ -250,7 +250,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('forgets the tally when the cycle turns over', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 1);
+		const game = await gameOn(CYCLE_POLICY.Manual, 1);
 
 		await game.commit(0, [{cellID: cellAt(2, 2)}], SECRET_A);
 		await game.advance();
@@ -269,7 +269,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('moves on unanimity and never on a majority', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 3);
+		const game = await gameOn(CYCLE_POLICY.Manual, 3);
 
 		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);
 		await game.commit(1, [{cellID: cellAt(2, 1)}], SECRET_B);
@@ -286,7 +286,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('stops waiting for a member who leaves, which is what unblocks the cycle', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 2);
+		const game = await gameOn(CYCLE_POLICY.Manual, 2);
 
 		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);
 		await expect(game.advance()).toBeRejectedWith(/StillWaitingToCommit/);
@@ -306,7 +306,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('counts a replaced commitment once, not twice', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 2);
+		const game = await gameOn(CYCLE_POLICY.Manual, 2);
 
 		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);
 		await game.commit(0, [{cellID: cellAt(9, 9)}], SECRET_A);
@@ -317,7 +317,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('gives back the vote of a player who cancels', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 2);
+		const game = await gameOn(CYCLE_POLICY.Manual, 2);
 
 		await game.commit(0, [{cellID: cellAt(1, 1)}], SECRET_A);
 		await game.commit(1, [{cellID: cellAt(2, 1)}], SECRET_B);
@@ -331,8 +331,8 @@ describe('Epoch policy', function () {
 		await expect(game.advance()).toBeRejectedWith(/StillWaitingToCommit/);
 	});
 
-	it('will not leave an epoch while one of its commitments is still open', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 2);
+	it('will not leave a cycle while one of its commitments is still open', async function () {
+		const game = await gameOn(CYCLE_POLICY.Manual, 2);
 
 		const placementsA = [{cellID: cellAt(1, 1)}];
 		const placementsB = [{cellID: cellAt(2, 1)}];
@@ -343,7 +343,7 @@ describe('Epoch policy', function () {
 		await game.reveal(0, placementsA, SECRET_A);
 
 		// THE SAME ORDER-INDEPENDENCE RULE, ONE LEVEL UP. If this advanced, the
-		// second player's reveal would land in an epoch that had moved on and
+		// second player's reveal would land in a cycle that had moved on and
 		// revert, so the ORDER of an advance against a reveal would decide what
 		// a player got. Because the condition is read at execution time, a
 		// reveal still in the mempool has not been counted and this refuses.
@@ -358,7 +358,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('advances a manual cycle into the REVEAL phase, never past it', async function () {
-		const game = await gameOn(EPOCH_POLICY.Manual, 1);
+		const game = await gameOn(CYCLE_POLICY.Manual, 1);
 
 		const placements = [{cellID: cellAt(4, 4)}];
 		const before = await game.cycle();
@@ -367,10 +367,10 @@ describe('Epoch policy', function () {
 		const after = await game.cycle();
 
 		// THE PROPERTY THE WHOLE CYCLE RESTS ON. A commitment made in the
-		// current epoch must always still be openable, which is true exactly
-		// while an epoch is a commit phase followed by a reveal phase and
+		// current cycle must always still be openable, which is true exactly
+		// while a cycle is a commit phase followed by a reveal phase and
 		// nothing else. An advance out of a commit phase that skipped to the
-		// next epoch would stran the commitment just made: unrevealable, and
+		// next cycle would stran the commitment just made: unrevealable, and
 		// forfeit, with nothing raised anywhere.
 		expect(after.cycleNumber).toEqual(before.cycleNumber);
 		expect(after.commiting).toEqual(false);
@@ -379,7 +379,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('opens the reveal phase early without moving the deadline', async function () {
-		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 2);
+		const game = await gameOn(CYCLE_POLICY.TimedWithEarlyAdvance, 2);
 
 		const before = await game.cycle();
 		expect(before.commiting).toEqual(true);
@@ -404,7 +404,7 @@ describe('Epoch policy', function () {
 		// only `phaseStart < before.phaseEnd` passes when nothing is written at
 		// all, and zero is the value this type reserves for a game with no
 		// clock - so a reveal window would report as unbounded rather than as
-		// opened early. Not `>` the epoch's start, because several
+		// opened early. Not `>` the cycle's start, because several
 		// transactions can share one second of chain time and then it is `==`.
 		expect(after.phaseStart !== 0n).toEqual(true);
 		expect(after.phaseStart >= before.phaseStart).toEqual(true);
@@ -412,7 +412,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('still accepts a reveal at the nominal time after an early open', async function () {
-		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 1);
+		const game = await gameOn(CYCLE_POLICY.TimedWithEarlyAdvance, 1);
 
 		const placements = [{cellID: cellAt(5, 5)}];
 		await game.commit(0, placements, SECRET_A);
@@ -420,13 +420,13 @@ describe('Epoch policy', function () {
 
 		// What a scheduler handed a `revealDueAt` at commit time would do: turn
 		// up at the nominal reveal time, long after the window opened early.
-		const {epoch} = game.clock.getEpoch(await game.getTimestamp());
-		await game.advanceToTime(game.clock.revealStartTime(epoch) + 1, true);
+		const {cycleNumber} = game.clock.getCycleNumber(await game.getTimestamp());
+		await game.advanceToTime(game.clock.revealStartTime(cycleNumber) + 1, true);
 		await game.reveal(0, placements, SECRET_A);
 	});
 
-	it('runs the next epoch from the advance, which is what makes it faster', async function () {
-		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 1);
+	it('runs the next cycle from the advance, which is what makes it faster', async function () {
+		const game = await gameOn(CYCLE_POLICY.TimedWithEarlyAdvance, 1);
 
 		const placements = [{cellID: cellAt(6, 6)}];
 		const before = await game.cycle();
@@ -448,7 +448,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('falls back to the clock when a member never commits', async function () {
-		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 2);
+		const game = await gameOn(CYCLE_POLICY.TimedWithEarlyAdvance, 2);
 
 		const placements = [{cellID: cellAt(7, 7)}];
 		await game.commit(0, placements, SECRET_A);
@@ -462,7 +462,7 @@ describe('Epoch policy', function () {
 	});
 
 	it('never advances as a rider on the last reveal', async function () {
-		const game = await gameOn(EPOCH_POLICY.TimedWithEarlyAdvance, 1);
+		const game = await gameOn(CYCLE_POLICY.TimedWithEarlyAdvance, 1);
 
 		const placements = [{cellID: cellAt(8, 8)}];
 		await game.commit(0, placements, SECRET_A);
@@ -489,7 +489,7 @@ describe('Epoch policy', function () {
 		await expect(
 			deployGameWith(fixtures, {
 				name: 'Game_no_reveal_phase',
-				epochPolicy: EPOCH_POLICY.Timed,
+				cyclePolicy: CYCLE_POLICY.Timed,
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 0n,
 			}),
@@ -501,7 +501,7 @@ describe('Epoch policy', function () {
 		await expect(
 			deployGameWith(fixtures, {
 				name: 'Game_manual_with_a_clock',
-				epochPolicy: EPOCH_POLICY.Manual,
+				cyclePolicy: CYCLE_POLICY.Manual,
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
 			}),

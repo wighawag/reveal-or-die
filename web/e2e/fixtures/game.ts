@@ -197,7 +197,7 @@ export async function clearAnyMissedReveal(page: Page): Promise<void> {
  * Wait for a play phase with room left in it, then click a cell on the canvas.
  *
  * A plan made in the wrong part of the cycle is not a bug, it just expires: the
- * round drops an uncommitted plan when the epoch turns over, since nothing was
+ * round drops an uncommitted plan when the cycle turns over, since nothing was
  * at stake. `secondsNeeded` is how much of the play phase the caller still has
  * work to do in.
  *
@@ -245,7 +245,7 @@ export async function planOnCanvas(
  * {@link planOnCanvas} is the one to reach for: waiting for room in the play
  * phase is what keeps a plan from expiring under the test. This is for the
  * case where the clock is already the thing under test and the wait would
- * defeat it - recovering a round has to finish inside the epoch the commitment
+ * defeat it - recovering a round has to finish inside the cycle the commitment
  * belongs to, so it cannot afford to wait for the NEXT play phase, which is by
  * definition too late.
  *
