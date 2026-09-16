@@ -12,7 +12,10 @@ import RpcHealthBanner from './rpc-health/RpcHealthBanner.svelte';
  * WHICH bars an app has is an app's own business: a descendant that drops the
  * nonce-cache bar or adds a "round closing in 20s" bar edits THIS file, which
  * the template touches rarely, instead of `routes/+layout.svelte`, which it
- * touches constantly. `core/ui/chrome.ts` holds only the shape, and
+ * touches constantly. That `round` is a DESCENDANT'S word for its own bar and
+ * is deliberately not `cycle`: `CONTEXT.md` reserves `round` for games, so a
+ * game labelling its bar this way is the reservation working rather than a
+ * site a vocabulary sweep missed. `core/ui/chrome.ts` holds only the shape, and
  * `core/ui/AppShell.svelte` holds the height contract, which is not an app's
  * business (see the note there on why the contract is deliberately not
  * replaceable).

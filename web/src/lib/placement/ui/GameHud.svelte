@@ -15,10 +15,10 @@
 	const {game} = context;
 	const hud = createHud(context);
 
-	const round = game.round;
+	const submission = game.submission;
 	const planning = game.planning;
 	const missedReveal = game.missedReveal;
-	// A commitment the chain holds that this browser has no round for. The
+	// A commitment the chain holds that this browser has no submission for. The
 	// planned cells are offered as the candidate and the hash decides; nothing is
 	// sent either way. See $lib/placement/recover-round.
 	const recovery = game.recovery;
@@ -70,14 +70,14 @@
 				{$hud.walletSigningNotice}
 			</p>
 		{/if}
-		{#if $hud.planningForNextRound}
+		{#if $hud.planningForNextCycle}
 			<p class="mt-1 text-xs text-amber-400">
 				This round is closed. New picks count for the next one.
 			</p>
 		{/if}
 	</div>
 
-	<!-- The round -->
+	<!-- The submission -->
 	<div
 		class="pointer-events-auto w-fit max-w-md rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"
 	>
@@ -176,11 +176,13 @@
 				</Button>
 			{/if}
 		{:else}
-			<p class="text-sm {toneClass[$hud.roundTone]}">{$hud.roundLabel}</p>
+			<p class="text-sm {toneClass[$hud.submissionTone]}">
+				{$hud.submissionLabel}
+			</p>
 
 			{#if $hud.outOfGas}
 				<!--
-					The one failure with a remedy. The round retries itself once the
+					The one failure with a remedy. The submission retries itself once the
 					gas arrives, so this offers the top-up and says so, rather than
 					asking the player to also remember to press something after.
 				-->
@@ -188,8 +190,9 @@
 					class="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2"
 				>
 					<p class="text-xs text-muted-foreground">{$hud.outOfGas.detail}</p>
-					<!-- The gas remedy, so the payment is a top-up even though the round
-					     is what is blocked; the sentence above has already said why. -->
+					<!-- The gas remedy, so the payment is a top-up even though the
+					     submission is what is blocked; the sentence above has already
+					     said why. -->
 					<Button
 						size="sm"
 						class="mt-2"
@@ -217,7 +220,7 @@
 				<Button
 					size="sm"
 					disabled={!$hud.canCommit}
-					onclick={() => round.commit()}
+					onclick={() => submission.commit()}
 				>
 					Commit now
 				</Button>
@@ -225,7 +228,7 @@
 					<Button
 						size="sm"
 						variant="destructive"
-						onclick={() => round.reveal()}
+						onclick={() => submission.reveal()}
 					>
 						Retry reveal
 					</Button>

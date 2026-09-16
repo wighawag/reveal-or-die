@@ -93,13 +93,16 @@ function nodeCatchupBudgetMs(averageBlockTime: number): number {
 
 const NODE_CATCHUP_RETRY_MS = 200;
 
-/** Knobs for the round-edge refresh policy. Defaults live in `game/core/refresh`. */
+/**
+ * Knobs for the cycle-edge refresh policy. Defaults live in
+ * `game/core/refresh`.
+ */
 export type RefreshPolicyConfig = {
-	/** Cadence while a round is resolving. */
+	/** Cadence while a cycle is resolving. */
 	revealIntervalMs?: number;
 	/** How long that cadence outlives the window. */
 	revealGraceMs?: number;
-	/** Cadence of the catch-up when a round starts. */
+	/** Cadence of the catch-up when a cycle starts. */
 	settleRetryMs?: number;
 	/** How long the catch-up keeps trying before leaving it to the interval. */
 	settleBudgetMs?: number;
@@ -139,7 +142,7 @@ export function createPollingOnchainState<TState>(params: {
 	config?: {
 		fetchInterval?: number;
 		/**
-		 * The refresh policy at the two edges of a round. See
+		 * The refresh policy at the two edges of a cycle. See
 		 * `game/core/refresh.ts` for what each one is for and why the defaults
 		 * are what they are. Pass `false` to run on the plain interval alone.
 		 */
@@ -235,7 +238,7 @@ export function createPollingOnchainState<TState>(params: {
 		await store.update();
 	};
 
-	// ---- the refresh policy at the two edges of a round ---------------------
+	// ---- the refresh policy at the two edges of a cycle ---------------------
 	//
 	// INSIDE THE POLLER, not left to each app to wire. The cycle model is the
 	// framework's, so both of these consequences of it are too: every game on
@@ -254,7 +257,7 @@ export function createPollingOnchainState<TState>(params: {
 		cycleInfo,
 		($cycleInfo) => $cycleInfo.currentCycleNumber,
 	);
-	// The store's own value, read as "is it loaded, and for which round". The
+	// The store's own value, read as "is it loaded, and for which cycle". The
 	// reader stamps every loaded value with the cycle the fetch was FOR, which is
 	// what makes "has the board caught up" answerable at all.
 	const boardCycleNumber = derived(

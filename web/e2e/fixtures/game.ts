@@ -22,8 +22,8 @@ const READ = `
 	};
 `;
 
-/** Read the round out of the app, rather than inferring it from pixels. */
-export async function roundStep(page: Page): Promise<{
+/** Read the submission out of the app, rather than inferring it from pixels. */
+export async function submissionStep(page: Page): Promise<{
 	step: string;
 	message?: string;
 	reserve?: string;
@@ -33,20 +33,20 @@ export async function roundStep(page: Page): Promise<{
 	return page.evaluate(`(() => {
 		${READ}
 		const context = globalThis.context;
-		const round = read(context.game.round);
+		const submission = read(context.game.submission);
 		const view = read(context.viewState);
 		const reserve = read(context.game.reserve);
 
-		// The cell this round is about, and what the board says about it. Every
+		// The cell this submission is about, and what the board says about it. Every
 		// bigint leaves as a string: bigint cannot cross the evaluate boundary.
 		const cellID =
-			'actions' in round && round.actions.length > 0
-				? round.actions[0].cellID
+			'actions' in submission && submission.actions.length > 0
+				? submission.actions[0].cellID
 				: undefined;
 
 		return {
-			step: round.step,
-			message: round.message,
+			step: submission.step,
+			message: submission.message,
 			reserve: reserve.step === 'Loaded' ? reserve.amount.toString() : undefined,
 			cellID: cellID === undefined ? undefined : cellID.toString(),
 			planned:
@@ -105,7 +105,7 @@ export async function stake(page: Page): Promise<void> {
 	}
 }
 
-/** Where the round clock currently is. */
+/** Where the cycle clock currently is. */
 export async function currentPhase(
 	page: Page,
 ): Promise<{phase: string; timeLeft: number}> {
@@ -188,15 +188,15 @@ export async function clearAnyMissedReveal(page: Page): Promise<void> {
  * Wait for a play phase with room left in it, then click a cell on the canvas.
  *
  * A plan made in the wrong part of the cycle is not a bug, it just expires: the
- * round drops an uncommitted plan when the cycle turns over, since nothing was
- * at stake. `secondsNeeded` is how much of the play phase the caller still has
- * work to do in.
+ * submission drops an uncommitted plan when the cycle turns over, since nothing
+ * was at stake. `secondsNeeded` is how much of the play phase the caller still
+ * has work to do in.
  *
  * The dialog check is not decoration. A connect dialog on its way out still
  * covers the middle of the screen for a couple of hundred milliseconds, and a
- * click that lands on it is swallowed silently - the round simply never becomes
- * Planning, which reads like the canvas ignoring input. A person is never fast
- * enough to hit this; a test is.
+ * click that lands on it is swallowed silently - the submission simply never
+ * becomes Planning, which reads like the canvas ignoring input. A person is
+ * never fast enough to hit this; a test is.
  */
 export async function planOnCanvas(
 	page: Page,
@@ -223,7 +223,7 @@ export async function planOnCanvas(
 	await clickCanvas(page, offset);
 
 	await expect
-		.poll(async () => (await roundStep(page)).step, {
+		.poll(async () => (await submissionStep(page)).step, {
 			message: 'clicking a cell should plan a placement',
 			timeout: 15_000,
 		})
@@ -234,9 +234,9 @@ export async function planOnCanvas(
  * Click a cell, with no wait for the clock.
  *
  * {@link planOnCanvas} is the one to reach for: waiting for room in the play
- * phase is what keeps a plan from expiring under the test. This is for the
- * case where the clock is already the thing under test and the wait would
- * defeat it - recovering a round has to finish inside the cycle the commitment
+ * phase is what keeps a plan from expiring under the test. This is for the case
+ * where the clock is already the thing under test and the wait would defeat it
+ * - recovering a submission has to finish inside the cycle the commitment
  * belongs to, so it cannot afford to wait for the NEXT play phase, which is by
  * definition too late.
  *

@@ -31,7 +31,7 @@
  * defaulted, silently undoing whatever the URL just asked for.
  *
  * WHERE THE SEAM IS. This watches what every app on this template has: the
- * core services, and the round. What a GAME adds to the same trace - which
+ * core services, and the submission. What a GAME adds to the same trace - which
  * entity is being played, what its own flows are doing - is its own, and it
  * adds it by calling {@link watch} beside {@link startCoreDiagnostics}. See
  * `$lib/debug/diagnostics.ts`, which is the app-level file every descendant
@@ -39,7 +39,7 @@
  */
 import type {Readable} from 'svelte/store';
 import {logs} from 'named-logs';
-import type {RoundState} from './round';
+import type {SubmissionState} from './submission';
 
 /** One namespace per question, so `?debug=diag:modal` is a useful filter. */
 export const DIAG = {
@@ -49,8 +49,8 @@ export const DIAG = {
 	rpc: 'diag:rpc',
 	/** Dispatches, from record to settle. The silent signer's work. */
 	send: 'diag:send',
-	/** The commit-reveal round and what the game does around it. */
-	round: 'diag:round',
+	/** The commit-reveal submission and what the game does around it. */
+	submission: 'diag:submission',
 } as const;
 
 /**
@@ -146,7 +146,7 @@ export type DiagnosableApp = {
 	};
 	account: Readable<string | undefined>;
 	game: {
-		round: Readable<RoundState<unknown>>;
+		submission: Readable<SubmissionState<unknown>>;
 		cycleInfo: Readable<{currentCycleNumber: number; isCommitPhase: boolean}>;
 	};
 };
@@ -285,31 +285,31 @@ export function startCoreDiagnostics(app: DiagnosableApp): () => void {
 		),
 	);
 
-	// ---- the round ----------------------------------------------------------
+	// ---- the submission -----------------------------------------------------
 	//
-	// Here rather than as log lines inside the round because it is the one thing
-	// every other trace has to be lined up against: a modal at +200ms means
+	// Here rather than as log lines inside the submission because it is the one
+	// thing every other trace has to be lined up against: a modal at +200ms means
 	// nothing until you know a commit went out at +0.
 
 	stops.push(
-		watch(DIAG.round, app.game.round, ($round) => {
-			const step = $round.step;
+		watch(DIAG.submission, app.game.submission, ($submission) => {
+			const step = $submission.step;
 			if (step === 'Error') {
-				return `round: Error during ${$round.during}: ${$round.message}`;
+				return `submission: Error during ${$submission.during}: ${$submission.message}`;
 			}
-			const actions = 'actions' in $round ? $round.actions.length : 0;
-			// An EMPTY committed round is the liveness commit (see
+			const actions = 'actions' in $submission ? $submission.actions.length : 0;
+			// An EMPTY committed submission is the liveness commit (see
 			// `commitWhenIdle`), and telling it apart from a real turn matters when
 			// reading a trace.
-			return `round: ${step}${
-				'cycleNumber' in $round ? ` cycle=${$round.cycleNumber}` : ''
+			return `submission: ${step}${
+				'cycleNumber' in $submission ? ` cycle=${$submission.cycleNumber}` : ''
 			} actions=${actions}`;
 		}),
 	);
 
 	stops.push(
 		watch(
-			DIAG.round,
+			DIAG.submission,
 			app.game.cycleInfo,
 			($cycle) =>
 				`cycle ${$cycle.currentCycleNumber} ${
@@ -320,7 +320,7 @@ export function startCoreDiagnostics(app: DiagnosableApp): () => void {
 
 	stops.push(
 		watch(
-			DIAG.round,
+			DIAG.submission,
 			app.account,
 			($account) => `account: ${shortAddress($account)}`,
 		),

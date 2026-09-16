@@ -3,14 +3,14 @@
  *
  * The components that show this are deliberately logic-less: they take a
  * finished model and lay it out. All the deciding - which phase label to show,
- * whether committing is still possible, what the round costs - happens here, in
- * plain TypeScript that can be read and tested without a browser.
+ * whether committing is still possible, what the submission costs - happens
+ * here, in plain TypeScript that can be read and tested without a browser.
  */
 import {derived, type Readable} from 'svelte/store';
 import {formatBalance} from '$lib/core/utils/format/balance';
 import {STAKE} from '../stake';
 import type {Context} from '$lib/context/types';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 
 import {
 	acquisitionTotal,
@@ -30,14 +30,14 @@ export type HudModel = {
 	/**
 	 * Four parts, not two, and the fourth is the reason.
 	 *
-	 * This used to collapse to play / wait, on the grounds that the only
-	 * decision a player has is whether the round is still theirs to change. That
-	 * is true and it left nowhere to put the CATCH-UP: the moment after the
-	 * round turns over when the board is still showing the last one, which the
-	 * clock cannot see. Reported as "wait" it tells the player the round is
-	 * resolving when nothing is being waited for except a poll, and it is the
-	 * one state where a plan would be built from a position that has already
-	 * changed. See `game/core/cycle-phase.ts`.
+	 * This used to collapse to play / wait, on the grounds that the only decision
+	 * a player has is whether the submission is still theirs to change. That is
+	 * true and it left nowhere to put the CATCH-UP: the moment after the cycle
+	 * turns over when the board is still showing the last one, which the clock
+	 * cannot see. Reported as "wait" it tells the player the cycle is resolving
+	 * when nothing is being waited for except a poll, and it is the one state
+	 * where a plan would be built from a position that has already changed. See
+	 * `game/core/cycle-phase.ts`.
 	 */
 	phase: CyclePhase;
 	/** Seconds left in the phase, already rounded for display. */
@@ -46,11 +46,11 @@ export type HudModel = {
 	progress: number;
 	cycleNumber: number;
 	/**
-	 * Clicking now plans for the NEXT round, because this one has closed. Worth
+	 * Clicking now plans for the NEXT cycle, because this one has closed. Worth
 	 * saying: the moves still appear on the board, and without this the player
-	 * would reasonably think they were part of the round being resolved.
+	 * would reasonably think they were part of the cycle being resolved.
 	 */
-	planningForNextRound: boolean;
+	planningForNextCycle: boolean;
 	/**
 	 * Set when this build has NO LOCAL SIGNER, so every move has to be signed in
 	 * the wallet. Said once, up front, rather than discovered one prompt at a
@@ -65,7 +65,7 @@ export type HudModel = {
 	 * Set while the player cannot take a turn yet. The HUD shows THIS instead of
 	 * the planning controls: offering "plan your moves" to someone with nothing
 	 * staked invites them to lay out a whole turn that cannot be committed, and
-	 * the failure only arrives when the round is already closing.
+	 * the failure only arrives when the cycle is already closing.
 	 */
 	setup?: {
 		headline: string;
@@ -95,8 +95,8 @@ export type HudModel = {
 	/** Set when the plan costs more than the reserve can cover. */
 	warning?: string;
 
-	roundLabel: string;
-	roundTone: 'idle' | 'busy' | 'good' | 'bad';
+	submissionLabel: string;
+	submissionTone: 'idle' | 'busy' | 'good' | 'bad';
 	canCommit: boolean;
 	canReveal: boolean;
 	canClear: boolean;
@@ -120,7 +120,7 @@ export type HudModel = {
 	};
 
 	/**
-	 * Set when the chain holds a commitment for the round in progress that this
+	 * Set when the chain holds a commitment for the cycle in progress that this
 	 * browser has no memory of. The stake is still recoverable, and only for as
 	 * long as the cycle lasts, so this is the most time-critical thing the HUD
 	 * ever has to say.
@@ -134,9 +134,9 @@ export type HudModel = {
 	};
 };
 
-export function describeRound(state: RoundState<Placement>): {
+export function describeSubmission(state: SubmissionState<Placement>): {
 	label: string;
-	tone: HudModel['roundTone'];
+	tone: HudModel['submissionTone'];
 } {
 	switch (state.step) {
 		case 'Idle':
@@ -163,8 +163,8 @@ export function describeRound(state: RoundState<Placement>): {
 			};
 		case 'Error':
 			// The type, not upstream's classifier: by the time an error reaches the
-			// round it has been through `send()` in ../commit-reveal, which is where
-			// the node's wording is read. Asking again here would re-derive an
+			// submission it has been through `send()` in ../commit-reveal, which is
+			// where the node's wording is read. Asking again here would re-derive an
 			// answer the app already committed to, and could disagree with it.
 			if (state.error instanceof SignerOutOfFundsError) {
 				return {
@@ -287,7 +287,7 @@ export function acquisitionBusyLabel(
  *
  * The catch-up gets its own words rather than being folded into "resolving":
  * nothing is resolving, the board is simply behind, and telling a player the
- * round is still running is what makes a stale board look like a stuck one.
+ * cycle is still running is what makes a stale board look like a stuck one.
  */
 export function phaseLabelOf(phase: CyclePhase): string {
 	switch (phase) {
@@ -341,7 +341,8 @@ export function describeSetup(
 }
 
 /**
- * What to tell a player whose browser has lost a round the chain still holds.
+ * What to tell a player whose browser has lost a submission the chain still
+ * holds.
  *
  * Says the three things that decide what they do next, in the order they need
  * them: that a commitment exists, that it can still be opened, and that only
@@ -385,7 +386,7 @@ export function createHud(context: Context): Readable<HudModel> {
 		[
 			game.twoPhase,
 			game.phase,
-			game.round,
+			game.submission,
 			game.planning.count,
 			game.cost,
 			game.reserve,
@@ -398,7 +399,7 @@ export function createHud(context: Context): Readable<HudModel> {
 		([
 			$twoPhase,
 			$phase,
-			$round,
+			$submission,
 			$count,
 			$cost,
 			$reserve,
@@ -408,7 +409,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			$acquisition,
 			$recovery,
 		]): HudModel => {
-			const round = describeRound($round);
+			const submission = describeSubmission($submission);
 			const reserve = $reserve as ReserveState;
 			const reserveAmount =
 				reserve.step === 'Loaded' ? reserve.amount : undefined;
@@ -449,10 +450,10 @@ export function createHud(context: Context): Readable<HudModel> {
 				progress:
 					duration > 0 ? Math.min(1, Math.max(0, 1 - timeLeft / duration)) : 0,
 				cycleNumber: $cycle.currentCycleNumber,
-				// Outside the play window the current round is closed, so a click now
-				// is a plan for the next one. The round stamps it that way. Not worth
+				// Outside the play window the current cycle is closed, so a click now
+				// is a plan for the next one. The submission stamps it that way. Not worth
 				// saying to someone who cannot play at all yet.
-				planningForNextRound: !playable && !needsSetup,
+				planningForNextCycle: !playable && !needsSetup,
 				setup: needsSetup,
 				acquiring: acquisitionBusyLabel(acquisition),
 				// `hasLocalSigner` is `TARGET_STEP === 'SignedIn'`, and NOTHING ELSE.
@@ -481,29 +482,31 @@ export function createHud(context: Context): Readable<HudModel> {
 						? STAKE.notEnough
 						: undefined,
 
-				roundLabel: round.label,
-				roundTone: round.tone,
+				submissionLabel: submission.label,
+				submissionTone: submission.tone,
 				missedReveal: describeMissedReveal($missedReveal as MissedRevealState),
 				recovery: describeRecovery($recovery as RecoveryState, $count),
 				// Committing early is allowed the whole time the phase is open; the
-				// round commits by itself if the player leaves it too late. An
+				// submission commits by itself if the player leaves it too late. An
 				// unrevealed commitment blocks it entirely: the contract would reject
 				// it, so offering the button would only spend gas to be told no.
 				// A failed commit can be tried again while the phase is open: the
 				// plan is still here and nothing was spent.
 				canCommit:
 					!blocked &&
-					($round.step === 'Planning' ||
-						($round.step === 'Error' && $round.during === 'commit')) &&
+					($submission.step === 'Planning' ||
+						($submission.step === 'Error' &&
+							$submission.during === 'commit')) &&
 					$count > 0 &&
 					playable,
-				// Offered as a fallback only. The round reveals on its own, because a
+				// Offered as a fallback only. The submission reveals on its own, because a
 				// missed reveal forfeits the bond and the window can be seconds long.
-				canReveal: $round.step === 'Error' && $round.during === 'reveal',
-				canClear: $round.step === 'Planning' && $count > 0,
+				canReveal:
+					$submission.step === 'Error' && $submission.during === 'reveal',
+				canClear: $submission.step === 'Planning' && $count > 0,
 				outOfGas:
-					$round.step === 'Error' &&
-					$round.error instanceof SignerOutOfFundsError
+					$submission.step === 'Error' &&
+					$submission.error instanceof SignerOutOfFundsError
 						? {
 								detail:
 									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this round carries on by itself.',

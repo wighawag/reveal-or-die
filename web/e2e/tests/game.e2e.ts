@@ -4,13 +4,13 @@ import {
 	clearAnyMissedReveal,
 	clickCanvas,
 	planOnCanvas,
-	roundStep,
+	submissionStep,
 	stake,
 	stakeOnCell,
 } from '../fixtures/game';
 
 /**
- * The commit-reveal round, end to end against a real chain.
+ * The commit-reveal submission, end to end against a real chain.
  *
  * Both suites here are driven through the UI (a click on the canvas, not a call
  * into a store): the click path is where the bugs were. A click that lands on
@@ -27,7 +27,7 @@ import {
  * separately so a failure names the phase that broke rather than landing on a
  * later assertion.
  */
-describe('Commit-reveal round', () => {
+describe('Commit-reveal submission', () => {
 	// The game keys one open commitment per player per cycle, so this file takes
 	// its own burner account (the contracts suite uses index 1).
 	test.use({walletAccountIndex: 0});
@@ -36,13 +36,13 @@ describe('Commit-reveal round', () => {
 		connectedPage,
 		authoriseBrowser,
 	}) => {
-		// A full round has to wait out a commit phase and a reveal phase.
+		// A full submission has to wait out a commit phase and a reveal phase.
 		test.slow();
 		const page = connectedPage;
 
 		// WHO OWNS and WHO SENDS are different addresses, and that is the whole
-		// design. A round is two transactions every cycle, so sending them from
-		// the wallet would prompt twice a round forever, and an account
+		// design. A submission is two transactions every cycle, so sending them from
+		// the wallet would prompt twice a cycle forever, and an account
 		// authenticated by email has no wallet provider to prompt with at all -
 		// hence the signer. But the signer is a key this browser made, holding
 		// nothing and losable with the site data, so it must not be the player:
@@ -101,7 +101,7 @@ describe('Commit-reveal round', () => {
 		// An INCREASE, not "non-zero": the e2e chain is shared and reused, so this
 		// account may already hold a reserve from an earlier run, and asserting
 		// non-zero would pass without the top-up having done anything.
-		const reserveBefore = BigInt((await roundStep(page)).reserve ?? '0');
+		const reserveBefore = BigInt((await submissionStep(page)).reserve ?? '0');
 		// The label depends on whether there is anything staked yet: with an empty
 		// reserve the HUD replaces the planning controls with the setup gate,
 		// because planning a turn that cannot be committed only fails later. Both
@@ -112,7 +112,7 @@ describe('Commit-reveal round', () => {
 		await expect
 			.poll(
 				async () =>
-					BigInt((await roundStep(page)).reserve ?? '0') > reserveBefore,
+					BigInt((await submissionStep(page)).reserve ?? '0') > reserveBefore,
 				{
 					message: 'the reserve should grow before playing',
 					timeout: 60_000,
@@ -124,20 +124,20 @@ describe('Commit-reveal round', () => {
 		// two suites in this file aim at different cells.
 		await planOnCanvas(page, {x: 40, y: 30});
 
-		const planned = await roundStep(page);
+		const planned = await submissionStep(page);
 		expect(
 			planned.planned,
 			'the planned cell should be drawn before it is on chain',
 		).toBe(1);
 		const cellID = planned.cellID;
-		if (!cellID) throw new Error('the round has no planned cell');
+		if (!cellID) throw new Error('the submission has no planned cell');
 
 		// What the cell already holds, from this run or any earlier one.
 		const stakeBefore = BigInt(await stakeOnCell(page, cellID));
 
 		// Commit. Pressing the button if it is still live keeps the test short, but
-		// the round commits by itself as the phase closes, so this deliberately does
-		// not REQUIRE the button: waiting for it to be enabled would race the
+		// the submission commits by itself as the phase closes, so this deliberately
+		// does not REQUIRE the button: waiting for it to be enabled would race the
 		// auto-commit and then wait forever for a button that has done its job and
 		// gone quiet.
 		const commit = page.getByRole('button', {name: /commit now/i});
@@ -146,7 +146,7 @@ describe('Commit-reveal round', () => {
 		}
 
 		await expect
-			.poll(async () => (await roundStep(page)).step, {
+			.poll(async () => (await submissionStep(page)).step, {
 				message: 'the commitment should reach the chain',
 				timeout: 90_000,
 			})
@@ -159,11 +159,11 @@ describe('Commit-reveal round', () => {
 			'a commitment must not change the board',
 		).toBe(stakeBefore);
 
-		// The reveal is driven by the round when the phase turns over: a missed
+		// The reveal is driven by the submission when the phase turns over: a missed
 		// reveal forfeits the bond, so it is never left to the player to notice.
 		await expect
-			.poll(async () => (await roundStep(page)).step, {
-				message: 'the round should reveal itself in the reveal phase',
+			.poll(async () => (await submissionStep(page)).step, {
+				message: 'the submission should reveal itself in the reveal phase',
 				timeout: 120_000,
 			})
 			.toBe('Revealed');
@@ -195,7 +195,7 @@ describe('Commit-reveal round', () => {
 		).toBe(stakeBefore + placementCost);
 
 		expect(
-			(await roundStep(page)).planned,
+			(await submissionStep(page)).planned,
 			'the planned marker should have cleared',
 		).toBe(0);
 	});
@@ -243,7 +243,7 @@ describe('A missed reveal', () => {
 		fundWallets,
 		authoriseBrowser,
 	}) => {
-		// A committed round, then a whole cycle of waiting for it to lapse.
+		// A committed submission, then a whole cycle of waiting for it to lapse.
 		test.setTimeout(400_000);
 		await fundWallets();
 
@@ -269,7 +269,7 @@ describe('A missed reveal', () => {
 		// authorises the browser.
 		await stake(page);
 		await expect
-			.poll(async () => (await roundStep(page)).reserve !== '0', {
+			.poll(async () => (await submissionStep(page)).reserve !== '0', {
 				message: 'a reserve to bond from',
 				timeout: 60_000,
 			})
@@ -280,24 +280,25 @@ describe('A missed reveal', () => {
 		const commit = page.getByRole('button', {name: /commit now/i});
 		if (await commit.isEnabled().catch(() => false)) await commit.click();
 		await expect
-			.poll(async () => (await roundStep(page)).step, {
+			.poll(async () => (await submissionStep(page)).step, {
 				message: 'the commitment should reach the chain',
 				timeout: 90_000,
 			})
 			.toBe('Committed');
 
-		// Lose everything this browser knew about the round, without losing WHO
+		// Lose everything this browser knew about the submission, without losing WHO
 		// the player is.
 		//
 		// The claim under test is that the app learns about a missed reveal from
-		// the CHAIN, so the round's own record is deleted and the page reloaded.
+		// the CHAIN, so the submission's own record is deleted and the page reloaded.
 		// It deliberately does not open a fresh browser context: the burner wallet
 		// generates its accounts per browser, and signing in derives the signer
 		// from those, so a clean context is a different player altogether and would
 		// prove nothing.
 		await page.evaluate(() => {
 			for (const key of Object.keys(localStorage)) {
-				if (key.startsWith('__placement_round__')) localStorage.removeItem(key);
+				if (key.startsWith('__placement_submission__'))
+					localStorage.removeItem(key);
 			}
 		});
 
@@ -306,7 +307,7 @@ describe('A missed reveal', () => {
 		const later = page;
 
 		const notice = later.getByText(/you missed the reveal for cycle/i);
-		// Nothing is owed until the cycle turns over, and the round rechecks the
+		// Nothing is owed until the cycle turns over, and the submission rechecks the
 		// chain when it does. Allow more than one full cycle.
 		await expect(
 			notice,
@@ -338,7 +339,7 @@ describe('A missed reveal', () => {
 });
 
 /**
- * A round this browser has lost, which the chain still holds.
+ * A submission this browser has lost, which the chain still holds.
  *
  * NOT a storage feature, and the suite is arranged to say so. A cleared
  * browser, a second device, a second browser, a private window, a reinstall
@@ -351,8 +352,8 @@ describe('A missed reveal', () => {
  * so the bond is gone and all that is left is to settle it; here the window is
  * still OPEN, so the whole difference is that somebody asked the chain in time.
  *
- * THE ROUND IS DESTROYED THE SAME WAY the missed-reveal test destroys it, and
- * for the same reason: the round's own record is deleted and the page
+ * THE SUBMISSION IS DESTROYED THE SAME WAY the missed-reveal test destroys it,
+ * and for the same reason: the submission's own record is deleted and the page
  * reloaded, rather than a fresh browser context being opened. The burner wallet
  * generates its accounts per browser and signing in derives the signer from
  * those, so a clean context is a DIFFERENT PLAYER altogether and would prove
@@ -366,17 +367,18 @@ describe('A missed reveal', () => {
  *
  * WHAT THE HAPPY PATH PROVES that no unit test can: that the hash this app
  * builds a candidate plan into is the hash the CONTRACT stored. If the two
- * disagreed, the adopted round would reveal and the reveal would revert, and
- * the last assertion here would never be reached. The refusal of a WRONG plan
- * is pinned by unit tests instead, and by mutation, because it needs no chain.
+ * disagreed, the adopted submission would reveal and the reveal would revert,
+ * and the last assertion here would never be reached. The refusal of a WRONG
+ * plan is pinned by unit tests instead, and by mutation, because it needs no
+ * chain.
  */
-describe('A round the chain holds and this browser has lost', () => {
+describe('A submission the chain holds and this browser has lost', () => {
 	// Its own burner account: this test deliberately leaves a commitment that
 	// nothing can open for a few seconds, which would block the suites above.
 	// 2 is the out-of-gas suite's.
 	test.use({walletAccountIndex: 5});
 
-	test('is offered back, and the recovered round reveals itself', async ({
+	test('is offered back, and the recovered submission reveals itself', async ({
 		connectedPage,
 		authoriseBrowser,
 	}) => {
@@ -387,7 +389,7 @@ describe('A round the chain holds and this browser has lost', () => {
 		await clearAnyMissedReveal(page);
 		await stake(page);
 		await expect
-			.poll(async () => (await roundStep(page)).reserve !== '0', {
+			.poll(async () => (await submissionStep(page)).reserve !== '0', {
 				message: 'a reserve to bond from',
 				timeout: 60_000,
 			})
@@ -395,7 +397,7 @@ describe('A round the chain holds and this browser has lost', () => {
 
 		// EVERYTHING AFTER THIS HAS TO FIT IN THE CYCLE, so the plan waits for a
 		// play phase with room left in it. The ceiling is the play phase itself
-		// (the commit phase less the allowance the round keeps for the commit to
+		// (the commit phase less the allowance the submission keeps for the commit to
 		// land), so asking for more than that waits forever; asking for too
 		// little runs the re-entry into the tail of the commit phase, where
 		// `autoCommit` would commit the re-entered plan instead of recovering
@@ -410,28 +412,33 @@ describe('A round the chain holds and this browser has lost', () => {
 		const commit = page.getByRole('button', {name: /commit now/i});
 		if (await commit.isEnabled().catch(() => false)) await commit.click();
 		await expect
-			.poll(async () => (await roundStep(page)).step, {
+			.poll(async () => (await submissionStep(page)).step, {
 				message: 'the commitment should reach the chain',
 				timeout: 60_000,
 			})
 			.toBe('Committed');
 
-		// Lose everything this browser knew about the round, without losing WHO
+		// Lose everything this browser knew about the submission, without losing WHO
 		// the player is. The commitment stays on chain; the secret is derived from
 		// the signer and comes back with it; only the PLAN is gone.
 		await page.evaluate(() => {
 			for (const key of Object.keys(localStorage)) {
-				if (key.startsWith('__placement_round__')) localStorage.removeItem(key);
+				if (key.startsWith('__placement_submission__'))
+					localStorage.removeItem(key);
 			}
 		});
 		await page.reload();
 		await expect(page.locator('canvas')).toBeVisible({timeout: 30_000});
 
 		expect(
-			(await roundStep(page)).step,
-			'the round itself must genuinely know nothing',
+			(await submissionStep(page)).step,
+			'the submission itself must genuinely know nothing',
 		).toBe('Idle');
 
+		// MATCHED ON THE PLAYER'S WORDS, which are the game's and still say "round":
+		// `CONTEXT.md` reserves that word for a game's own voice, so the HUD copy did
+		// not move with the framework's vocabulary. Renaming this locator would make
+		// it match nothing, and `check` does not type-check this directory.
 		const notice = page.getByText(/this browser has lost the round/i);
 		await expect(
 			notice,
@@ -441,6 +448,7 @@ describe('A round the chain holds and this browser has lost', () => {
 		// It must not say the stake is gone. It is not, and that is the point.
 		await expect(page.getByText(/can still be revealed/i)).toBeVisible();
 
+		// The button's own label, which is the game's copy: see the notice above.
 		const recover = page.getByRole('button', {name: /recover round/i});
 		await expect(
 			recover,
@@ -451,7 +459,7 @@ describe('A round the chain holds and this browser has lost', () => {
 		// above about the cycle this has to stay inside.
 		await clickCanvas(page, {x: 70, y: 50});
 		await expect
-			.poll(async () => (await roundStep(page)).planned, {
+			.poll(async () => (await submissionStep(page)).planned, {
 				message: 'the same cell, re-entered',
 				timeout: 15_000,
 			})
@@ -459,20 +467,20 @@ describe('A round the chain holds and this browser has lost', () => {
 
 		await recover.click();
 		await expect
-			.poll(async () => (await roundStep(page)).step, {
-				message: 'a recovered round is a restored round',
+			.poll(async () => (await submissionStep(page)).step, {
+				message: 'a recovered submission is a restored submission',
 				timeout: 30_000,
 			})
 			.toBe('Committed');
 		await expect(notice, 'nothing left to recover').toBeHidden();
 
-		// THE ACCEPTANCE CRITERION. The stake is saved by the round's ORDINARY
-		// machinery - it reveals on the phase change like any other round - rather
-		// than by a second path written for recovery. Nothing was sent to the
+		// THE ACCEPTANCE CRITERION. The stake is saved by the submission's ORDINARY
+		// machinery - it reveals on the phase change like any other submission -
+		// rather than by a second path written for recovery. Nothing was sent to the
 		// chain to recover it; the commitment was already there.
 		await expect
-			.poll(async () => (await roundStep(page)).step, {
-				message: 'the recovered round should reveal itself',
+			.poll(async () => (await submissionStep(page)).step, {
+				message: 'the recovered submission should reveal itself',
 				timeout: 120_000,
 			})
 			.toBe('Revealed');

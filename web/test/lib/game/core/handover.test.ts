@@ -5,7 +5,7 @@ import {
 	holdBoardUntilCycleEnds,
 	rememberTurn,
 } from '$lib/game/core/handover';
-import type {RoundState} from '$lib/game/core/round';
+import type {SubmissionState} from '$lib/game/core/submission';
 import type {OnchainStateStore, OnchainStateValue} from '$lib/game/core/seams';
 import type {PlayWindow} from '$lib/game/core/refresh';
 
@@ -190,18 +190,18 @@ describe('holding the board until the cycle is over', () => {
 	});
 });
 
-describe('the turn the round no longer carries', () => {
-	function fakeRound() {
-		const store = writable<RoundState<{cellID: bigint}>>({step: 'Idle'});
+describe('the turn the submission no longer carries', () => {
+	function fakeSubmission() {
+		const store = writable<SubmissionState<{cellID: bigint}>>({step: 'Idle'});
 		return {
-			round: store as Readable<RoundState<{cellID: bigint}>>,
+			submission: store as Readable<SubmissionState<{cellID: bigint}>>,
 			set: store.set,
 		};
 	}
 
-	it('remembers the last turn the round held, empty included', () => {
-		const {round, set} = fakeRound();
-		const remembered = rememberTurn(round);
+	it('remembers the last turn the submission held, empty included', () => {
+		const {submission, set} = fakeSubmission();
+		const remembered = rememberTurn(submission);
 		const seen: unknown[] = [];
 		remembered.subscribe((v) => seen.push(v));
 
@@ -219,19 +219,19 @@ describe('the turn the round no longer carries', () => {
 		expect(get(remembered)).toEqual({cycleNumber: 2, actions: []});
 	});
 
-	it('bridges the gap between the round dropping a turn and the board releasing it', () => {
-		const {round, set} = fakeRound();
+	it('bridges the gap between the submission dropping a turn and the board releasing it', () => {
+		const {submission, set} = fakeSubmission();
 		const holding = writable<number | undefined>(undefined);
-		const held = heldTurnUntilBoardReleases({round, holding});
+		const held = heldTurnUntilBoardReleases({submission, holding});
 		held.subscribe(() => {});
 
 		set({step: 'Committed', cycleNumber: 2, actions: [{cellID: 1n}]});
-		// Nothing being held: the round is the only thing drawing the turn, and
+		// Nothing being held: the submission is the only thing drawing the turn, and
 		// this must not compete with it.
 		expect(get(held)).toBeUndefined();
 
-		// The reveal lands. The round drops the actions; the board withholds what
-		// they did until the cycle is over. Without the bridge there is a window
+		// The reveal lands. The submission drops the actions; the board withholds
+		// what they did until the cycle is over. Without the bridge there is a window
 		// here in which the player is shown NEITHER copy of their own turn.
 		holding.set(2);
 		set({step: 'Revealed', cycleNumber: 2});
@@ -244,9 +244,9 @@ describe('the turn the round no longer carries', () => {
 	it('refuses a turn remembered from an EARLIER cycle', () => {
 		// Otherwise a turn from a previous cycle is resurrected over a cycle in
 		// which the player planned nothing at all.
-		const {round, set} = fakeRound();
+		const {submission, set} = fakeSubmission();
 		const holding = writable<number | undefined>(undefined);
-		const held = heldTurnUntilBoardReleases({round, holding});
+		const held = heldTurnUntilBoardReleases({submission, holding});
 		held.subscribe(() => {});
 
 		set({step: 'Revealing', cycleNumber: 2, actions: [{cellID: 1n}]});
