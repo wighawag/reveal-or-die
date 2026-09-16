@@ -14,7 +14,7 @@ import {parseEther, zeroAddress} from 'viem';
  *
  * Mirrors `rocketh/config.ts`'s copy rather than importing it, because that one
  * is bigints for the deploy and these are the numbers a test asserts against.
- * Both mirror `UsingGameTypes.EpochPolicy`, whose ORDER is the only thing that
+ * Both mirror `UsingGameTypes.CyclePolicy`, whose ORDER is the only thing that
  * decides what a number means.
  */
 export const EPOCH_POLICY = {
@@ -110,7 +110,7 @@ export async function deployGameWith(
 		// Zero, as the deployment's is. What is at stake here is custody of the
 		// avatar, so a bond is exactly what a commitment does not need.
 		placementCost: options.placementCost ?? 0n,
-		epochPolicy: BigInt(options.epochPolicy),
+		cyclePolicy: BigInt(options.epochPolicy),
 	};
 
 	// THE BRANCH'S ROUTES, which is the whole difference. Two of them are

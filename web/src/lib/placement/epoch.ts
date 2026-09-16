@@ -26,13 +26,13 @@ export function createRoundReader(deps: {
 			abi: Game.abi,
 			functionName: 'getRound',
 		})) as {
-			epoch: bigint;
+			cycleNumber: bigint;
 			commiting: boolean;
 			phaseStart: bigint;
 			phaseEnd: bigint;
 		};
 		return {
-			epoch: Number(round.epoch),
+			epoch: Number(round.cycleNumber),
 			isCommitPhase: round.commiting,
 			phaseStart: Number(round.phaseStart),
 			phaseEnd: Number(round.phaseEnd),
