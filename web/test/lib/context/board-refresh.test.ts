@@ -4,7 +4,7 @@ import {canTakeTurnNow, onEachNewRound} from '$lib/context/game';
 
 /**
  * What is left of this file after `refreshDuringReveal` and
- * `settleBoardWhenRoundStarts` went back to being the framework's.
+ * `settleBoardWhenCycleStarts` went back to being the framework's.
  *
  * Both were COPIED into `context/game.ts` at some point and were being
  * maintained here as well as in `game/core/refresh.ts`, identical in every

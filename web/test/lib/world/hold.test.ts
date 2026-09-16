@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {get, writable} from 'svelte/store';
-import {holdBoardUntilRoundEnds} from '$lib/game/core/handover';
+import {holdBoardUntilCycleEnds} from '$lib/game/core/handover';
 import {holdResolvingRound} from '$lib/world/hold';
 import {emptyWorld, type Avatar, type WorldState} from '$lib/world/state';
 import {ActionType, xyToBigIntID} from 'reveal-or-die-contracts';
@@ -201,7 +201,7 @@ describe('the board store the renderer reads', () => {
 		>({step: 'Unloaded'});
 		const phase = writable<{phase: 'play' | 'wait'}>({phase: initialPhase});
 		const epoch = writable(7);
-		const {board, holding} = holdBoardUntilRoundEnds<
+		const {board, holding} = holdBoardUntilCycleEnds<
 			WorldState & {epoch: number}
 		>({
 			state: {

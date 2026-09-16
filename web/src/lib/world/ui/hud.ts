@@ -23,7 +23,7 @@ import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import type {RecoveryState} from '$lib/game/core/recovery';
 import type {AutoRecoveryState} from '../recover-round';
 import {SignerOutOfFundsError} from '../errors';
-import type {RoundPhase, SetupAction, SetupNeeded} from '$lib/context/game';
+import type {CyclePhase, SetupAction, SetupNeeded} from '$lib/context/game';
 import type {RevealOutcome} from '../reveal-outcome';
 import {causeOfDeath, explainDeath, type DeathCause} from '../death';
 import {opensAWallet, type AcquisitionState} from '$lib/game/acquire';
@@ -47,10 +47,10 @@ export type HudModel = {
 	 *
 	 * The old model folded the commit lock and the reveal into one "wait",
 	 * which was fine to play on and useless to debug against, and had no word
-	 * at all for the catch-up at the boundary. See `RoundPhase` in
+	 * at all for the catch-up at the boundary. See `CyclePhase` in
 	 * `$lib/context/game` for the reasoning.
 	 */
-	phase: RoundPhase;
+	phase: CyclePhase;
 	/**
 	 * ONE countdown, and it answers the only question a player has about the
 	 * parts they cannot act in: how long until they can play again.
@@ -505,7 +505,7 @@ export function describeSetup(
 }
 
 /** What to tell the player while the play window is closed. */
-export function instructionOutsidePlay(phase: RoundPhase): string {
+export function instructionOutsidePlay(phase: CyclePhase): string {
 	switch (phase) {
 		case 'commit':
 			return 'This round is closed and its moves are being committed. Nothing can be planned until the next window opens.';
@@ -519,7 +519,7 @@ export function instructionOutsidePlay(phase: RoundPhase): string {
 }
 
 /** The clock's one line for each part of the round. */
-export function phaseLabelOf(phase: RoundPhase): string {
+export function phaseLabelOf(phase: CyclePhase): string {
 	switch (phase) {
 		case 'play':
 			return 'Your move window';
@@ -575,7 +575,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			const deposited = $deposited as DepositedState;
 			const blocked = blocksCommitting($missedReveal as MissedRevealState);
 
-			const phase = $phase as RoundPhase;
+			const phase = $phase as CyclePhase;
 			const playable = phase === 'play';
 
 			// `twoPhase` on a manually advanced chain has no clock, only a phase.

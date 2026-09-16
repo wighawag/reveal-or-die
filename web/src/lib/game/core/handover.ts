@@ -13,14 +13,14 @@
  * Two framework facts make this a framework problem rather than one game's
  * cosmetic bug, and every game on this template would hit both.
  *
- * **A round is SIMULTANEOUS and its reveals are not.** That is the whole
+ * **A cycle is SIMULTANEOUS and its reveals are not.** That is the whole
  * reason to pay for commitments at all: everyone's turn resolves together. But
  * the reveals arrive one transaction at a time, in whatever order the mempool
- * delivers them, so a board that applies each one as it lands shows the round
+ * delivers them, so a board that applies each one as it lands shows the cycle
  * playing out in the order players PAID, drawn as if it were the order they
  * acted in. It is not what happened, and it leaks who was quick to reveal.
- * {@link holdBoardUntilRoundEnds} withholds the resolving round's changes
- * until the round is over, and then lets them out together.
+ * {@link holdBoardUntilCycleEnds} withholds the resolving cycle's changes
+ * until the cycle is over, and then lets them out together.
  *
  * **The round drops its actions at `Revealed`.** {@link RoundState} carries
  * them at every step up to and including `Revealing` and not after, which is
@@ -31,12 +31,12 @@
  * smallest memory that closes it, and {@link heldTurnUntilBoardReleases} ties
  * that memory to the board's own release signal.
  *
- * WHAT IS NOT HERE, deliberately: what counts as "this round's outcome" for a
+ * WHAT IS NOT HERE, deliberately: what counts as "this cycle's outcome" for a
  * particular game's state, and what a turn LOOKS like. The first is the
  * `hold` callback below, because it is a statement about the game's own entity
  * shape; the second is whatever the game merges into its view. The seam falls
  * where it does everywhere else on this template: the framework owns the
- * consequences of its own model (a round with phases, a board with an epoch),
+ * consequences of its own model (a cycle with phases, a board with an epoch),
  * and the game owns its content.
  */
 import {derived, type Readable} from 'svelte/store';
@@ -45,18 +45,18 @@ import type {PlayWindow} from './refresh';
 import type {OnchainStateStore, OnchainStateValue} from './seams';
 
 /**
- * The board to draw, and whether it is currently holding a round back.
+ * The board to draw, and whether it is currently holding a cycle back.
  *
  * TWO VIEWS OF ONE COMPUTATION, which is the point of returning them together.
  * Whatever draws local intent has to stay on screen until the exact moment the
- * board lets the round's outcome out, and "roughly then" - a second reading of
- * the round, of the epoch, or of the phase - is how the two end up disagreeing
+ * board lets the cycle's outcome out, and "roughly then" - a second reading of
+ * the cycle, of the epoch, or of the phase - is how the two end up disagreeing
  * by a frame or a poll, which is the class of bug this file exists to avoid.
  */
 export type HeldBoard<TState> = {
 	board: OnchainStateStore<TState>;
 	/**
-	 * The round whose outcome is being held back right now, or undefined when
+	 * The cycle whose outcome is being held back right now, or undefined when
 	 * the board is showing everything it has.
 	 *
 	 * It goes undefined at the RELEASE, which is what the overlay waits for.
@@ -65,38 +65,38 @@ export type HeldBoard<TState> = {
 };
 
 /**
- * What a game does with the round that is resolving right now.
+ * What a game does with the cycle that is resolving right now.
  *
  * Called with the board currently ON SCREEN and the board the chain has just
  * reported, and returns what to draw. The framework cannot write this: it
- * needs to know which parts of a game's state the resolving round changed, and
+ * needs to know which parts of a game's state the resolving cycle changed, and
  * only the game knows what its state is made of.
  *
  * Two rules worth stating, because both are easy to get wrong once and never
  * notice:
  *
- * - **Hold only what the RESOLVING round changed.** Anything else - an entity
+ * - **Hold only what the RESOLVING cycle changed.** Anything else - an entity
  *   that has not acted, a region that came into view when the player panned -
  *   must pass straight through, or the board is stale rather than
  *   synchronised.
  * - **Prefer showing something over hiding it when the inputs are
  *   incomplete.** A game that decides "held or not" from data it is allowed to
  *   fail to fetch will, on the fetch that fails, either blank a live board or
- *   release the whole round early. Decide from the read that carries the state
+ *   release the whole cycle early. Decide from the read that carries the state
  *   itself wherever there is one.
  */
-export type HoldResolvingRound<TState> = (params: {
+export type HoldResolvingCycle<TState> = (params: {
 	/** What is on screen: the last board this returned. */
 	shown: TState;
 	/** What the chain says now. */
 	latest: TState;
-	/** The round whose reveals are landing. */
+	/** The cycle whose reveals are landing. */
 	resolvingEpoch: number;
 }) => TState;
 
 /**
  * The board store the renderer reads: the game's own, with the resolving
- * round's outcome held back until the round is over.
+ * cycle's outcome held back until the cycle is over.
  *
  * A WRAPPER rather than something inside the state store, because what is held
  * is a DISPLAY decision and the store's job is to know what the chain says.
@@ -111,16 +111,16 @@ export type HoldResolvingRound<TState> = (params: {
  * propagation, so whichever of the two is subscribed first, the pair is
  * consistent and there is never a frame with neither on screen.
  */
-export function holdBoardUntilRoundEnds<
+export function holdBoardUntilCycleEnds<
 	TState extends {epoch: number},
 >(params: {
 	state: OnchainStateStore<TState>;
 	/** `play` is the move window; `wait` is the lock and the reveal. */
 	phase: Readable<PlayWindow>;
-	/** The clock's epoch, which during the wait is the round being resolved. */
+	/** The clock's epoch, which during the wait is the cycle being resolved. */
 	epoch: Readable<number>;
-	/** What this game holds back. See {@link HoldResolvingRound}. */
-	hold: HoldResolvingRound<TState>;
+	/** What this game holds back. See {@link HoldResolvingCycle}. */
+	hold: HoldResolvingCycle<TState>;
 }): HeldBoard<TState> {
 	const {state, phase, epoch, hold} = params;
 	let shown: TState | undefined;
@@ -226,11 +226,11 @@ export function rememberTurn<TAction>(
  * round currently says.
  *
  * The bridge across the handover: it answers with the remembered turn for
- * exactly as long as the board is withholding the round that turn belongs to,
+ * exactly as long as the board is withholding the cycle that turn belongs to,
  * and with nothing before or after.
  *
  * MATCHED BY EPOCH rather than merely taken when present, or a turn remembered
- * from an earlier round is resurrected over a round in which the player
+ * from an earlier cycle is resurrected over a cycle in which the player
  * planned nothing at all.
  *
  * IT WINS OVER THE LIVE ROUND while it answers, even when the round still
@@ -246,7 +246,7 @@ export function rememberTurn<TAction>(
 export function heldTurnUntilBoardReleases<TAction>(params: {
 	round: Readable<RoundState<TAction>>;
 	/**
-	 * Which round the board is holding back, from the board itself.
+	 * Which cycle the board is holding back, from the board itself.
 	 *
 	 * `undefined` is the release, and it is the ONE moment both halves of the
 	 * handover turn on. See {@link HeldBoard.holding}.

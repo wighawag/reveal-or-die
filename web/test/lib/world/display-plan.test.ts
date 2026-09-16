@@ -2,7 +2,7 @@ import type {GameIdentity} from '$lib/game/identity';
 import {describe, expect, it} from 'vitest';
 import {get, writable, type Readable} from 'svelte/store';
 import {holdPlanUntilBoardReleases} from '$lib/world/display-plan';
-import {holdBoardUntilRoundEnds} from '$lib/game/core/handover';
+import {holdBoardUntilCycleEnds} from '$lib/game/core/handover';
 import {holdResolvingRound} from '$lib/world/hold';
 import {createPlanning} from '$lib/world/planning';
 import {createHud} from '$lib/world/ui/hud';
@@ -257,7 +257,7 @@ describe('the handover, from the local overlay to the board', () => {
 		>({step: 'Unloaded'});
 		const phase = writable<{phase: 'play' | 'wait'}>({phase: 'play'});
 		const epoch = writable(7);
-		const {board, holding} = holdBoardUntilRoundEnds<
+		const {board, holding} = holdBoardUntilCycleEnds<
 			WorldState & {epoch: number}
 		>({
 			state: {

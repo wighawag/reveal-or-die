@@ -29,20 +29,20 @@ import {
 	type RoundStore,
 } from '$lib/game/core/round';
 import {createDerivedSecret} from '$lib/game/core/secret';
-import {holdBoardUntilRoundEnds} from '$lib/game/core/handover';
+import {holdBoardUntilCycleEnds} from '$lib/game/core/handover';
 // The framework's, not this app's. Both used to be COPIED into this file - the
 // same logic in two places in one repo, only the local pair reachable, and
 // nothing anywhere able to notice. See the merge that removed them.
 import {
 	refreshDuringReveal,
-	settleBoardWhenRoundStarts,
+	settleBoardWhenCycleStarts,
 } from '$lib/game/core/refresh';
 import {createRoundRecovery, type RecoveryStore} from '$lib/game/core/recovery';
 import {
 	boardIsBehindClock,
-	roundPhaseOf,
-	type RoundPhase,
-} from '$lib/game/core/round-phase';
+	cyclePhaseOf,
+	type CyclePhase,
+} from '$lib/game/core/cycle-phase';
 import {
 	createAcquisition,
 	refreshWhenPendingAcquisitionSettles,
@@ -230,9 +230,9 @@ export type Game = {
 	 * catch-up while the board fetches what the new round assumes.
 	 *
 	 * The clock and the move gate both read this, and the HUD words itself from
-	 * it. See {@link RoundPhase} for why the old two-phase model was not enough.
+	 * it. See {@link CyclePhase} for why the old two-phase model was not enough.
 	 */
-	phase: Readable<RoundPhase>;
+	phase: Readable<CyclePhase>;
 	/**
 	 * Whether the player can actually take a turn right now: an identity to play
 	 * as, permission for this browser to act as it, an avatar to move, and the
@@ -276,7 +276,7 @@ export type SetupAction = 'authorise' | 'buy';
  *
  * `catching-up` lasts until the board's own epoch catches up with the clock's,
  * which is however long the chain takes to mine past the boundary (see
- * `settleBoardWhenRoundStarts` for why the clock is ahead of the chain there),
+ * `settleBoardWhenCycleStarts` for why the clock is ahead of the chain there),
  * and it disappears the moment a fetch lands the new round's data. The
  * COUNTDOWN during it is the play window it is holding up, so "when can I
  * move" keeps ticking while it lasts.
@@ -290,23 +290,23 @@ export type SetupAction = 'authorise' | 'buy';
  * plan gets built from a position that is about to be invalidated. Neither is
  * visible by reading the wiring.
  *
- * It stays HERE while `RoundPhase` moves upstream, because what it gates on is
+ * It stays HERE while `CyclePhase` moves upstream, because what it gates on is
  * this game's `SetupNeeded`: what a player must have before they may act is the
  * game's rule, and only the phase half of the question is the framework's.
  */
 export function canTakeTurnNow(
 	setup: SetupNeeded | undefined,
-	phase: RoundPhase,
+	phase: CyclePhase,
 ): boolean {
 	return setup === undefined && phase === 'play';
 }
 
 /**
  * Re-exported so this game's modules keep one import for what the context
- * offers. The model itself is the framework's (`game/core/round-phase.ts`):
+ * offers. The model itself is the framework's (`game/core/cycle-phase.ts`):
  * every game on this template has a clock that can run ahead of its board.
  */
-export type {RoundPhase};
+export type {CyclePhase};
 
 export type Render = {
 	camera: CameraWatcher;
@@ -561,7 +561,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * catch-up is a phase on the clock, read off the gap itself, so it stays
 	 * honest whether this settle is running, finished or gave up.
 	 */
-	const settle = settleBoardWhenRoundStarts({
+	const settle = settleBoardWhenCycleStarts({
 		phase: twoPhase,
 		epoch: currentEpoch,
 		// One cast, at the one place the mismatch is: the store's value is the
@@ -592,9 +592,9 @@ export function createGameContext(core: CoreServices): GameContext {
 			}),
 	);
 
-	/** The four-phase model the HUD and the move gate read. See {@link RoundPhase}. */
+	/** The four-phase model the HUD and the move gate read. See {@link CyclePhase}. */
 	const phase = derived([threePhase, boardBehindClock], ([$three, $behind]) =>
-		roundPhaseOf($three, $behind),
+		cyclePhaseOf($three, $behind),
 	);
 
 	const deposited = createDeposited({deps: core, owner: account});
@@ -856,7 +856,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	 * health - keeps reading the raw store, because those are about what the
 	 * chain says and this is about what the player is shown.
 	 */
-	const heldBoard = holdBoardUntilRoundEnds<WorldState & {epoch: number}>({
+	const heldBoard = holdBoardUntilCycleEnds<WorldState & {epoch: number}>({
 		state: onchainState,
 		phase: twoPhase,
 		epoch: currentEpoch,

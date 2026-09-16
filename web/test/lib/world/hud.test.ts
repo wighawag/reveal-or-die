@@ -15,7 +15,7 @@ import type {DepositedAvatar} from '$lib/world/deposited';
 import type {RecoveryState} from '$lib/game/core/recovery';
 import type {AutoRecoveryState} from '$lib/world/recover-round';
 import type {RevealOutcome} from '$lib/world/reveal-outcome';
-import type {RoundPhase} from '$lib/context/game';
+import type {CyclePhase} from '$lib/context/game';
 
 /**
  * What the player is TOLD, which is the only part of a failure they can act on.
@@ -219,7 +219,7 @@ function fakeContext(
 		purchase?: {step: string; message?: string; authorisation?: string};
 		canExit?: boolean;
 		revealOutcome?: RevealOutcome;
-		phase?: RoundPhase;
+		phase?: CyclePhase;
 		twoPhase?: {phase: 'play' | 'wait'; timeLeft: number; duration: number};
 		numMissesAllowed?: number;
 		recovery?: RecoveryState;
@@ -394,7 +394,7 @@ describe('the four parts of a round, on the clock', () => {
 	 * its own instruction, and its own idea of whether a countdown exists.
 	 */
 	it('names each part, so a debugging player can tell which one they are in', () => {
-		const label = (phase: RoundPhase) =>
+		const label = (phase: CyclePhase) =>
 			get(
 				createHud(
 					fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}, phase}),
@@ -408,7 +408,7 @@ describe('the four parts of a round, on the clock', () => {
 	});
 
 	it('says moves are closed outside the play window, rather than letting clicks look broken', () => {
-		const instruction = (phase: RoundPhase) =>
+		const instruction = (phase: CyclePhase) =>
 			get(
 				createHud(
 					fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}, phase}),

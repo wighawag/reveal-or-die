@@ -3,12 +3,12 @@ import {get, writable} from 'svelte/store';
 import {
 	createEpochTrackers,
 	createHybridEpochTrackers,
-	predictRound,
+	predictCycle,
 	staticEpochConfig,
 	timingsOf,
 	type EpochConfig,
 	type HybridEpochInfo,
-	type RoundReading,
+	type CycleReading,
 } from '$lib/game/core/epoch';
 import type {ChainTimeStore, SyncedTime} from '$lib/game/core/chain-time';
 
@@ -32,7 +32,7 @@ const config: EpochConfig = {
 };
 
 /** A round on the nominal grid: epoch 2 runs 0..40, committing until 30. */
-const nominal: RoundReading = {
+const nominal: CycleReading = {
 	epoch: 2,
 	isCommitPhase: true,
 	phaseStart: 0,
@@ -65,22 +65,22 @@ function fakeChainTime(initial: number): ChainTimeStore & {
 	};
 }
 
-describe('predictRound', () => {
+describe('predictCycle', () => {
 	it('rolls a known round forward on the clock alone', () => {
-		expect(predictRound(nominal, 10, config)).toEqual(nominal);
-		expect(predictRound(nominal, 30, config)).toEqual({
+		expect(predictCycle(nominal, 10, config)).toEqual(nominal);
+		expect(predictCycle(nominal, 30, config)).toEqual({
 			epoch: 2,
 			isCommitPhase: false,
 			phaseStart: 30,
 			phaseEnd: 40,
 		});
-		expect(predictRound(nominal, 85, config)).toEqual({
+		expect(predictCycle(nominal, 85, config)).toEqual({
 			epoch: 4,
 			isCommitPhase: true,
 			phaseStart: 80,
 			phaseEnd: 110,
 		});
-		expect(predictRound(nominal, 115, config)).toEqual({
+		expect(predictCycle(nominal, 115, config)).toEqual({
 			epoch: 4,
 			isCommitPhase: false,
 			phaseStart: 110,
@@ -93,19 +93,19 @@ describe('predictRound', () => {
 		// which is nowhere on the grid the deployment's start time implies. An
 		// arithmetic that ignored this would answer for a schedule the chain has
 		// already left, and would be wrong about both the epoch and the phase.
-		const reAnchored: RoundReading = {
+		const reAnchored: CycleReading = {
 			epoch: 7,
 			isCommitPhase: true,
 			phaseStart: 1000,
 			phaseEnd: 1030,
 		};
-		expect(predictRound(reAnchored, 1035, config)).toEqual({
+		expect(predictCycle(reAnchored, 1035, config)).toEqual({
 			epoch: 7,
 			isCommitPhase: false,
 			phaseStart: 1030,
 			phaseEnd: 1040,
 		});
-		expect(predictRound(reAnchored, 1045, config)).toEqual({
+		expect(predictCycle(reAnchored, 1045, config)).toEqual({
 			epoch: 8,
 			isCommitPhase: true,
 			phaseStart: 1040,
@@ -114,14 +114,14 @@ describe('predictRound', () => {
 	});
 
 	it('leaves a round alone when the clock is behind it', () => {
-		expect(predictRound(nominal, -5, config)).toEqual(nominal);
+		expect(predictCycle(nominal, -5, config)).toEqual(nominal);
 	});
 });
 
 describe('timingsOf', () => {
 	it('reports the reveal window an early open WIDENED, not the nominal one', () => {
 		// The chain opened the reveal phase at 12 and the deadline did not move.
-		const openedEarly: RoundReading = {
+		const openedEarly: CycleReading = {
 			epoch: 2,
 			isCommitPhase: false,
 			phaseStart: 12,
@@ -149,18 +149,18 @@ describe('timingsOf', () => {
 });
 
 describe('the hybrid tracker', () => {
-	function harness(readings: RoundReading[], startTime = 0) {
+	function harness(readings: CycleReading[], startTime = 0) {
 		const chainTime = fakeChainTime(startTime);
 		let read = 0;
-		const readRound = vi.fn(
+		const readCycle = vi.fn(
 			async () => readings[Math.min(read++, readings.length - 1)],
 		);
 		const trackers = createHybridEpochTrackers({
 			chainTime,
 			config: staticEpochConfig(config),
-			readRound,
+			readCycle,
 		});
-		return {...trackers, chainTime, readRound};
+		return {...trackers, chainTime, readCycle};
 	}
 
 	it('takes the chain over its own arithmetic when the chain is further on', async () => {
@@ -224,13 +224,13 @@ describe('the hybrid tracker', () => {
 	});
 
 	it('stops reading and stops listening once nobody is subscribed', async () => {
-		const {epochInfo, readRound, chainTime} = harness([nominal]);
+		const {epochInfo, readCycle, chainTime} = harness([nominal]);
 		vi.useFakeTimers();
 		try {
 			const stop = epochInfo.subscribe(() => {});
 			expect(chainTime.listeners).toBe(1);
 			stop();
-			const readsAtStop = readRound.mock.calls.length;
+			const readsAtStop = readCycle.mock.calls.length;
 
 			// A leaked interval keeps an RPC call per second alive for the life
 			// of the tab; a leaked CLOCK subscription keeps a dead closure alive
@@ -241,7 +241,7 @@ describe('the hybrid tracker', () => {
 			expect(chainTime.listeners).toBe(0);
 			vi.advanceTimersByTime(5000);
 			chainTime.set(500);
-			expect(readRound.mock.calls.length).toBe(readsAtStop);
+			expect(readCycle.mock.calls.length).toBe(readsAtStop);
 
 			// And it can be started again, because the canvas really does remount.
 			const restart = epochInfo.subscribe(() => {});
@@ -260,7 +260,7 @@ describe('createEpochTrackers', () => {
 		// drawn from pure arithmetic - a countdown against an epoch nobody is
 		// counting down, with the chain free to be somewhere else entirely, and
 		// no error anywhere.
-		const readRound = vi.fn(async () => ({
+		const readCycle = vi.fn(async () => ({
 			epoch: 9,
 			isCommitPhase: false,
 			phaseStart: 400,
@@ -271,7 +271,7 @@ describe('createEpochTrackers', () => {
 			const {epochInfo} = createEpochTrackers({
 				chainTime: fakeChainTime(0),
 				config: staticEpochConfig({...config, policy}),
-				readRound,
+				readCycle,
 			});
 			return epochInfo.now().type;
 		}
