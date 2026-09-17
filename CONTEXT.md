@@ -56,9 +56,17 @@ What a player submits into a cycle. ORDERED, because two orderings of the same
 actions are two different commitments, and each game defines what one is.
 _Avoid_: moves, orders, action set
 
+**Chunk**:
+As many actions as one TRANSACTION may carry. A submission longer than a chunk
+is opened in several reveals, in order. It bounds the transaction and never the
+submission: how many actions a submission may contain at all is a game's own
+rule, which the framework does not have and does not take a word for.
+_Avoid_: batch, page, part, step
+
 **Commitment**:
-The hidden form of a submission: what the chain holds between committing and
-revealing.
+The hidden form of a submission: the head of a hash chain, each link holding one
+chunk and the hash of the next. What the chain holds between committing and
+revealing, and until every chunk has arrived.
 _Avoid_: hash, sealed move, bid
 
 **Stake**:

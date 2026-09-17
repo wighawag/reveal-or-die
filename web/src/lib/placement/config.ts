@@ -12,6 +12,7 @@ import {
 	optionalBigInt,
 	readAddress,
 	readBigInt,
+	readNumber,
 	type DeclaredValues,
 } from '$lib/game/core/linked-data';
 
@@ -26,6 +27,28 @@ export type PlacementConfig = {
 	 * commitment be made against a reserve nothing ever funds.
 	 */
 	placementCost: bigint;
+	/**
+	 * THE CHUNK: how many actions one reveal transaction may carry.
+	 *
+	 * READ OFF THE DEPLOYMENT AND NEVER GUESSED. A turn longer than this is
+	 * committed as a hash CHAIN and revealed in several transactions, and the
+	 * client has to cut it into exactly the pieces the contract will accept: cut
+	 * it larger and every reveal reverts with `TooManyActions`, cut it smaller
+	 * and every non-final one reverts with `InvalidFurtherActions`. Either way
+	 * the failure arrives after the stake is already bonded.
+	 *
+	 * `readNumber` rather than `optionalNumber`, deliberately. There is no safe
+	 * default: a client that guessed would hash a chain the contract cannot
+	 * follow, and would do it confidently. A deployment that does not declare
+	 * this is one this build cannot play, and saying so at startup is much
+	 * cheaper than saying it a cycle later with somebody's bond in the balance.
+	 *
+	 * IT IS THE ONLY THING BOUNDING A TURN ON THIS BRANCH. `main` bounds one
+	 * economically - the reserve buys ten placements and no more - and here a
+	 * placement costs nothing, because custody of the avatar is the stake. So
+	 * the length of a reveal was unbounded until this parameter existed.
+	 */
+	actionsPerReveal: number;
 	/** The ERC20 the reserve would be denominated in. Unused here. */
 	tokenAddress: `0x${string}`;
 	/**
@@ -90,26 +113,72 @@ type GameLinkedData = DeclaredValues & {
 };
 
 /**
- * Gas to allow for one turn: a commit and the reveal that must follow it.
+ * Gas to allow for ONE TRANSACTION of each kind: a commit, and one reveal step.
  *
- * Deliberately generous, and the reveal more so than the commit. A commit
- * writes one hash; a reveal walks every placement, each of which can touch a
- * zone index. Running out of gas mid-submission is not a slow turn, it is a
- * missed reveal, which loses the bond AND blocks the next cycle until it is
- * acknowledged. Over-reserving costs a slightly larger first payment.
+ * MEASURED, NOT REASONED ABOUT, and both numbers moved when the reveal became
+ * chunked. On a local node, at `actionsPerReveal` of four:
+ *
+ *   first commit (cold slots)                     116,898
+ *   later commit (warm slots)                       82,698
+ *   reveal, full chunk, four fresh cells,
+ *     each in a different zone, final              535,561
+ *   the same chunk, non-final (writes the
+ *     new head instead of closing the turn)        534,756
+ *
+ * The reveal's worst case is four FRESH cells in four DIFFERENT zones, because
+ * `_place` appends to a per-zone index only on a cell's first claim, so that is
+ * four new dynamic arrays. It is a bound on a TRANSACTION rather than on a turn,
+ * which is the whole point of the chunk: a turn is unbounded and arrives in
+ * `ceil(actions / actionsPerReveal)` of these.
+ *
+ * WHAT WAS WRONG BEFORE, since it is the reason these are measured now.
+ * `COMMIT_GAS` was 100,000 against a real first commit of 116,898 - 16.9% short,
+ * under a comment calling it "deliberately generous". It was harmless only
+ * because it merely sizes the stipend; it stops being harmless the moment
+ * anything passes it as a LIMIT, and the same comment says what that costs.
+ * `REVEAL_GAS` was 2,000,000 against a measured 535,561, which is over-reserving
+ * by a factor of four.
+ *
+ * THE FIGURES ABOVE ARE `main`'S, AND THIS BRANCH MEASURES LOWER: 99,102 for a
+ * first commit and 374,085 for a full fresh chunk, because a placement costs
+ * nothing here so a reveal writes no per-cell stake, no cell total and nothing
+ * to the reserve. They are kept anyway, and keeping them is the safe direction
+ * for a number that sizes a RESERVATION: over-reserving costs a slightly larger
+ * first payment, and under-reserving costs a player their gas mid-turn. What
+ * could NOT be kept is `creditsGasMultiplier` in `contracts/rocketh/config.ts`,
+ * which prices what a step is charged rather than reserving for it, so an
+ * inherited figure there would have understated the moves a player has left by
+ * more than half; that one is re-measured on this branch.
+ *
+ * THEY ARE NOT PASSED AS GAS LIMITS, which is a deliberate stop short of what
+ * the credits design eventually wants. Passing a limit turns a number that is
+ * too low into an out-of-gas mid-submission, and that is not a slow turn, it is
+ * a missed reveal, which loses the bond AND blocks the next cycle until it is
+ * acknowledged. These are measured against THIS game's contracts; contracts are
+ * not inherited in this template tree, so a descendant runs code these numbers
+ * were never measured against while inheriting this file unchanged. Sizing a
+ * reservation that way is safe and imposing a ceiling that way is not. Passing
+ * them as limits is the credits task's to do, with a per-deployment number and a
+ * test that fails when a contract change outgrows it.
  */
-const COMMIT_GAS = 100_000n;
-const REVEAL_GAS = 2_000_000n;
+const COMMIT_GAS = 150_000n;
+const REVEAL_GAS = 600_000n;
 
 /**
- * How many turns of gas a new player is given.
+ * How many SUBMISSION STEPS of gas a new player is given.
+ *
+ * A step is one commit or one reveal transaction, which is the unit a chunked
+ * reveal leaves: a turn longer than `actionsPerReveal` costs one commit plus
+ * several reveals, so a player who plans long turns spends this faster than one
+ * who plays a cell at a time. That is honest rather than unfortunate - a long
+ * turn really does cost more - and it is why this is no longer counted in turns.
  *
  * The whole point of the stipend is that a player who has just staked can play
  * for a while without thinking about gas at all. When it does run out the
  * top-up flow is the remedy (and `resumeWhenGasArrives` picks the submission
  * back up by itself), so this is a starting float rather than a budget.
  */
-const TURNS_OF_GAS = 100n;
+const STEPS_OF_GAS = 100n;
 
 export function resolvePlacementConfig(
 	deployments: TypedDeployments,
@@ -133,12 +202,13 @@ export function resolvePlacementConfig(
 	return {
 		cycle: resolveCycleConfig(linkedData),
 		placementCost: readBigInt(linkedData, 'placementCost'),
+		actionsPerReveal: readNumber(linkedData, 'actionsPerReveal'),
 		tokenAddress: readAddress(linkedData, 'tokens'),
 		sale: {
 			address: StakeSale.address,
 			price: readBigInt(saleData, 'price'),
 			amount: readBigInt(saleData, 'amount'),
-			stipend: worstGasPrice * (COMMIT_GAS + REVEAL_GAS) * TURNS_OF_GAS,
+			stipend: worstGasPrice * (COMMIT_GAS + REVEAL_GAS) * STEPS_OF_GAS,
 		},
 		cellSize: 10,
 		camera: {

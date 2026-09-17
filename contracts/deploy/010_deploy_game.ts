@@ -25,6 +25,18 @@ export default deployScript(
 			// turn against an empty one. The ERC20 is still deployed and still named
 			// in this config because the Config struct is shared; nothing moves it.
 			placementCost: 0n,
+			// THE CHUNK: how many actions one reveal transaction may carry. Recorded
+			// in `linkedData` below like everything else the client has to agree with
+			// the contract about, and this one is not optional: a client that split a
+			// turn into pieces of a different size would have every reveal past the
+			// first revert, after the stake was already bonded.
+			//
+			// IT MATTERS MORE HERE THAN ON `main`. There a turn is bounded
+			// economically - the reserve buys ten placements and no more - so a
+			// reveal could never be enormous even before it was chunked. Here a
+			// placement costs nothing, so nothing bounded a reveal's length at all
+			// until this parameter did.
+			actionsPerReveal: data.Game.actionsPerReveal,
 			// How the cycle advances, said out loud rather than derived from the
 			// phase durations being zero. It is recorded in `linkedData` below,
 			// which is where the client reads it: a client that had to infer the

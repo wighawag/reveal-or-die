@@ -25,12 +25,19 @@ export type Placement = {cellID: bigint};
  * It must match `UsingGameInternal._checkHash` exactly - same types, same
  * order. A mismatch is not a compile error and not a failed read: the commit
  * succeeds, and the reveal reverts with `CommitmentHashNotMatching` once the
- * player's stake is already bonded. `contracts/test/Game.test.ts` computes the
- * hash the same way from the other side.
+ * player's stake is already bonded. `contracts/test/js/Game.test.ts` computes
+ * the hash the same way from the other side.
+ *
+ * THE TRAILING `bytes24` IS THE NEXT CHUNK'S HASH, and it is part of the
+ * encoding for EVERY chunk including the last, where it is zero. The contract
+ * has one encoding for the same reason this file does: a second one, selected
+ * by a branch on the very value that tells the last chunk from the rest, is a
+ * second chance to get the one thing wrong that costs a player money.
  */
 const COMMITMENT_ABI = [
 	{type: 'bytes32'},
 	{type: 'tuple[]', components: [{name: 'cellID', type: 'uint64'}]},
+	{type: 'bytes24'},
 ] as const;
 
 /**
@@ -39,18 +46,131 @@ const COMMITMENT_ABI = [
  */
 const BYTES24_HEX_LENGTH = 50;
 
+/** `bytes24(0)`: what a chunk carries when there is nothing after it. */
+export const NO_FURTHER_ACTIONS =
+	'0x000000000000000000000000000000000000000000000000' as const;
+
+/** One reveal transaction's worth of a turn, and what it promises after it. */
+export type PlacementChunk = {
+	actions: readonly Placement[];
+	/** The hash of the chunk after this one, or {@link NO_FURTHER_ACTIONS}. */
+	furtherActions: `0x${string}`;
+	/** The head this chunk opens, which is what the contract will be holding. */
+	hash: `0x${string}`;
+	/** The bytes that hash is taken over, kept for the same reason it always was. */
+	encoded: `0x${string}`;
+};
+
+/**
+ * Cut a turn into the pieces the contract will accept.
+ *
+ * EXACTLY FULL EXCEPT THE LAST, which is the contract's rule and not a
+ * convenience: a chunk that promises a successor and is not full is refused, so
+ * a client that padded, trimmed or balanced the pieces would build a chain no
+ * reveal past the first could follow.
+ *
+ * An EMPTY turn is still one chunk. It is committed, it is revealed, and it
+ * resolves to nothing - which is what an idle player's automatic turn is in a
+ * game that punishes silence. Without this it would have no head to commit.
+ */
+function cutIntoChunks(
+	actions: readonly Placement[],
+	actionsPerReveal: number,
+): Placement[][] {
+	if (!Number.isInteger(actionsPerReveal) || actionsPerReveal < 1) {
+		throw new Error(
+			`this deployment says ${actionsPerReveal} actions per reveal, which is not a turn anybody could open`,
+		);
+	}
+	const chunks: Placement[][] = [];
+	for (let i = 0; i < actions.length; i += actionsPerReveal) {
+		chunks.push(actions.slice(i, i + actionsPerReveal) as Placement[]);
+	}
+	if (chunks.length === 0) chunks.push([]);
+	return chunks;
+}
+
+/**
+ * THE HASH CHAIN a turn is committed as.
+ *
+ * A commitment is not the hash of a turn; it is the head of a chain. Each
+ * reveal opens one chunk and rewrites the head to the hash of the next, and the
+ * commitment stays open until a chunk arrives declaring none. So the hashes are
+ * computed from the LAST chunk BACKWARDS: the head cannot be known until
+ * everything that comes after it is.
+ *
+ * Returns the chain in submission order, so `chunks[0]` is what the first reveal
+ * sends and `chunks[0].hash` is the head that was committed.
+ */
+export function buildPlacementChain(params: {
+	actions: readonly Placement[];
+	secret: `0x${string}`;
+	actionsPerReveal: number;
+}): PlacementChunk[] {
+	const cut = cutIntoChunks(params.actions, params.actionsPerReveal);
+
+	const chain: PlacementChunk[] = [];
+	let furtherActions: `0x${string}` = NO_FURTHER_ACTIONS;
+	for (let i = cut.length - 1; i >= 0; i--) {
+		const encoded = encodeAbiParameters(COMMITMENT_ABI, [
+			params.secret,
+			cut[i] as {cellID: bigint}[],
+			furtherActions,
+		]);
+		const hash = keccak256(encoded).slice(
+			0,
+			BYTES24_HEX_LENGTH,
+		) as `0x${string}`;
+		chain.unshift({actions: cut[i], furtherActions, hash, encoded});
+		furtherActions = hash;
+	}
+	return chain;
+}
+
+/**
+ * The commitment for a whole turn: the head of its chain.
+ *
+ * TAKES THE CHUNK SIZE, because the head depends on it. The same actions and
+ * the same secret hash to a DIFFERENT head at a different chunk size, so this
+ * cannot be a free function over two arguments the way it was before chaining -
+ * anything that recomputes a commitment (the recovery check, most of all) has to
+ * be given the deployment's number rather than assume one.
+ */
 export function buildPlacementCommitment(params: {
 	actions: readonly Placement[];
 	secret: `0x${string}`;
+	actionsPerReveal: number;
 }): {hash: `0x${string}`; encoded: `0x${string}`} {
-	const encoded = encodeAbiParameters(COMMITMENT_ABI, [
-		params.secret,
-		params.actions as {cellID: bigint}[],
-	]);
-	return {
-		encoded,
-		hash: keccak256(encoded).slice(0, BYTES24_HEX_LENGTH) as `0x${string}`,
-	};
+	const chain = buildPlacementChain(params);
+	return {hash: chain[0].hash, encoded: chain[0].encoded};
+}
+
+/**
+ * Where in the chain the contract currently is.
+ *
+ * READ OFF THE CHAIN, NEVER REMEMBERED. A reveal interrupted halfway - a
+ * reload, a signer that ran out of gas between chunks, a second device - leaves
+ * the browser with no idea how far it got, and a browser that guessed would
+ * either re-send a chunk that has already landed (refused, because the head has
+ * moved past it) or skip one (refused, for the same reason). The contract is
+ * holding the answer: its `hash` is the head, and the head identifies exactly
+ * one chunk of a chain this client can rebuild.
+ *
+ * Returns the index of the chunk that is due next, or undefined when the head
+ * belongs to no chunk of this turn - which means the commitment on chain is not
+ * this submission's, and re-sending against it would be sending somebody else's
+ * turn.
+ */
+export function chunkDueNext(
+	chain: readonly PlacementChunk[],
+	head: `0x${string}`,
+): number | undefined {
+	// Lowercased on both sides: hex case is a difference no error anywhere would
+	// report, and the same normalisation `game/core/recovery` does for the same
+	// reason.
+	const wanted = head.toLowerCase();
+	const index = chain.findIndex((chunk) => chunk.hash.toLowerCase() === wanted);
+	return index === -1 ? undefined : index;
 }
 
 /**
@@ -213,8 +333,38 @@ export function createPlacementCommitReveal(params: {
 		return {executor: $executor, deployments: get(deployments)};
 	}
 
+	/**
+	 * Where the contract thinks this player's turn has got to.
+	 *
+	 * One read, made once per reveal rather than once per chunk: the chain is
+	 * walked in order and each transaction is waited for, so the head after chunk
+	 * `i` is `chunk[i].furtherActions` by construction. Re-reading between chunks
+	 * would cost a round trip inside a reveal window that a multi-chunk turn is
+	 * already spending several transactions of.
+	 */
+	async function headOnChain(
+		identity: GameIdentity,
+	): Promise<{hash: `0x${string}`; cycleNumber: bigint}> {
+		const deployments = get(deps.deployments);
+		return (await deps.publicClient.readContract({
+			address: deployments.contracts.Game.address,
+			abi: deployments.contracts.Game.abi,
+			functionName: 'getCommitment',
+			args: [onchainIdentity(identity)],
+		})) as {hash: `0x${string}`; cycleNumber: bigint};
+	}
+
 	return {
-		buildCommitment: buildPlacementCommitment,
+		buildCommitment: ({actions, secret}) =>
+			buildPlacementCommitment({
+				actions,
+				secret,
+				// THE DEPLOYMENT'S NUMBER, which is the whole reason it travels in
+				// the config: the head of the chain depends on how the turn was cut,
+				// so a client hashing at a different size commits something the
+				// contract cannot follow.
+				actionsPerReveal: config.actionsPerReveal,
+			}),
 
 		async commit({identity, hash, actions}) {
 			await params.beforeCommit?.();
@@ -255,11 +405,53 @@ export function createPlacementCommitReveal(params: {
 			};
 		},
 
-		async reveal({identity, actions, secret}) {
+		/**
+		 * Open the turn, in as many transactions as the chunk size demands.
+		 *
+		 * IT RESUMES RATHER THAN RESTARTS. Which chunk is due is read off the
+		 * contract, so a reveal interrupted halfway - by a reload, by a signer that
+		 * ran out of gas between chunks, by a second device having sent the first
+		 * one - picks up exactly where the chain got to. A browser that remembered
+		 * instead would re-send a chunk the head has already moved past, be
+		 * refused, and report a failure to a player whose turn was in fact fine.
+		 *
+		 * IN ORDER, ONE AT A TIME, and each waited for. They cannot be batched or
+		 * raced: chunk `i + 1` is checked against a head that chunk `i` writes, so
+		 * a second send before the first is mined is a send against a head that
+		 * does not exist yet.
+		 *
+		 * The hash it hands back is the LAST one, because that is the transaction
+		 * that completed the turn.
+		 */
+		async reveal({identity, actions, secret, onProgress}) {
 			const {executor, deployments} = await ready();
 
-			return {
-				hash: await send(
+			const chain = buildPlacementChain({
+				actions,
+				secret,
+				actionsPerReveal: config.actionsPerReveal,
+			});
+			const onChain = await headOnChain(identity);
+			if (onChain.cycleNumber === 0n) {
+				throw new Error('There is no commitment on chain left to reveal.');
+			}
+			const from = chunkDueNext(chain, onChain.hash);
+			if (from === undefined) {
+				// NOT a retryable failure and not a node problem: the contract is
+				// holding a turn that is not this one. Re-sending against it would
+				// be revealing somebody else's commitment, which the hash check
+				// would refuse anyway, so saying what is actually wrong is the only
+				// useful thing to do with it.
+				throw new Error(
+					'The commitment on chain is not the turn this browser is holding, so it cannot be revealed from here.',
+				);
+			}
+
+			onProgress?.({done: from, total: chain.length});
+
+			let hash: `0x${string}` | undefined;
+			for (let i = from; i < chain.length; i++) {
+				hash = await send(
 					deps,
 					executor,
 					{
@@ -271,16 +463,28 @@ export function createPlacementCommitReveal(params: {
 						// a forfeit. Here the player reveals for themselves.
 						args: [
 							onchainIdentity(identity),
-							actions as {cellID: bigint}[],
+							chain[i].actions as {cellID: bigint}[],
 							secret,
+							chain[i].furtherActions,
 							zeroAddress,
 						],
 						account: executor.account,
 						chain: null,
 					},
-					'The reveal',
-				),
-			};
+					chain.length === 1
+						? 'The reveal'
+						: `Part ${i + 1} of ${chain.length} of the reveal`,
+				);
+				onProgress?.({done: i + 1, total: chain.length});
+			}
+
+			if (!hash) {
+				// Unreachable: `from` indexes a chunk that exists, so the loop runs
+				// at least once. Stated rather than asserted away because the return
+				// type is what the submission believes about a landed transaction.
+				throw new Error('Nothing was left to reveal.');
+			}
+			return {hash};
 		},
 	};
 }

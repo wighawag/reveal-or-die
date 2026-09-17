@@ -12,9 +12,10 @@ contract GameReveal is IGameReveal, UsingGameInternal {
         uint256 player,
         Placement[] calldata placements,
         bytes32 secret,
+        bytes24 furtherActions,
         address payable payee
     ) external payable {
-        _reveal(player, placements, secret);
+        _reveal(player, placements, secret, furtherActions);
 
         // extra steps for which we do not intend to track via events
         if (payee != address(0) && msg.value != 0) {

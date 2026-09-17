@@ -620,7 +620,19 @@ export function createGameContext(core: CoreServices): GameContext {
 		commitment: missedReveal.commitment,
 		identity: activeIdentity,
 		makeSecret,
-		buildCommitment: buildPlacementCommitment,
+		// THE DEPLOYMENT'S CHUNK SIZE, not a default, and this is the call site
+		// where getting it wrong is worst. The commitment is the head of a hash
+		// chain, so the same actions and the same secret hash to a DIFFERENT head
+		// at a different chunk size: a recovery check run at the wrong size tells
+		// a player their plan was not what they committed, during the one cycle in
+		// which the stake can still be saved, and sends them looking for a mistake
+		// they did not make.
+		buildCommitment: ({actions, secret}) =>
+			buildPlacementCommitment({
+				actions,
+				secret,
+				actionsPerReveal: config.actionsPerReveal,
+			}),
 	});
 
 	/**

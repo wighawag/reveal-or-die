@@ -68,7 +68,26 @@ export type SubmissionState<TAction> =
 	| {step: 'Committing'; cycleNumber: number; actions: readonly TAction[]}
 	/** The commitment is in; the reveal is owed this cycle. */
 	| {step: 'Committed'; cycleNumber: number; actions: readonly TAction[]}
-	| {step: 'Revealing'; cycleNumber: number; actions: readonly TAction[]}
+	| {
+			step: 'Revealing';
+			cycleNumber: number;
+			actions: readonly TAction[];
+			/**
+			 * How far a reveal that takes several transactions has got.
+			 *
+			 * OPTIONAL BECAUSE MOST REVEALS ARE ONE TRANSACTION, and a game whose
+			 * turns always fit in one never reports it. Where a turn is bigger
+			 * than a transaction the reveal is a SEQUENCE - the commitment is the
+			 * head of a hash chain and each transaction opens one piece of it -
+			 * and a player watching a board that fills in a few cells at a time
+			 * over half a minute is owed an account of what is happening.
+			 *
+			 * `done` counts pieces that have LANDED, so it starts at whatever the
+			 * chain had already accepted (which is not always zero: a reveal
+			 * resumed after a reload starts part way through).
+			 */
+			progress?: {done: number; total: number};
+	  }
 	| {step: 'Revealed'; cycleNumber: number}
 	/**
 	 * A commitment from an earlier cycle was never revealed. Whatever the game
@@ -449,6 +468,19 @@ export function createSubmission<
 				identity: player,
 				actions: pending.actions,
 				secret: pending.secret,
+				// GUARDED ON THE CURRENT STATE rather than written blind. The
+				// adapter reports progress from inside an await, and a cycle that
+				// turned over meanwhile has already moved this submission to
+				// `Missed`; writing a `Revealing` back over that would tell the
+				// player their turn was still going out when the window had shut.
+				onProgress: (progress) => {
+					if (
+						$state.step === 'Revealing' &&
+						$state.cycleNumber === pending.cycleNumber
+					) {
+						set({...$state, progress});
+					}
+				},
 			});
 			// Refresh FIRST, then report revealed: see the note on onSettled.
 			try {

@@ -61,34 +61,44 @@ export const config = {
 				// player always gets, rather than one that drifts down with the
 				// mempool while they sit still.
 				expectedWorstGasPrice: parseEther('1', 'gwei'), // TODO use same value from hardhat config
-				// Gas ONE TURN costs: a commit plus the reveal that must follow it.
-				// MEASURED, on a local node, not reasoned about - the worst case a
-				// player can actually reach is a full stake spent in one turn, which
-				// is ten placements (the sale's `amount` divided by `placementCost`
-				// below), every cell claimed for the first time, and every cell in a
-				// different zone. That last part is what makes it the worst case:
+				// Gas ONE USER ACTION costs, which since the reveal became chunked is
+				// a commit plus ONE REVEAL STEP rather than a commit plus a whole
+				// turn. A turn is no longer a transaction: it arrives in
+				// `ceil(actions / actionsPerReveal)` reveals, so a long turn honestly
+				// costs more credits than a short one, and a credit that still meant
+				// "one turn" would be a number with no fixed gas behind it.
+				//
+				// MEASURED ON THIS BRANCH, not inherited. At four actions per reveal
+				// the worst case a single transaction can reach is a FULL chunk of
+				// cells claimed for the first time, each in a different zone:
 				// `_place` appends to a per-zone index only on a cell's first claim,
-				// so ten first claims across ten zones is ten new dynamic arrays.
+				// so four first claims across four zones is four new dynamic arrays.
 				//
-				//   ten fresh cells, ten zones  116,898 + 1,217,425 = 1,334,323
-				//   ten fresh cells, one zone   116,898 +   909,067 = 1,025,965
-				//   ten cells already claimed    99,798 +   434,797 =   534,595
-				//   one fresh cell              116,898 +   181,227 =   298,125
+				//   first commit (cold slots)                 99,102
+				//   later commit (warm slots)                 64,902
+				//   full fresh chunk, four zones, final      374,085
+				//   the same chunk, non-final                368,480
 				//
-				// So this is the top of that range plus about 12%, kept a round
-				// number because it is a policy figure with a margin rather than a
-				// reading. The margin is what keeps the credit count a FLOOR when a
-				// contract edit moves the gas a little; if one moves it a lot, this
-				// is measured again rather than nudged.
+				// So one commit plus one reveal step is 473,187 worst case, and this
+				// is that plus about 15%, kept a round number because it is a policy
+				// figure with a margin rather than a reading.
 				//
-				// NOT the same number as `COMMIT_GAS + REVEAL_GAS` in
-				// web/src/lib/placement/config.ts, and deliberately so. Those size
-				// the STIPEND, which is a reservation and is generous on purpose;
-				// this is what a turn is actually CHARGED, because moves are sent
-				// without a gas limit and a player pays for gas used. Pricing
-				// credits at the reservation would understate the moves left by
-				// half, which is the opposite of the question the number answers.
-				creditsGasMultiplier: 1_500_000n,
+				// EVERY ONE OF THOSE FIGURES IS LOWER THAN `main`'s, which measured
+				// 116,898 and 535,561 for the same two transactions, and the reason
+				// is this branch's stake model rather than anything about the chunk.
+				// A placement costs NOTHING here - custody of the avatar is the
+				// stake - so a reveal never writes a per-cell stake, never writes a
+				// cell total, and never touches the reserve, and a commit bonds
+				// zero. Merging `main`'s number in unchanged would have priced a
+				// credit 58% above what a step here actually costs, and it would
+				// have merged cleanly, because the FILE does not differ: only the
+				// contracts the number was measured against do.
+				//
+				// It is therefore NOT the same number as `COMMIT_GAS + REVEAL_GAS`
+				// in web/src/lib/placement/config.ts on this branch, and the two
+				// answer different questions: this prices what a step is CHARGED,
+				// and that sizes a reservation which is deliberately generous.
+				creditsGasMultiplier: 550_000n,
 				supportsSendRawTransactionSync: false,
 			},
 			tags: ['local', 'memory', 'testnet'],
@@ -157,7 +167,27 @@ export const config = {
 			},
 		},
 		/**
-		 * Phase durations.
+		 * Phase durations, and how much of a turn one transaction may carry.
+		 *
+		 * `actionsPerReveal` IS THE CHUNK, and it is here rather than in the
+		 * contract because the two things that decide it are a property of the GAME
+		 * (how expensive one action is to resolve) and of the CHAIN (what fits in a
+		 * transaction there). A turn longer than this arrives in several reveals;
+		 * the turn itself is not capped, and capping it is a game rule this
+		 * framework deliberately does not take a position on.
+		 *
+		 * Four, and ON THIS BRANCH IT IS THE ONLY BOUND A REVEAL HAS. `main` picks
+		 * four so that the chaining is exercised, because there a turn is bounded
+		 * economically - the reserve buys ten placements and no more - and a bigger
+		 * chunk would simply mean no turn anybody can make ever chains. Here a
+		 * placement costs nothing, so there is no economic bound at all: a player
+		 * may plan a turn of any length, and without this parameter a single reveal
+		 * could walk an unbounded number of cells into the per-zone index that every
+		 * other player's viewport read then has to walk.
+		 *
+		 * So the reasoning is different even though the number is the same, and the
+		 * consequence below is different with it. A game built from this template
+		 * picks its own, from its own measurements on its own chain.
 		 *
 		 * The reveal phase is the one to be careful with, and it used to be 3-4
 		 * seconds. That is not survivable: a client has to NOTICE the phase turned
@@ -172,18 +202,35 @@ export const config = {
 		 * optimistically. Size the reveal phase to comfortably exceed one block time
 		 * plus a client round trip; ten seconds is generous on a local chain and is
 		 * the floor to think from on a real one.
+		 *
+		 * AND IT IS NOW SIZED FOR SEVERAL TRANSACTIONS, NOT ONE. A turn longer
+		 * than `actionsPerReveal` is revealed in `ceil(actions / actionsPerReveal)`
+		 * transactions, in order, all of which have to land inside this window;
+		 * anything still owed when it shuts is a partially applied turn, and what
+		 * the silence costs on this branch is the whole avatar.
+		 *
+		 * `main` can say how many sends that is - its largest possible turn is ten
+		 * placements, the sale's `amount` over `placementCost`, so three - and this
+		 * branch CANNOT, because `placementCost` is zero and that division has no
+		 * answer. A turn here is unbounded, so the number of reveals it takes is
+		 * unbounded, and a long enough one cannot fit in any reveal window however
+		 * generous. THAT IS A CLIENT'S PROBLEM RATHER THAN A CLOCK'S: whatever
+		 * builds a turn here should refuse to plan one it cannot open in the time
+		 * available, and until something does, a player who plans a very long turn
+		 * can lose their avatar to the phase ending. Recorded here rather than
+		 * silently inheriting a sentence that divides by zero.
 		 */
 		Game: {
 			localhost: {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
-				numMoves: 10n,
+				actionsPerReveal: 4n,
 				cyclePolicy: CYCLE_POLICY.Timed,
 			},
 			default: {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
-				numMoves: 10n,
+				actionsPerReveal: 4n,
 				cyclePolicy: CYCLE_POLICY.Timed,
 			},
 		},

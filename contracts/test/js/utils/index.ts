@@ -7,7 +7,146 @@ import {
 	loadAndExecuteDeploymentsFromFiles,
 } from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
-import {parseEther, zeroAddress} from 'viem';
+import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
+
+/** One placement, matching the contract's `Placement` struct. */
+export type Placement = {cellID: bigint};
+
+/**
+ * THE CHUNK a game deployed by {@link deployGameWith} accepts.
+ *
+ * A suite that deploys its own game picks this rather than reading it back, so
+ * it is named once here. A suite playing the SHIPPED deployment reads
+ * `actionsPerReveal` off its record instead - see `setupFixtures` - because that
+ * one is whatever the deploy config says and must not be assumed.
+ */
+export const DEFAULT_ACTIONS_PER_REVEAL = 4n;
+
+/** `bytes24(0)`: what a chunk carries when there is nothing after it. */
+export const NO_FURTHER_ACTIONS =
+	'0x000000000000000000000000000000000000000000000000' as const;
+
+/** One reveal transaction's worth of a turn, and what it promises after it. */
+export type Chunk = {
+	placements: Placement[];
+	furtherActions: `0x${string}`;
+};
+
+/**
+ * THE HASH CHAIN, built the way a client has to build it.
+ *
+ * A commitment is the head of a chain: each reveal opens one chunk and rewrites
+ * the head to the hash of the next, so the hashes are computed from the LAST
+ * chunk BACKWARDS - the head cannot be known until everything after it is.
+ *
+ * It is written out here rather than asked of the contract, for the same reason
+ * {@link cycleClock} is: a test that computed the hash by calling the thing it
+ * is testing would assert nothing. The encoding must match
+ * `UsingGameInternal._checkHash` exactly, and note that it is ONE encoding for
+ * every chunk including the last, where `furtherActions` is zero and is hashed
+ * in anyway.
+ *
+ * ONE COPY, SHARED BY EVERY SUITE HERE, deliberately. A mismatch between two
+ * spellings of this is not a compile error and not a failed read: the commit
+ * succeeds and the reveal reverts once the stake is bonded, so a second copy
+ * would be a second chance at the one mistake that costs a player money.
+ */
+export function commitmentChain(
+	placements: readonly Placement[],
+	secret: `0x${string}`,
+	actionsPerReveal: number,
+): {head: `0x${string}`; chunks: Chunk[]} {
+	if (actionsPerReveal < 1) {
+		throw new Error('a chunk of zero actions can never be revealed');
+	}
+
+	const split: Placement[][] = [];
+	for (let i = 0; i < placements.length; i += actionsPerReveal) {
+		split.push(placements.slice(i, i + actionsPerReveal));
+	}
+	// An empty turn is still ONE chunk: it is committed, it is revealed, and it
+	// resolves to nothing. Without this it would have no head at all.
+	if (split.length === 0) split.push([]);
+
+	const chunks: Chunk[] = [];
+	let next: `0x${string}` = NO_FURTHER_ACTIONS;
+	for (let i = split.length - 1; i >= 0; i--) {
+		chunks.unshift({placements: split[i], furtherActions: next});
+		next = hashChunk(split[i], secret, next);
+	}
+
+	return {head: next, chunks};
+}
+
+/** `bytes24(keccak256(abi.encode(secret, placements, furtherActions)))`. */
+function hashChunk(
+	placements: readonly Placement[],
+	secret: `0x${string}`,
+	furtherActions: `0x${string}`,
+): `0x${string}` {
+	const encoded = encodeAbiParameters(
+		[
+			{type: 'bytes32'},
+			{type: 'tuple[]', components: [{name: 'cellID', type: 'uint64'}]},
+			{type: 'bytes24'},
+		],
+		[secret, placements as Placement[], furtherActions],
+	);
+	return keccak256(encoded).slice(0, 50) as `0x${string}`;
+}
+
+/**
+ * The commitment hash for a whole turn, at a given chunk size.
+ *
+ * What a `makeCommitment` call takes: the head of the chain, not the hash of
+ * the turn.
+ */
+export function commitmentHashFor(
+	placements: readonly Placement[],
+	secret: `0x${string}`,
+	actionsPerReveal: number,
+): `0x${string}` {
+	return commitmentChain(placements, secret, actionsPerReveal).head;
+}
+
+/**
+ * Reveal a whole turn, however many transactions that takes.
+ *
+ * A TEST THAT REVEALS BY HAND IS A TEST ABOUT THE CHAIN; every other test wants
+ * "this player took this turn", so it says that. The transactions go in ORDER
+ * and one at a time, which is not an optimisation to undo later: each one
+ * rewrites the head the next is checked against.
+ */
+export async function revealTurn(
+	fixtures: {env: any; Game: any},
+	options: {
+		account: `0x${string}`;
+		identity: bigint;
+		placements: readonly Placement[];
+		secret: `0x${string}`;
+		actionsPerReveal: number;
+	},
+): Promise<void> {
+	const {env, Game} = fixtures;
+	const {chunks} = commitmentChain(
+		options.placements,
+		options.secret,
+		options.actionsPerReveal,
+	);
+	for (const chunk of chunks) {
+		await env.execute(Game, {
+			account: options.account,
+			functionName: 'reveal',
+			args: [
+				options.identity,
+				chunk.placements,
+				options.secret,
+				chunk.furtherActions,
+				zeroAddress,
+			],
+		});
+	}
+}
 
 /**
  * How the cycle advances. The contract's enum, by value.
@@ -92,6 +231,8 @@ export async function deployGameWith(
 		revealPhaseDuration: bigint;
 		startTime?: bigint;
 		placementCost?: bigint;
+		/** THE CHUNK. Deliberately overridable: see `deployedActionsPerReveal`. */
+		actionsPerReveal?: bigint;
 	},
 ) {
 	const {env} = fixtures;
@@ -111,6 +252,7 @@ export async function deployGameWith(
 		// Zero, as the deployment's is. What is at stake here is custody of the
 		// avatar, so a bond is exactly what a commitment does not need.
 		placementCost: options.placementCost ?? 0n,
+		actionsPerReveal: options.actionsPerReveal ?? DEFAULT_ACTIONS_PER_REVEAL,
 		cyclePolicy: BigInt(options.cyclePolicy),
 	};
 
@@ -302,6 +444,7 @@ export function setupFixtures(provider: EthereumProvider) {
 				revealPhaseDuration: string;
 				time: `0x${string}`;
 				placementCost: string;
+				actionsPerReveal: string;
 			};
 
 			let _timeOverride: {timestamp: number; whenMs: number} | undefined;
@@ -382,6 +525,15 @@ export function setupFixtures(provider: EthereumProvider) {
 				GameAvatarSale,
 				GameAvatars,
 				linkedData,
+				/**
+				 * THE CHUNK THE DEPLOYED GAME WILL ACCEPT, read off its own record.
+				 *
+				 * Never a literal in a suite. It is a deployment parameter, so a
+				 * test that spelled the number out would go on passing while the
+				 * deployment said something else - which is the exact failure the
+				 * parameter exists to make impossible for the client.
+				 */
+				actionsPerReveal: Number(linkedData.actionsPerReveal),
 				getCycleNumber,
 				getTimestamp,
 				// Exposed because a game deployed INSIDE a test has a schedule of

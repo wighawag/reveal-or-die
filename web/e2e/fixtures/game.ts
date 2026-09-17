@@ -29,6 +29,12 @@ export async function submissionStep(page: Page): Promise<{
 	reserve?: string;
 	cellID?: string;
 	planned: number;
+	/**
+	 * How far a reveal that takes several transactions has got, when the
+	 * submission is reporting one. Undefined for an ordinary single-transaction
+	 * reveal and at every other step.
+	 */
+	revealProgress?: {done: number; total: number};
 }> {
 	return page.evaluate(`(() => {
 		${READ}
@@ -49,6 +55,8 @@ export async function submissionStep(page: Page): Promise<{
 			message: submission.message,
 			reserve: reserve.step === 'Loaded' ? reserve.amount.toString() : undefined,
 			cellID: cellID === undefined ? undefined : cellID.toString(),
+			// Plain numbers, so it crosses the evaluate boundary as it stands.
+			revealProgress: submission.progress,
 			planned:
 				view.step === 'Loaded'
 					? [...view.cells.values()].filter((c) => c.planned).length
@@ -60,7 +68,39 @@ export async function submissionStep(page: Page): Promise<{
 		reserve?: string;
 		cellID?: string;
 		planned: number;
+		revealProgress?: {done: number; total: number};
 	}>;
+}
+
+/**
+ * THE CHUNK, as this deployment declares it.
+ *
+ * Read off the app's config rather than written down here, for exactly the
+ * reason the client reads it off the deployment: a turn longer than this is
+ * opened in several transactions, and a test that spelled the number out would
+ * go on passing while the deploy said something else - which is the case it
+ * exists to cover.
+ */
+export async function actionsPerReveal(page: Page): Promise<number> {
+	return page.evaluate(
+		`globalThis.context.game.config.actionsPerReveal`,
+	) as Promise<number>;
+}
+
+/**
+ * The cells the board is holding a share of for THIS player.
+ *
+ * Counted rather than named, because a multi-chunk turn is asserted by how much
+ * of it has landed rather than by which cells: the plan comes from clicks whose
+ * exact cells depend on the canvas size.
+ */
+export async function plannedCellIDs(page: Page): Promise<string[]> {
+	return page.evaluate(`(() => {
+		${READ}
+		const submission = read(globalThis.context.game.submission);
+		if (!('actions' in submission)) return [];
+		return submission.actions.map((a) => a.cellID.toString());
+	})()`) as Promise<string[]>;
 }
 
 /**
@@ -237,6 +277,73 @@ export async function planOnCanvas(
 			timeout: 15_000,
 		})
 		.toBe('Planning');
+}
+
+/**
+ * Where {@link planManyOnCanvas} clicks, from the middle of the canvas out.
+ *
+ * KEPT WELL INSIDE THE CANVAS. The HUD sits over its edges, and a click that
+ * lands on a control is swallowed with no symptom at all - the plan simply does
+ * not grow, which reads as the canvas ignoring input.
+ *
+ * SIXTY PIXELS APART because the camera is configured in CELLS and not pixels:
+ * at the default zoom (24 cells across the viewport) a cell is around 25 pixels
+ * wide, so this is a couple of cells between rungs, with room for a viewport
+ * half the expected size before two rungs could land on one cell.
+ */
+const FIRST_OFFSET = {x: 0, y: -60};
+const LADDER = [
+	{x: -120, y: -60},
+	{x: 120, y: -60},
+	{x: -60, y: 0},
+	{x: 60, y: 0},
+	{x: -120, y: 0},
+	{x: 120, y: 0},
+	{x: -60, y: 60},
+	{x: 60, y: 60},
+	{x: -120, y: 60},
+	{x: 120, y: 60},
+];
+
+/**
+ * Plan `count` DISTINCT cells, for a turn bigger than one transaction.
+ *
+ * It steps the offset outwards and CHECKS after every click, rather than
+ * assuming a cell is so many pixels wide. Two reasons, and both have bitten a
+ * canvas test before: how many pixels a cell occupies depends on the viewport
+ * (the camera is configured in CELLS, not pixels), and a click landing on a cell
+ * that is already planned TOGGLES IT BACK OFF - placements cost stake, so a
+ * mis-click has to be undoable. A fixed ladder of offsets that happened to hit
+ * one cell twice would quietly plan fewer cells than it asked for and the test
+ * would fail somewhere else entirely.
+ *
+ * The first click goes through {@link planOnCanvas}, so the whole run still
+ * waits for a play phase with room left in it.
+ */
+export async function planManyOnCanvas(
+	page: Page,
+	count: number,
+	secondsNeeded = 14,
+): Promise<void> {
+	await planOnCanvas(page, FIRST_OFFSET, secondsNeeded);
+
+	let planned = 1;
+	for (const offset of LADDER) {
+		if (planned >= count) break;
+		await clickCanvas(page, offset);
+		const now = (await submissionStep(page)).planned;
+		if (now < planned) {
+			// That click landed on a cell already in the plan and took it back out.
+			// Put it back and move on: at this zoom the spacing is a couple of cells
+			// so it should not happen, and if the viewport ever makes it happen the
+			// ladder simply costs a rung.
+			await clickCanvas(page, offset);
+		} else {
+			planned = now;
+		}
+	}
+
+	expect(planned, `should have planned ${count} distinct cells`).toBe(count);
 }
 
 /**
