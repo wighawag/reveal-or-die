@@ -61,6 +61,19 @@ its own and is ported one at a time; a descendant full of `epoch` is a schedule,
 not a stale glossary. What a game must not do is use `cycle` for something that
 is not the framework's interval.
 
+**AND THE SAME READING APPLIES TO A MECHANISM, NOT ONLY TO A WORD.** `CONTEXT.md`
+says a **commitment** is the head of a hash chain, each link holding one **chunk**
+and the hash of the next, because a turn may be bigger than a transaction and the
+framework owns that. A descendant's contracts may not have built it yet: its
+`reveal` takes one array and resolves all of it, and there is no `furtherActions`
+anywhere. That is the same schedule as `epoch`, for the same reason, and it is
+visible in the same way - grep the contracts, not the glossary. Nothing breaks
+while the two disagree, because the client half is a SEAM: `reveal` on the
+adapter is one call that may be several transactions, and an adapter that needs
+only one never reports progress. What a game must not do is chain the
+commitment in its contracts and leave its client sending the whole turn, which
+fails only in the reveal phase and costs the stake.
+
 Three files keep an old word on purpose, and all three are different cases. Two
 keep `epoch`; the third keeps `round`, which is the other word this rename
 moved (the shared interval became `cycle`, one player's pass became a
