@@ -99,4 +99,5 @@ position on it.
 **Turn**:
 Whatever a game calls one player's contribution, if it wants the word. Games
 here are simultaneous, so a turn is not an interval; and in a game whose actions
-are directions, turning is also a move.
+are directions, turning is also a move. This template's own reference game takes
+the word: what the framework calls a submission, its HUD calls a turn.
