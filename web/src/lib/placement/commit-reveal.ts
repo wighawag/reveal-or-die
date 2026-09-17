@@ -375,6 +375,25 @@ export function createPlacementCommitReveal(params: {
 			// surplus locked out of the reserve until the submission settles, and
 			// bonding less makes the reveal revert with `BondTooLow` after the
 			// commitment is already immovable.
+			//
+			// AND IT LEAKS THE LENGTH OF THE TURN, which is a real hiding weakness
+			// and not merely a tidy choice. The bond is public - it is in
+			// `CommitmentMade` and in what `getCommitment` returns - so dividing it
+			// by `placementCost` gives any observer the exact number of actions
+			// hidden in the commitment, before anybody reveals anything. What that
+			// costs depends on the game: here a cell is claimed by accumulation and
+			// knowing a rival is placing six rather than one is worth something,
+			// while in a game where the count IS the move it would be most of the
+			// secret.
+			//
+			// The fix is to post MORE than the turn will cost - a fixed amount, or
+			// the plan rounded up to a whole number of chunks - and it is not free,
+			// which is why it is written down here rather than done. It moves the
+			// game into the case `_acknowledgeMissedReveal` cannot settle in one
+			// call: the contract would no longer be able to tell the surplus from
+			// the stake, so forfeiting the remainder would punish the hiding rather
+			// than the silence, and the settlement would have to take the chunks in
+			// order to give the surplus back. Both halves have to move together.
 			const bond = costOfPlacements(config, actions.length);
 
 			return {
@@ -415,10 +434,31 @@ export function createPlacementCommitReveal(params: {
 		 * instead would re-send a chunk the head has already moved past, be
 		 * refused, and report a failure to a player whose turn was in fact fine.
 		 *
-		 * IN ORDER, ONE AT A TIME, and each waited for. They cannot be batched or
-		 * raced: chunk `i + 1` is checked against a head that chunk `i` writes, so
-		 * a second send before the first is mined is a send against a head that
-		 * does not exist yet.
+		 * IN ORDER, ONE AT A TIME, and each waited for.
+		 *
+		 * THEY COULD GO OUT AT ONCE, AND THAT IS WORTH KNOWING BEFORE ANYONE
+		 * SHORTENS A REVEAL PHASE. The reason to think they cannot is that chunk
+		 * `i + 1` is checked against a head that chunk `i` writes - but nonces are
+		 * per account and strictly sequential, so a transaction at nonce `n + 1`
+		 * cannot be executed before the one at `n`. Broadcasting all `k` chunks in
+		 * one burst would therefore resolve them in exactly this order, in the same
+		 * block or in consecutive ones, and would cost one round trip instead of
+		 * `k` - which is real seconds inside a window a multi-chunk turn is already
+		 * spending several transactions of.
+		 *
+		 * Three reasons it is sequential today, and none of them is "it would not
+		 * work". The FAILURE STORY gets worse: if chunk `i` reverts, every later
+		 * chunk is still mined, still reverts and is still paid for, and `send()`
+		 * reports one failure at a time rather than "which of `k`". The NONCE
+		 * machinery hands out and tracks one dispatch at a time here, and a burst is
+		 * where a nonce burned by a rejected send (see
+		 * {@link refuseWhenTheSignerHoldsNothing}) costs a whole turn rather than
+		 * one transaction. And the sequential version is MEASURED to fit: two chunks
+		 * land inside a ten-second reveal phase in the e2e suite, on every node.
+		 *
+		 * So the arithmetic a deployment has to satisfy today is
+		 * `ceil(actions / actionsPerReveal)` SEQUENTIAL sends inside the reveal
+		 * phase, and that is a property of this client rather than of the chain.
 		 *
 		 * The hash it hands back is the LAST one, because that is the transaction
 		 * that completed the turn.
