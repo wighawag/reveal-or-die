@@ -359,19 +359,47 @@ abstract contract UsingGameInternal is
     ///      commitment leaves the player blocked forever, since the head points
     ///      at a chunk nobody will ever submit.
     ///
-    ///      Stratagems has to walk the chain because its penalty is computed
-    ///      FROM the moves - it burns reserve per move revealed - so it cannot
-    ///      know what to take without being shown them. Here the penalty is the
-    ///      bond, which was fixed when the commitment was made and is decremented
-    ///      by each chunk as it lands, so the contract already knows what is
-    ///      outstanding and needs nothing from the caller to close it. Walking
-    ///      the chain here would instead require the SECRET, which is exactly
-    ///      what a player who has gone silent will not supply, and would make
-    ///      settlement depend on the very thing that failed.
+    ///      Here the penalty is the bond, which was fixed when the commitment
+    ///      was made and is decremented by each chunk as it lands, so the
+    ///      contract already knows what is outstanding and needs nothing from
+    ///      the caller to close it. Walking the chain here would instead require
+    ///      the SECRET, which is exactly what a player who has gone silent will
+    ///      not supply, and would make settlement depend on the very thing that
+    ///      failed.
     ///
-    ///      A game that forfeits per action rather than per bond has to revisit
-    ///      this, and the test that pins it is the one to read first:
-    ///      "a half-revealed turn settles in one call".
+    ///      TWO THINGS MAKE A GAME NEED THE CHUNKS HERE, and they are
+    ///      independent. Stratagems has BOTH, which is why it is the worked
+    ///      example either way.
+    ///
+    ///      1. A PENALTY COMPUTED FROM THE ACTIONS. Stratagems burns reserve per
+    ///         move revealed, so it cannot know what to take without being shown
+    ///         them.
+    ///      2. A BOND DELIBERATELY LARGER THAN WHAT THE TURN WILL COST, which is
+    ///         the subtler one and is a HIDING requirement rather than an
+    ///         accounting one. The bond is PUBLIC - it is in
+    ///         {UsingGameEvents-CommitmentMade} and in what
+    ///         {IGameGetters-getCommitment} returns - so a bond equal to the
+    ///         exact cost tells every observer how many actions the commitment
+    ///         hides. A game that cares posts more than it needs, and then this
+    ///         function cannot tell the surplus from the stake: forfeiting all
+    ///         of it punishes the HIDING rather than the silence, and punishes
+    ///         it hardest on the player who hid best. Such a game has to accept
+    ///         the chunks so that what was actually committed can be
+    ///         established and the surplus returned.
+    ///
+    ///      THIS GAME HAS NEITHER, and the second one is a choice rather than a
+    ///      property: its client bonds the exact cost of what was planned (see
+    ///      `placement/commit-reveal.ts`), so its bond leaks the length of the
+    ///      turn, and that is a real hiding weakness rather than a reason the
+    ///      settlement is simple. Fixing it - bonding a rounded or a fixed
+    ///      amount - would move this game into case 2 and would need this
+    ///      function to change with it. Do not read "one call is enough" as a
+    ///      property of chaining; it is a property of a bond that is exactly
+    ///      what it will spend.
+    ///
+    ///      The test that pins today's behaviour is the one to read first:
+    ///      "settles a half-revealed turn in ONE call, and frees the next
+    ///      cycle".
     function _acknowledgeMissedReveal(uint256 player) internal {
         Commitment storage commitment = _commitments[player];
 

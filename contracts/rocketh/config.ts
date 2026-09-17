@@ -212,6 +212,16 @@ export const config = {
 		 * ten placements (the sale's `amount` over `placementCost`), so at four per
 		 * reveal that is three sequential sends. Multiply the round trip above by
 		 * that number before shortening this.
+		 *
+		 * THAT FACTOR IS THE CLIENT'S AND NOT THE CHAIN'S, which is the thing to
+		 * know before treating it as a floor. Nonces are per account and strictly
+		 * sequential, so the chunks could be broadcast in ONE burst and would still
+		 * execute in order - one round trip rather than three. The client sends them
+		 * one at a time today for reasons written at its reveal loop
+		 * (`placement/commit-reveal.ts`), none of which is that a burst would not
+		 * work. So a phase that is too short for a long turn is a pair of things to
+		 * weigh rather than one: lengthen the window, or stop waiting between
+		 * chunks.
 		 */
 		Game: {
 			localhost: {
