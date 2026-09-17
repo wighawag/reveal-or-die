@@ -545,7 +545,7 @@ export function createGameContext(core: CoreServices): GameContext {
 	/**
 	 * ONE derivation, shared by the submission and by recovery.
 	 *
-	 * Built here rather than inline below because `./placement/recover-round`
+	 * Built here rather than inline below because `$lib/game/core/recovery`
 	 * has to reproduce EXACTLY what was committed with. Two call sites
 	 * constructing their own would compile, agree today, and diverge the moment
 	 * one of them is edited - and the symptom of that is a player being told
@@ -570,7 +570,10 @@ export function createGameContext(core: CoreServices): GameContext {
 		 *
 		 * What this does NOT recover on its own is the ACTIONS - the chain holds
 		 * only the hash. See D9 in the plan on the `work` branch, and
-		 * `$lib/placement/recover-round` for the half that asks the player.
+		 * `$lib/game/core/recovery` for the half that offers a candidate and
+		 * lets the hash settle it. Asking the PLAYER for that candidate is this
+		 * game's own part, in `placement/ui/hud.ts`: a turn here is any subset
+		 * of an open board, so there is nothing to enumerate.
 		 */
 		makeSecret,
 		adapter: createPlacementCommitReveal({
