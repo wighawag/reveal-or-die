@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {get, writable, type Readable} from 'svelte/store';
 import {
 	createSubmission,
+	type SubmissionState,
 	type SubmissionStorage,
 } from '$lib/game/core/submission';
 import {
@@ -137,6 +138,108 @@ describe('the commit-reveal submission', () => {
 			actions: [{cellID: 42n}],
 		});
 		stop();
+	});
+
+	it('reports how far a reveal that takes several transactions has got', async () => {
+		// A REVEAL IS ONE CALL AND NOT NECESSARILY ONE TRANSACTION. Where a turn is
+		// bigger than a transaction the game opens it in pieces, and the player is
+		// owed an account of that: a board filling in a few cells at a time over
+		// half a minute reads as a fault otherwise. The framework carries the count
+		// rather than each game inventing a state for it.
+		const {cycleInfo, setTime} = fakeCycles(0);
+		const storage = fakeStorage<Action>();
+
+		const seen: (SubmissionState<Action> & {step: 'Revealing'})[] = [];
+		let release: (() => void) | undefined;
+		const {adapter} = fakeAdapter();
+		const chunked: typeof adapter = {
+			...adapter,
+			reveal: async ({onProgress}) => {
+				onProgress?.({done: 0, total: 3});
+				onProgress?.({done: 1, total: 3});
+				await new Promise<void>((resolve) => (release = resolve));
+				onProgress?.({done: 3, total: 3});
+				return {hash: '0xreveal' as `0x${string}`};
+			},
+		};
+
+		const submission = createSubmission({
+			cycleInfo,
+			adapter: chunked,
+			storage,
+			identity,
+		});
+		const stop = submission.subscribe((state) => {
+			if (state.step === 'Revealing') seen.push(state);
+		});
+		const stopCycle = submission.start();
+
+		submission.plan([{cellID: 42n}]);
+		await submission.commit();
+		setTime(41);
+
+		await vi.waitFor(() => expect(release).toBeDefined());
+		// Two reports so far, and the submission is still Revealing: the state the
+		// HUD reads while a long turn is going out.
+		expect(seen.map((s) => s.progress)).toEqual([
+			undefined,
+			{done: 0, total: 3},
+			{done: 1, total: 3},
+		]);
+		// The actions are still there beside the count, so nothing that switches on
+		// `Revealing` has to learn a new shape.
+		expect(seen[2].actions).toEqual([{cellID: 42n}]);
+
+		release?.();
+		await vi.waitFor(() => expect(submission.value.step).toBe('Revealed'));
+
+		stop();
+		stopCycle();
+	});
+
+	it('does not write progress over a submission the cycle has already missed', async () => {
+		// The report arrives from inside an await. A cycle that turned over
+		// meanwhile has already moved this submission to `Missed`, and putting a
+		// `Revealing` back over that would tell the player their turn was still
+		// going out when the window had shut - which is the one thing they might
+		// still have acted on.
+		const {cycleInfo, setTime} = fakeCycles(0);
+		const storage = fakeStorage<Action>();
+
+		let report: ((p: {done: number; total: number}) => void) | undefined;
+		let release: (() => void) | undefined;
+		const {adapter} = fakeAdapter();
+		const chunked: typeof adapter = {
+			...adapter,
+			reveal: async ({onProgress}) => {
+				report = onProgress;
+				await new Promise<void>((resolve) => (release = resolve));
+				return {hash: '0xreveal' as `0x${string}`};
+			},
+		};
+
+		const submission = createSubmission({
+			cycleInfo,
+			adapter: chunked,
+			storage,
+			identity,
+		});
+		const stopCycle = submission.start();
+
+		submission.plan([{cellID: 42n}]);
+		await submission.commit();
+		setTime(41);
+		await vi.waitFor(() => expect(report).toBeDefined());
+
+		// The cycle turns over while the reveal is mid-flight.
+		setTime(41 + 40);
+		await vi.waitFor(() => expect(submission.value.step).toBe('Missed'));
+
+		report?.({done: 2, total: 3});
+		expect(submission.value.step).toBe('Missed');
+
+		release?.();
+		stopCycle();
 	});
 
 	it('tells a scheduler when the reveal is due, off the CYCLE', async () => {

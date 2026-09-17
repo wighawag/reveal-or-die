@@ -160,11 +160,33 @@ export type CommitRevealAdapter<TIdentity extends PlayerIdentity, TAction> = {
 		revealDueAt?: number;
 	}): Promise<{hash: `0x${string}`}>;
 
-	/** Submit the matching reveal. */
+	/**
+	 * Open the commitment, in however many transactions that takes.
+	 *
+	 * ONE CALL, NOT NECESSARILY ONE TRANSACTION, and the difference is the
+	 * framework's to know about because it is what `onProgress` exists for. Every
+	 * chain has a gas ceiling, so a game whose turns can outgrow one transaction
+	 * commits them as a hash chain and opens them in pieces; the template's own
+	 * game does exactly that. The submission does not know how the pieces are
+	 * cut, only that this resolves when the whole turn is open.
+	 *
+	 * WHERE IT RESUMES FROM IS THE ADAPTER'S PROBLEM AND MUST NOT BE MEMORY. A
+	 * reveal interrupted halfway is retried by calling this again with the same
+	 * arguments, so an adapter that sends pieces has to ask the chain how far it
+	 * got rather than remember: this browser may not be the one that sent the
+	 * earlier pieces, and a submission restored from storage or recovered from a
+	 * hash knows nothing about them at all.
+	 *
+	 * @param onProgress Reports how many pieces are done out of how many, for a
+	 *        UI that has to say something during a reveal that takes a while. A
+	 *        one-transaction game never calls it and nothing downstream requires
+	 *        it to.
+	 */
 	reveal(params: {
 		identity: TIdentity;
 		actions: readonly TAction[];
 		secret: `0x${string}`;
+		onProgress?: (progress: {done: number; total: number}) => void;
 	}): Promise<{hash: `0x${string}`}>;
 };
 

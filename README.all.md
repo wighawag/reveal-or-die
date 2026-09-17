@@ -26,13 +26,19 @@ Measured rather than asserted, on creation (2026-09-11), with
 
 | run | what it proves | result |
 | --- | --- | --- |
-| `BASE=with/pixi-js` | everything the identity axis changes arrived | exactly `with/nft-identity`'s **12** |
+| `BASE=with/pixi-js` | everything the identity axis changes arrived | exactly `with/nft-identity`'s **13** |
 | `BASE=with/nft-identity` | everything the renderer axis changes arrived | exactly `with/pixi-js`'s **1** |
-| `BASE=main` | nothing else changed at all | exactly the **13**, which is the union |
+| `BASE=main` | nothing else changed at all | exactly the **14**, which is the union |
 
-All three with `ALLOWED=` empty, which is the run that proves the other 536 of
-549 shared files are clean because they are IDENTICAL rather than because the
+All three with `ALLOWED=` empty, which is the run that proves the other 541 of
+555 shared files are clean because they are IDENTICAL rather than because the
 script matched nothing.
+
+**The identity axis was twelve when this branch was made and is thirteen now**,
+because the chunked reveal gave `placement/config.ts` a test and a test of a
+file on the list is on the list. The argument is in
+`README.nft-identity.md`; it is not re-litigated here, which is what the next
+section says about all fourteen.
 
 **The merge itself was clean in every file**, which was the prediction and is
 worth recording as a number: **0 conflicts**, against the `with/hosted-account`
@@ -49,14 +55,14 @@ first thing in the tree that tests them TOGETHER rather than each against `main`
 
 ## The shared-file budget is the union, and it is not re-litigated here
 
-Thirteen files, and every one of them is on a parent's list with a reason there.
+Fourteen files, and every one of them is on a parent's list with a reason there.
 Read `README.pixi-js.md` and `README.nft-identity.md` for the arguments; this
 table exists so the `ALLOWED` list below has a home.
 
 | from | count | files |
 | --- | --- | --- |
 | `with/pixi-js` | 1 | `placement/render/index.ts` |
-| `with/nft-identity` | 12 | `game/identity.ts`, `placement/{stake,reserve,acquisition,config}.ts`, `context/game.ts`, four `test/lib/placement/*.test.ts`, two `e2e/` files |
+| `with/nft-identity` | 13 | `game/identity.ts`, `placement/{stake,reserve,acquisition,config}.ts`, `context/game.ts`, five `test/lib/placement/*.test.ts`, two `e2e/` files |
 
 The dependency files (`web/package.json`, `pnpm-lock.yaml`) are not counted, on
 both parents' own reasoning: they are what any branch adding a dependency must
@@ -87,7 +93,8 @@ NFT="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts \
 web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts \
 web/src/lib/context/game.ts web/src/lib/placement/config.ts \
 web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts \
-web/test/lib/placement/acquisition.test.ts web/test/lib/placement/reserve.test.ts \
+web/test/lib/placement/acquisition.test.ts web/test/lib/placement/config.test.ts \
+web/test/lib/placement/reserve.test.ts \
 web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts"
 
 check() { BASE="$1" FEATURES=with/all EXT="ts svelte" WATCH="web/src web/test web/e2e" \
