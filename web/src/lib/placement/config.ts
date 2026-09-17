@@ -139,6 +139,35 @@ type GameLinkedData = DeclaredValues & {
  * `REVEAL_GAS` was 2,000,000 against a measured 535,561, which is over-reserving
  * by a factor of four.
  *
+ * WHAT THE CHUNK BOUNDS AND WHAT IT DOES NOT, because the next reader of these
+ * numbers will be the credits work and this is the distinction it turns on.
+ * `REVEAL_GAS` is a true maximum of ONE TRANSACTION and stays one in every game
+ * on every chain, however long a turn is - that is the whole property the chunk
+ * buys, and it is what makes a gas LIMIT possible at all. What the chunk does
+ * not bound is the number of reveal STEPS, and in a game whose turns are
+ * unbounded (any game where an action costs nothing, which includes
+ * `with/nft-identity` here, and stratagems) there is no worst case for a TURN to
+ * be found.
+ *
+ * So anything that wants to answer the player's actual question - how many TURNS
+ * can I still play - cannot be sized from a maximum, and must be sized from an
+ * EXPECTATION: how many actions a player is expected to submit per turn, which
+ * is the game's to state and should be a named parameter rather than an implicit
+ * one. That is why the stipend below is counted in STEPS: it is honest, and it
+ * does not answer that question.
+ *
+ * The tempting alternative is to price a credit PER ACTION, which is exact and
+ * gives up the thing credits exist for - "one credit is one user action" stops
+ * being true, and a number that varies with what you happen to be doing is a
+ * number nobody can plan against. An average with its expectation written down
+ * is worth more than an exact figure with no unit.
+ *
+ * THAT LAST PARAGRAPH IS WHY THIS BRANCH IS THE INTERESTING CASE AND NOT A
+ * FOOTNOTE. `main`'s turns are bounded economically at ten placements, so an
+ * expectation there is a refinement of a maximum that exists. Here a placement
+ * costs nothing, so there IS no maximum, and an expectation is the only thing a
+ * stipend or a credit count can be built from at all.
+ *
  * THE FIGURES ABOVE ARE `main`'S, AND THIS BRANCH MEASURES LOWER: 99,102 for a
  * first commit and 374,085 for a full fresh chunk, because a placement costs
  * nothing here so a reveal writes no per-cell stake, no cell total and nothing
