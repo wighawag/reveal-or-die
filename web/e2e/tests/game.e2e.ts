@@ -435,11 +435,13 @@ describe('A submission the chain holds and this browser has lost', () => {
 			'the submission itself must genuinely know nothing',
 		).toBe('Idle');
 
-		// MATCHED ON THE PLAYER'S WORDS, which are the game's and still say "round":
-		// `CONTEXT.md` reserves that word for a game's own voice, so the HUD copy did
-		// not move with the framework's vocabulary. Renaming this locator would make
-		// it match nothing, and `check` does not type-check this directory.
-		const notice = page.getByText(/this browser has lost the round/i);
+		// MATCHED ON THE PLAYER'S WORDS, which are the game's and say "turn":
+		// `CONTEXT.md` reserves that word for a game's own voice, and this game takes
+		// it for one player's pass through a cycle - what the framework calls a
+		// submission. The copy moved from "round" when that was settled, and this
+		// locator moved with it. `check` does not type-check this directory, so a
+		// locator left behind matches nothing and fails only here.
+		const notice = page.getByText(/this browser no longer has the turn/i);
 		await expect(
 			notice,
 			'the app should learn from the chain alone that a reveal is owed',
@@ -449,7 +451,7 @@ describe('A submission the chain holds and this browser has lost', () => {
 		await expect(page.getByText(/can still be revealed/i)).toBeVisible();
 
 		// The button's own label, which is the game's copy: see the notice above.
-		const recover = page.getByRole('button', {name: /recover round/i});
+		const recover = page.getByRole('button', {name: /recover turn/i});
 		await expect(
 			recover,
 			'recovery needs a plan to check, and there is none yet',
