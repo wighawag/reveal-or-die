@@ -27,8 +27,9 @@
  * in progress that this browser knows nothing about?". That second answer is
  * the one that costs the stake, and it was being reported as `Clear` and
  * dropped, because blocking was the only thing anyone had ever asked. It is
- * published as {@link MissedRevealStore.commitment} now and `./recover-round`
- * is what does something with it. Nothing extra is fetched.
+ * published as {@link MissedRevealStore.commitment} now and
+ * `$lib/game/core/recovery` is what does something with it. Nothing extra is
+ * fetched.
  */
 import {derived, get, writable, type Readable} from 'svelte/store';
 import type {Context} from '$lib/context/types';
@@ -62,7 +63,8 @@ export type MissedRevealStore = Readable<MissedRevealState> & {
 	 *
 	 * It blocks nothing, which is why the state above says `Clear` beside it.
 	 * What it does is say that a reveal is owed this cycle, whatever this
-	 * browser happens to remember, and `./recover-round` is what acts on that.
+	 * browser happens to remember, and `$lib/game/core/recovery` is what acts
+	 * on that.
 	 *
 	 * Undefined whenever the read has not happened, failed, or found nothing:
 	 * an absent answer is never evidence that no commitment exists.

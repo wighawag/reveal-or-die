@@ -20,7 +20,7 @@
 	const missedReveal = game.missedReveal;
 	// A commitment the chain holds that this browser has no submission for. The
 	// planned cells are offered as the candidate and the hash decides; nothing is
-	// sent either way. See $lib/placement/recover-round.
+	// sent either way. See $lib/game/core/recovery.
 	const recovery = game.recovery;
 	const plannedActions = game.planning.actions;
 	// Getting a stake is ONE transaction that also funds the play key; the rail
