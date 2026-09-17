@@ -62,19 +62,38 @@ interface IGameCommit is UsingGameTypes {
 }
 
 interface IGameReveal is UsingGameTypes {
-    /// @notice Reveal what a player committed to, and apply it to the board.
+    /// @notice Reveal one chunk of what a player committed to, and apply it.
+    /// @param furtherActions The hash of the next chunk of this turn, or zero if
+    ///        this reveal completes it. A TURN MAY BE BIGGER THAN A TRANSACTION:
+    ///        the commitment is the head of a hash chain, each call opens one
+    ///        chunk and rewrites the head, and the commitment stays open until a
+    ///        chunk arrives declaring no further actions. A chunk may carry at
+    ///        most {Config-actionsPerReveal} actions, and one that promises a
+    ///        successor must carry exactly that many.
     /// @dev Takes `player` rather than using msg.sender so that anyone can
     ///      reveal for them: a player who is offline when the reveal phase
     ///      opens should not automatically forfeit.
+    ///
+    ///      A CALLER RESUMES FROM THE CHAIN, NOT FROM MEMORY. Which chunk is due
+    ///      next is whatever {IGameGetters-getCommitment} currently reports as
+    ///      the head, so a client interrupted halfway through a turn reads where
+    ///      it got to rather than remembering it.
     function reveal(
         uint256 player,
         Placement[] calldata placements,
         bytes32 secret,
+        bytes24 furtherActions,
         address payable payee
     ) external payable;
 
-    /// @notice Settle a player who never revealed, taking whatever this game
-    ///         puts at stake.
+    /// @notice Settle a player who never finished revealing, taking whatever
+    ///         this game puts at stake.
+    /// @dev ONE CALL, whatever the chain got to. It deliberately takes no chunk
+    ///      and no secret: what is forfeited here is the bond still earmarked
+    ///      for the part of the turn that was never opened, and the contract
+    ///      already knows that figure. See
+    ///      {UsingGameInternal-_acknowledgeMissedReveal} for why a game whose
+    ///      penalty is computed from the actions cannot do the same.
     function acknowledgeMissedReveal(uint256 player) external;
 
     /// @notice Move the cycle on, if the rules already permit it.

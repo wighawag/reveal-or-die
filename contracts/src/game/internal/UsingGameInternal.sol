@@ -39,6 +39,16 @@ abstract contract UsingGameInternal is
         ) {
             revert InvalidCycleConfiguration();
         }
+
+        // THE SAME CLASS OF HOLE, one level down. A chunk of zero actions makes
+        // every reveal revert, so every turn is committed and none can ever be
+        // opened: the commitment stands, the reveal never comes, and the bond is
+        // taken by _acknowledgeMissedReveal. Nothing about that looks like a
+        // misconfiguration from the outside, which is why it is refused here
+        // rather than discovered by the first player to lose a stake to it.
+        if (config.actionsPerReveal == 0) {
+            revert InvalidActionsPerReveal();
+        }
     }
 
     //-------------------------------------------------------------------------
@@ -189,7 +199,32 @@ abstract contract UsingGameInternal is
         emit CommitmentCancelled(player, cycleNumber);
     }
 
-    /// @notice Apply a player's revealed placements to the board.
+    /// @notice Apply one chunk of a player's revealed placements to the board.
+    /// @param furtherActions The hash of the next chunk, or zero if this is the
+    ///        last. A commitment is the HEAD OF A HASH CHAIN: each reveal opens
+    ///        one chunk and rewrites the head to the next, and the commitment
+    ///        stays open until a chunk arrives declaring none.
+    /// @dev WHY A TURN IS NOT A TRANSACTION. Every chain has a gas ceiling, so a
+    ///      turn longer than that ceiling has to arrive in pieces. That is a
+    ///      mechanism rather than a rule, and every game on this template needs
+    ///      it, which is why the framework owns it and why the piece size is a
+    ///      deployment parameter ({UsingGameTypes-Config-actionsPerReveal})
+    ///      rather than a constant.
+    ///
+    ///      TWO LENGTH RULES, AND NEITHER IS TIDINESS. A chunk may never carry
+    ///      more than the configured number, or the bound the whole design
+    ///      exists for would hold for every reveal except the last of each turn.
+    ///      And a chunk that promises a successor must be exactly FULL, or a
+    ///      player dribbles one action per transaction and spreads a turn across
+    ///      unbounded reveals.
+    ///
+    ///      THE CYCLE'S TALLY COUNTS TURNS, NOT TRANSACTIONS, which is the part
+    ///      with a stake in it. {_recordReveal} fires only on the chunk that
+    ///      closes the chain: counting a partial reveal would let unanimity
+    ///      close the cycle while a player still had chunks owed, and those
+    ///      chunks would then be unrevealable - half a turn applied, the rest
+    ///      lost, by somebody else's advance.
+    ///
     /// @dev ORDER INDEPENDENCE. Everything this does to a cell must commute
     ///      with what any other player's reveal does to it in the same cycle,
     ///      because reveals arrive in whatever order the mempool delivers them
@@ -204,7 +239,8 @@ abstract contract UsingGameInternal is
     function _reveal(
         uint256 player,
         Placement[] calldata placements,
-        bytes32 secret
+        bytes32 secret,
+        bytes24 furtherActions
     ) internal {
         (uint64 cycleNumber, bool commiting) = _cycleNumber();
 
@@ -221,28 +257,53 @@ abstract contract UsingGameInternal is
             revert InvalidCycle(cycleNumber, commitment.cycleNumber);
         }
 
-        bytes24 hashRevealed = commitment.hash;
-        _checkHash(hashRevealed, placements, secret);
+        uint256 numActions = placements.length;
+        if (numActions > ACTIONS_PER_REVEAL) {
+            revert TooManyActions(numActions, ACTIONS_PER_REVEAL);
+        }
+        if (furtherActions != bytes24(0) && numActions != ACTIONS_PER_REVEAL) {
+            revert InvalidFurtherActions(numActions, ACTIONS_PER_REVEAL);
+        }
 
-        uint256 cost = placements.length * PLACEMENT_COST;
+        bytes24 hashRevealed = commitment.hash;
+        _checkHash(hashRevealed, placements, secret, furtherActions);
+
+        uint256 cost = numActions * PLACEMENT_COST;
         if (cost > commitment.bond) {
             revert BondTooLow(commitment.bond, cost);
         }
 
-        for (uint256 i = 0; i < placements.length; i++) {
+        for (uint256 i = 0; i < numActions; i++) {
             _place(player, placements[i].cellID);
         }
 
         _reserve[player] -= cost;
-        commitment.cycleNumber = 0; // used
-        commitment.bond = 0;
-        _recordReveal(cycleNumber);
+        // WHAT IS LEFT EARMARKED IS WHAT IS STILL OWED. Taking each chunk's cost
+        // out of the bond as it lands is what keeps the two halves of a
+        // half-revealed turn accounted for separately: what was opened has been
+        // paid for, and what was not is still at stake.
+        commitment.bond -= cost;
+
+        if (furtherActions != bytes24(0)) {
+            // The chain advances. The commitment stays open, so the player
+            // remains someone the cycle is waiting on, and the reserve stays
+            // locked to the rest of the turn.
+            commitment.hash = furtherActions;
+        } else {
+            commitment.cycleNumber = 0; // used
+            // The surplus goes back to being ordinary reserve: a player may bond
+            // more than their turn ends up costing, and nothing should hold it
+            // once the turn is closed.
+            commitment.bond = 0;
+            _recordReveal(cycleNumber);
+        }
 
         emit CommitmentRevealed(
             player,
             cycleNumber,
             hashRevealed,
             placements,
+            furtherActions,
             cost
         );
     }
@@ -284,10 +345,33 @@ abstract contract UsingGameInternal is
         emit Placed(player, cellID, PLACEMENT_COST);
     }
 
-    /// @notice Settle a player who committed and never revealed.
+    /// @notice Settle a player who committed and never finished revealing.
     /// @dev The trigger, not the penalty. WHAT is lost is {_forfeit}, which a
     ///      game overrides; this decides only that the moment has come and that
     ///      the commitment stops blocking the next one.
+    ///
+    ///      IT SETTLES A HALF-REVEALED TURN IN ONE CALL, and takes no chunk, no
+    ///      secret and no `furtherActions`. That is a deliberate departure from
+    ///      the design this chaining is ported from, where the settlement walks
+    ///      the chain exactly as the reveal does, and the reason the departure
+    ///      is safe is worth stating because the general warning attached to it
+    ///      is real: a settlement that CANNOT close a partially revealed
+    ///      commitment leaves the player blocked forever, since the head points
+    ///      at a chunk nobody will ever submit.
+    ///
+    ///      Stratagems has to walk the chain because its penalty is computed
+    ///      FROM the moves - it burns reserve per move revealed - so it cannot
+    ///      know what to take without being shown them. Here the penalty is the
+    ///      bond, which was fixed when the commitment was made and is decremented
+    ///      by each chunk as it lands, so the contract already knows what is
+    ///      outstanding and needs nothing from the caller to close it. Walking
+    ///      the chain here would instead require the SECRET, which is exactly
+    ///      what a player who has gone silent will not supply, and would make
+    ///      settlement depend on the very thing that failed.
+    ///
+    ///      A game that forfeits per action rather than per bond has to revisit
+    ///      this, and the test that pins it is the one to read first:
+    ///      "a half-revealed turn settles in one call".
     function _acknowledgeMissedReveal(uint256 player) internal {
         Commitment storage commitment = _commitments[player];
 
@@ -682,13 +766,29 @@ abstract contract UsingGameInternal is
         return (cycle.cycleNumber, cycle.commiting);
     }
 
+    /// @notice Check a chunk against the head of the chain it must open.
+    /// @dev ONE ENCODING, ALWAYS, including for the last chunk of a turn, where
+    ///      `furtherActions` is zero and is hashed in anyway. The design this is
+    ///      ported from uses TWO - it drops the trailing field on the final
+    ///      chunk - and both are sound against forgery, since substituting one
+    ///      for the other is a preimage problem either way. The reason to take
+    ///      the single form is on the CLIENT's side: the hash the client builds
+    ///      has to match this byte for byte, a mismatch is not a compile error
+    ///      and not a failed read (the commit succeeds and the reveal reverts
+    ///      once the stake is already bonded), and a second encoding selected by
+    ///      a branch on the very value that distinguishes the last chunk from
+    ///      the rest is a second chance to get that wrong. Nothing is deployed
+    ///      here, so the compatibility argument for the two-form version - it
+    ///      leaves a one-chunk turn hashing exactly as it did before chaining -
+    ///      buys nothing this repo needs.
     function _checkHash(
         bytes24 commitmentHash,
         Placement[] calldata placements,
-        bytes32 secret
+        bytes32 secret,
+        bytes24 furtherActions
     ) internal pure {
         bytes24 computedHash = bytes24(
-            keccak256(abi.encode(secret, placements))
+            keccak256(abi.encode(secret, placements, furtherActions))
         );
         if (commitmentHash != computedHash) {
             revert CommitmentHashNotMatching();

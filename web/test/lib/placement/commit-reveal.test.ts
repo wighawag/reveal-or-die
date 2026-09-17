@@ -7,9 +7,14 @@ import {
 	encodeErrorResult,
 } from 'viem';
 import {
+	buildPlacementChain,
+	buildPlacementCommitment,
+	chunkDueNext,
 	createPlacementCommitReveal,
 	sendPlacementTransaction,
+	NO_FURTHER_ACTIONS,
 	type CommitRevealDeps,
+	type Placement,
 } from '$lib/placement/commit-reveal';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
 import {onchainIdentity} from '$lib/game/identity';
@@ -199,6 +204,68 @@ describe('the game move boundary', () => {
 	});
 });
 
+const SECRET =
+	'0x0000000000000000000000000000000000000000000000000000000000000a11' as const;
+
+const PLAYER = '0x00000000000000000000000000000000000000ff' as const;
+
+/**
+ * An adapter whose every write is captured instead of sent.
+ *
+ * `head` is what the fake chain reports for `getCommitment`, because a reveal
+ * now READS where the turn has got to before it sends anything. A fake that
+ * left that out would make the reveal throw rather than assert.
+ */
+function adapterRecording(options?: {
+	head?: `0x${string}`;
+	actionsPerReveal?: number;
+}) {
+	const sent: {functionName: string; args: readonly unknown[]}[] = [];
+	let head = options?.head ?? ('0x' as `0x${string}`);
+	const deps = {
+		connection: {ensureConnected: async () => {}},
+		signerExecutor: readable({
+			status: 'ready',
+			account: {address: '0xabc'} as unknown,
+			client: {
+				writeContract: async (request: {
+					functionName: string;
+					args: readonly unknown[];
+				}) => {
+					sent.push(request);
+					// The chain the contract keeps: a reveal rewrites the head to
+					// whatever it promised next. Modelled here because a client
+					// that re-read between chunks would otherwise pass this suite
+					// while looping forever against a stale head.
+					if (request.functionName === 'reveal') {
+						head = request.args[3] as `0x${string}`;
+					}
+					return '0xfeed' as `0x${string}`;
+				},
+			},
+		}) as never,
+		deployments: readable({
+			contracts: {Game: {address: '0xgame', abi: []}},
+		}) as never,
+		publicClient: {
+			waitForTransactionReceipt: async () => ({status: 'success'}),
+			readContract: async () => ({hash: head, cycleNumber: 7n, bond: 0n}),
+		},
+		signerBalance: FUNDED,
+	} as unknown as CommitRevealDeps;
+
+	return {
+		sent,
+		adapter: createPlacementCommitReveal({
+			deps,
+			config: {
+				placementCost: 10n,
+				actionsPerReveal: options?.actionsPerReveal ?? 4,
+			} as unknown as PlacementConfig,
+		}),
+	};
+}
+
 /**
  * WHAT ACTUALLY GOES ON THE WIRE, which nothing else in this repo checks.
  *
@@ -218,44 +285,6 @@ describe('the game move boundary', () => {
  * widens to one perfectly happily.
  */
 describe('the identity that reaches the contract', () => {
-	const PLAYER = '0x00000000000000000000000000000000000000ff' as const;
-
-	/** An adapter whose every write is captured instead of sent. */
-	function adapterRecording() {
-		const sent: {functionName: string; args: readonly unknown[]}[] = [];
-		const deps = {
-			connection: {ensureConnected: async () => {}},
-			signerExecutor: readable({
-				status: 'ready',
-				account: {address: '0xabc'} as unknown,
-				client: {
-					writeContract: async (request: {
-						functionName: string;
-						args: readonly unknown[];
-					}) => {
-						sent.push(request);
-						return '0xfeed' as `0x${string}`;
-					},
-				},
-			}) as never,
-			deployments: readable({
-				contracts: {Game: {address: '0xgame', abi: []}},
-			}) as never,
-			publicClient: {
-				waitForTransactionReceipt: async () => ({status: 'success'}),
-			},
-			signerBalance: FUNDED,
-		} as unknown as CommitRevealDeps;
-
-		return {
-			sent,
-			adapter: createPlacementCommitReveal({
-				deps,
-				config: {placementCost: 10n} as unknown as PlacementConfig,
-			}),
-		};
-	}
-
 	it('commits under the identity, widened the way the contract keys it', async () => {
 		const {sent, adapter} = adapterRecording();
 
@@ -280,24 +309,266 @@ describe('the identity that reaches the contract', () => {
 	it('reveals against the same identity it committed under', async () => {
 		// Two calls a cycle apart, and a mismatch between them costs the stake
 		// rather than failing loudly: the reveal simply finds no commitment.
-		const {sent, adapter} = adapterRecording();
+		const actions = [{cellID: 1n}];
+		const secret = SECRET;
+		const {hash} = buildPlacementCommitment({
+			actions,
+			secret,
+			actionsPerReveal: 4,
+		});
+		const {sent, adapter} = adapterRecording({head: hash});
 
 		await adapter.commit({
 			identity: PLAYER,
-			hash: '0xhash' as `0x${string}`,
-			actions: [{cellID: 1n}],
-			secret: '0xsecret' as `0x${string}`,
+			hash,
+			actions,
+			secret,
 			cycleNumber: 3,
 			revealDueAt: 0,
 		});
-		await adapter.reveal({
-			identity: PLAYER,
-			actions: [{cellID: 1n}],
-			secret: '0xsecret' as `0x${string}`,
-		});
+		await adapter.reveal({identity: PLAYER, actions, secret});
 
 		expect(sent[1].functionName).toBe('reveal');
 		expect(sent[1].args[0]).toBe(sent[0].args[0]);
+	});
+});
+
+/**
+ * A TURN BIGGER THAN A TRANSACTION.
+ *
+ * Every chain has a gas ceiling, so a turn longer than it is committed as the
+ * head of a HASH CHAIN and opened one piece at a time. What this suite is about
+ * is the half of that the contract cannot check for you: the client has to cut
+ * the turn into exactly the pieces the deployment will accept, hash them in the
+ * right direction, send them in the right order, and know where to pick up when
+ * it is interrupted.
+ *
+ * EVERY FAILURE HERE IS SILENT AND EXPENSIVE. A chain built at the wrong chunk
+ * size hashes to a head the contract cannot follow, and nothing says so until
+ * the reveal reverts with the stake already bonded.
+ */
+describe('the hash chain a turn is committed as', () => {
+	const row = (count: number): Placement[] =>
+		Array.from({length: count}, (_, i) => ({cellID: BigInt(i)}));
+
+	it('cuts a turn into full chunks with a short one at the end', () => {
+		const chain = buildPlacementChain({
+			actions: row(6),
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+
+		expect(chain.length).toBe(2);
+		expect(chain[0].actions.length).toBe(4);
+		expect(chain[1].actions.length).toBe(2);
+		// EXACTLY FULL EXCEPT THE LAST is the contract's rule, not a preference:
+		// a chunk that promises a successor and is not full is refused, so a
+		// client that balanced the pieces (3 and 3) would build a chain no reveal
+		// past the first could follow.
+		expect(chain[0].furtherActions).toBe(chain[1].hash);
+		expect(chain[1].furtherActions).toBe(NO_FURTHER_ACTIONS);
+	});
+
+	it('commits the HEAD, which is the first chunk and not the whole turn', () => {
+		const actions = row(6);
+		const chain = buildPlacementChain({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+
+		expect(
+			buildPlacementCommitment({actions, secret: SECRET, actionsPerReveal: 4})
+				.hash,
+		).toBe(chain[0].hash);
+	});
+
+	it('hashes a DIFFERENT head at a different chunk size', () => {
+		// THE REASON THE CHUNK SIZE IS READ OFF THE DEPLOYMENT. A client carrying
+		// its own number commits a head the contract cannot follow, and the only
+		// symptom is a reveal that reverts after the bond is immovable. This is
+		// the client half of the contract test that deploys a game at a different
+		// chunk size and watches the rule follow.
+		const actions = row(6);
+		const atFour = buildPlacementCommitment({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+		const atFive = buildPlacementCommitment({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 5,
+		});
+
+		expect(atFour.hash).not.toBe(atFive.hash);
+	});
+
+	it('gives an empty turn one chunk, so it has a head at all', () => {
+		// An idle player's automatic turn in a game that punishes silence. It is
+		// committed, revealed, and resolves to nothing.
+		const chain = buildPlacementChain({
+			actions: [],
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+
+		expect(chain.length).toBe(1);
+		expect(chain[0].actions).toEqual([]);
+		expect(chain[0].furtherActions).toBe(NO_FURTHER_ACTIONS);
+	});
+
+	it('refuses a chunk size no turn could ever be opened at', () => {
+		expect(() =>
+			buildPlacementChain({
+				actions: row(2),
+				secret: SECRET,
+				actionsPerReveal: 0,
+			}),
+		).toThrow(/not a turn anybody could open/);
+	});
+
+	it('finds where the chain has got to from the head on chain', () => {
+		const chain = buildPlacementChain({
+			actions: row(9),
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+
+		expect(chunkDueNext(chain, chain[0].hash)).toBe(0);
+		expect(chunkDueNext(chain, chain[1].hash)).toBe(1);
+		expect(chunkDueNext(chain, chain[2].hash)).toBe(2);
+		// Hex case is a difference nothing would report as an error, and the
+		// refusal it would produce reads to a player as "I misremembered my own
+		// turn".
+		expect(
+			chunkDueNext(chain, chain[1].hash.toUpperCase() as `0x${string}`),
+		).toBe(1);
+		// A head belonging to no chunk of this turn is not a retry: the contract
+		// is holding somebody else's commitment.
+		expect(chunkDueNext(chain, NO_FURTHER_ACTIONS)).toBe(undefined);
+	});
+});
+
+describe('revealing a turn bigger than a transaction', () => {
+	const row = (count: number): Placement[] =>
+		Array.from({length: count}, (_, i) => ({cellID: BigInt(i)}));
+
+	it('sends one transaction per chunk, in order, each promising the next', async () => {
+		const actions = row(6);
+		const chain = buildPlacementChain({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+		const {sent, adapter} = adapterRecording({head: chain[0].hash});
+
+		const progress: {done: number; total: number}[] = [];
+		await adapter.reveal({
+			identity: PLAYER,
+			actions,
+			secret: SECRET,
+			onProgress: (p) => progress.push(p),
+		});
+
+		expect(sent.length).toBe(2);
+		expect(sent.map((s) => s.functionName)).toEqual(['reveal', 'reveal']);
+		// The actions go out in order, cut the way the chain was built.
+		expect(sent[0].args[1]).toEqual(actions.slice(0, 4));
+		expect(sent[1].args[1]).toEqual(actions.slice(4));
+		// And each says what comes after it, which is what the contract checks
+		// the NEXT one against.
+		expect(sent[0].args[3]).toBe(chain[1].hash);
+		expect(sent[1].args[3]).toBe(NO_FURTHER_ACTIONS);
+
+		expect(progress).toEqual([
+			{done: 0, total: 2},
+			{done: 1, total: 2},
+			{done: 2, total: 2},
+		]);
+	});
+
+	it('resumes from the chain head rather than from anything remembered', async () => {
+		// THE CASE THAT COSTS A STAKE IF IT IS GOT WRONG. A reveal interrupted
+		// halfway - a reload, a signer that ran out of gas between chunks, a
+		// second device that sent the first piece - leaves this browser with no
+		// memory of how far it got. Starting again re-sends a chunk the head has
+		// already moved past, which the contract refuses, so the rest of the turn
+		// never goes out and the remaining bond is forfeited.
+		const actions = row(9);
+		const chain = buildPlacementChain({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+		// The chain says two chunks have landed already.
+		const {sent, adapter} = adapterRecording({head: chain[2].hash});
+
+		const progress: {done: number; total: number}[] = [];
+		await adapter.reveal({
+			identity: PLAYER,
+			actions,
+			secret: SECRET,
+			onProgress: (p) => progress.push(p),
+		});
+
+		expect(sent.length).toBe(1);
+		expect(sent[0].args[1]).toEqual(actions.slice(8));
+		// The count the player is shown starts where the chain actually is, not
+		// at zero: a reveal that said "1 of 3" here would be describing work that
+		// had already been paid for.
+		expect(progress[0]).toEqual({done: 2, total: 3});
+	});
+
+	it('refuses to send against a commitment that is not this turn', async () => {
+		const actions = row(6);
+		const {sent, adapter} = adapterRecording({
+			head: `0x${'ab'.repeat(24)}` as `0x${string}`,
+		});
+
+		await expect(
+			adapter.reveal({identity: PLAYER, actions, secret: SECRET}),
+		).rejects.toThrow(/not the turn this browser is holding/);
+		expect(sent.length, 'nothing should have gone on the wire').toBe(0);
+	});
+
+	it('says so rather than sending when there is no commitment at all', async () => {
+		const {sent, adapter} = adapterRecording();
+		void adapter;
+
+		// `cycleNumber: 0n` is the contract's way of saying the slot is free, and
+		// the fake reports 7n, so this case is reached by emptying it.
+		const empty = createPlacementCommitReveal({
+			deps: {
+				connection: {ensureConnected: async () => {}},
+				signerExecutor: readable({
+					status: 'ready',
+					account: {address: '0xabc'} as unknown,
+					client: {writeContract: async () => '0xfeed' as `0x${string}`},
+				}) as never,
+				deployments: readable({
+					contracts: {Game: {address: '0xgame', abi: []}},
+				}) as never,
+				publicClient: {
+					readContract: async () => ({
+						hash: NO_FURTHER_ACTIONS,
+						cycleNumber: 0n,
+						bond: 0n,
+					}),
+					waitForTransactionReceipt: async () => ({status: 'success'}),
+				},
+				signerBalance: FUNDED,
+			} as unknown as CommitRevealDeps,
+			config: {
+				placementCost: 10n,
+				actionsPerReveal: 4,
+			} as unknown as PlacementConfig,
+		});
+
+		await expect(
+			empty.reveal({identity: PLAYER, actions: row(2), secret: SECRET}),
+		).rejects.toThrow(/no commitment on chain/);
+		expect(sent.length).toBe(0);
 	});
 });
 
