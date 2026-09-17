@@ -9,33 +9,24 @@ import {
 	cycleClock,
 	CYCLE_POLICY,
 	TURN_BOND,
+	commitmentHashFor,
+	revealTurn,
+	DEFAULT_ACTIONS_PER_REVEAL,
 	type CyclePolicy,
+	type Placement,
 } from './utils/index.js';
-import {encodeAbiParameters, keccak256, zeroAddress} from 'viem';
+import {zeroAddress} from 'viem';
 
 const {provider, networkHelpers} = await network.connect();
 const {deployAll} = setupFixtures(provider);
 
-type Placement = {cellID: bigint};
+/** What the games deployed in this suite will accept in one reveal. */
+const CHUNK = Number(DEFAULT_ACTIONS_PER_REVEAL);
 
 function cellAt(x: number, y: number): bigint {
 	const ux = BigInt.asUintN(32, BigInt(x));
 	const uy = BigInt.asUintN(32, BigInt(y));
 	return (uy << 32n) + ux;
-}
-
-function commitmentHash(
-	placements: readonly Placement[],
-	secret: `0x${string}`,
-): `0x${string}` {
-	const encoded = encodeAbiParameters(
-		[
-			{type: 'bytes32'},
-			{type: 'tuple[]', components: [{name: 'cellID', type: 'uint64'}]},
-		],
-		[secret, placements as {cellID: bigint}[]],
-	);
-	return keccak256(encoded).slice(0, 50) as `0x${string}`;
 }
 
 const SECRET_A =
@@ -131,19 +122,32 @@ async function gameOn(policy: CyclePolicy, players = 2) {
 			functionName: 'makeCommitment',
 			args: [
 				identities[i],
-				commitmentHash(placements, secret),
+				commitmentHashFor(placements, secret, CHUNK),
 				bond,
 				zeroAddress,
 			],
 		});
 	}
 
+	/**
+	 * Reveal a whole turn, however many transactions it takes.
+	 *
+	 * Every turn in this suite is one placement and so one chunk, which is the
+	 * point: what these tests are about is the CYCLE, and the cycle's tally
+	 * counts turns rather than transactions. Going through the shared helper is
+	 * what keeps that true if one of them ever plans a longer turn.
+	 */
 	function reveal(i: number, placements: Placement[], secret: `0x${string}`) {
-		return env.execute(Game, {
-			account: accounts[i],
-			functionName: 'reveal',
-			args: [identities[i], placements, secret, zeroAddress],
-		});
+		return revealTurn(
+			{env, Game},
+			{
+				account: accounts[i],
+				identity: identities[i],
+				placements,
+				secret,
+				actionsPerReveal: CHUNK,
+			},
+		);
 	}
 
 	function advance(by = 0) {
@@ -217,7 +221,12 @@ describe('Cycle policy', function () {
 			game.env.execute(game.Game, {
 				account: stranger,
 				functionName: 'makeCommitment',
-				args: [BigInt(stranger), commitmentHash([], SECRET_B), 0n, zeroAddress],
+				args: [
+					BigInt(stranger),
+					commitmentHashFor([], SECRET_B, CHUNK),
+					0n,
+					zeroAddress,
+				],
 			}),
 		).toBeRejected();
 

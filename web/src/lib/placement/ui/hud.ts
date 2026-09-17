@@ -148,7 +148,19 @@ export function describeSubmission(state: SubmissionState<Placement>): {
 		case 'Committed':
 			return {label: 'Committed. Reveal is owed this cycle.', tone: 'busy'};
 		case 'Revealing':
-			return {label: 'Revealing...', tone: 'busy'};
+			// A TURN MAY BE BIGGER THAN A TRANSACTION, so a reveal may be several
+			// of them, and the player watches their cells arrive a few at a time
+			// over a noticeable stretch of the reveal phase. Without the count that
+			// reads as a board filling in at random; with it, it reads as progress.
+			// Said only when there IS more than one, so an ordinary one-transaction
+			// turn is not dressed up as a procedure.
+			return {
+				label:
+					state.progress && state.progress.total > 1
+						? `Revealing... (${state.progress.done} of ${state.progress.total})`
+						: 'Revealing...',
+				tone: 'busy',
+			};
 		case 'Revealed':
 			return {
 				label: 'Revealed. Your placements are on the board.',

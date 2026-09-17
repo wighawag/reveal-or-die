@@ -44,6 +44,23 @@ interface UsingGameTypes {
         IERC20 tokens;
         /// @notice how much one placement costs, taken from the player's reserve
         uint256 placementCost;
+        /// @notice THE CHUNK: how many actions one reveal transaction may carry.
+        /// @dev A DEPLOYMENT PARAMETER AND NOT A CONSTANT, because the two things
+        ///      that decide it are both outside the framework: how expensive one
+        ///      action is to resolve (the game's) and what fits in a transaction
+        ///      (the chain's). A number baked into the contract would be one
+        ///      game's answer on one chain, presented as a universal.
+        ///
+        ///      It is here beside {cyclePolicy} for a second reason: this is how
+        ///      the CLIENT learns it. A client has to split a turn into exactly
+        ///      the pieces this contract will accept, and a copy of the number in
+        ///      the front end is a copy that can drift into reverting every
+        ///      reveal. See `web/src/lib/placement/config.ts`.
+        ///
+        ///      Zero is refused at construction: it would make every turn
+        ///      unrevealable, which costs the first player their stake rather
+        ///      than reverting anything. See {UsingGameInternal}.
+        uint256 actionsPerReveal;
         /// @notice how the cycle advances
         CyclePolicy cyclePolicy;
     }
@@ -141,11 +158,23 @@ interface UsingGameTypes {
         uint64 revealed;
     }
 
+    /// @notice THE HEAD OF A HASH CHAIN, plus what is riding on it.
+    /// @dev `hash` is the hash of the NEXT chunk of the turn still owed, which
+    ///      for a turn that fits in one transaction is simply the whole turn. A
+    ///      reveal rewrites it to the chunk after that, and the commitment stays
+    ///      open until a chunk arrives declaring no further actions. So a
+    ///      commitment is not a single secret with a single answer; it is a
+    ///      position in a sequence, and `hash` is where that sequence has got to.
+    ///
+    ///      `bond` FALLS AS THE CHAIN IS WALKED, by the cost of each chunk as it
+    ///      lands, so what is left earmarked is always what the REST of the turn
+    ///      will cost. That is what makes a half-revealed turn settleable in one
+    ///      call: see {UsingGameInternal-_acknowledgeMissedReveal}.
     struct Commitment {
         bytes24 hash;
         uint64 cycleNumber;
-        /// @notice reserve earmarked when the commitment was made, forfeited if
-        ///         the player never reveals
+        /// @notice reserve earmarked for what this commitment has NOT yet
+        ///         revealed, forfeited if the rest of it never arrives
         uint256 bond;
     }
     // ------------------------------------------------------------------------
