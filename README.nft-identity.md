@@ -37,7 +37,7 @@ gives one.
 **The plan predicted TWO** (`game/identity.ts`, and one line in
 `context/game.ts`). The prediction was right about identity and counted only
 identity; D2 lists three differences, and the other two have designated files
-of their own. The list is **seventeen**, and it splits into five groups that are
+of their own. The list is **eighteen**, and it splits into five groups that are
 worth reading separately, because they are not the same kind of cost.
 
 ### The seams: files that exist in order to differ (5)
@@ -99,13 +99,22 @@ script alone and adding a second one - would ship a deployment offering a
 purchase that does nothing, and a misleading contract is worse than a
 misleading filename.
 
-### Test fixtures that name an identity concretely (3)
+### Test fixtures that name an identity concretely (4)
 
 | file | what the branch changes | lines |
 | --- | --- | --- |
 | `web/test/lib/placement/commit-reveal.test.ts` | one fixture: the identity is `255n` | 7 |
 | `web/test/lib/placement/missed-reveal.test.ts` | one fixture, and the sentence about what was lost | 16 |
 | `web/test/lib/placement/acquisition.test.ts` | the sale's name | 18 |
+| `web/test/lib/placement/config.test.ts` | the sale's name, and a placement costing nothing | 8 |
+
+`config.test.ts` is the newest and the one whose entry needs the least argument:
+it is a test OF `placement/config.ts`, which is already on this list, so its
+fixture necessarily names the same two things that file does - `GameAvatarSale`
+rather than `StakeSale`, and a `placementCost` of zero. `reserve.test.ts` and
+`acquisition.test.ts` are on the list for exactly that reason already. It
+arrived with the chunked reveal, which made the deployment's chunk size
+something the client reads and therefore something worth a test.
 
 These are the boundary doing its job rather than failing: a suite that
 instantiates the round with a concrete identity cannot be identity-agnostic,
@@ -198,7 +207,7 @@ pnpm --filter ./web check
 pnpm --filter ./web run test:unit
 BASE=main FEATURES=with/nft-identity EXT="ts svelte" \
   WATCH="web/src web/test web/e2e" \
-  ALLOWED="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts web/src/lib/placement/config.ts web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts web/test/lib/placement/reserve.test.ts web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts" \
+  ALLOWED="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts web/src/lib/placement/config.ts web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts web/test/lib/placement/config.test.ts web/test/lib/placement/reserve.test.ts web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts" \
   bash <(git show tooling:check-shared-divergence.sh)
 ```
 
