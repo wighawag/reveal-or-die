@@ -137,7 +137,7 @@
 						disabled={!$hud.recovery.canRecover}
 						onclick={() => recovery.offer($plannedActions)}
 					>
-						{$hud.recovery.busy ? 'Checking...' : 'Recover round'}
+						{$hud.recovery.busy ? 'Checking...' : 'Recover turn'}
 					</Button>
 				</div>
 			{/if}
@@ -298,7 +298,7 @@
 
 	Kept from the pre-port UI: the canvas fills the screen and the player is
 	looking at their avatar, not at the HUD in the corner, so the one thing that
-	has to be unmissable is "this round is no longer yours to change".
+	has to be unmissable is "this turn is no longer yours to change".
 -->
 {#if $hud.phase !== 'play' && !$hud.setup}
 	<div

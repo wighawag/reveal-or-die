@@ -405,9 +405,9 @@ describe('the four parts of a cycle, on the clock', () => {
 			).phaseLabel;
 
 		expect(label('play')).toBe('Make your move');
-		expect(label('commit')).toBe('Committing this round');
+		expect(label('commit')).toBe('Committing this turn');
 		expect(label('reveal')).toBe('Revealing moves');
-		expect(label('catching-up')).toBe('Catching up on last round');
+		expect(label('catching-up')).toBe('Catching up on last cycle');
 	});
 
 	it('says moves are closed outside the play window, rather than letting clicks look broken', () => {
@@ -458,7 +458,7 @@ describe('the four parts of a cycle, on the clock', () => {
 			),
 		);
 		expect(catchingUp.secondsLeft).toBe(10);
-		expect(catchingUp.phaseLabel).toBe('Catching up on last round');
+		expect(catchingUp.phaseLabel).toBe('Catching up on last cycle');
 
 		const playing = get(
 			createHud(fakeContext({step: 'Idle'}, {currentPosition: {x: 1, y: 1}})),
@@ -476,7 +476,7 @@ describe('the four parts of a cycle, on the clock', () => {
 				fakeContext({step: 'Idle'}, {setup: {step: 'deposit'}, phase: 'play'}),
 			),
 		);
-		expect(model.phaseLabel).toBe('Round in progress');
+		expect(model.phaseLabel).toBe('Cycle in progress');
 		const resolving = get(
 			createHud(
 				fakeContext(
@@ -564,8 +564,8 @@ describe('a killed avatar', () => {
 				),
 			),
 		);
-		expect(model.died?.cause).toEqual({kind: 'silence', rounds: 4});
-		expect(model.died?.explanation).toMatch(/4 rounds in a row/);
+		expect(model.died?.cause).toEqual({kind: 'silence', cycles: 4});
+		expect(model.died?.explanation).toMatch(/4 cycles in a row/);
 	});
 
 	it('is not reported until the cycle it died in has passed', () => {

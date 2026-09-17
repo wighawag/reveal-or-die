@@ -28,13 +28,13 @@ export type DeathCause =
 	/**
 	 * It stopped committing and revealing, so the contract killed it.
 	 *
-	 * `rounds` is how many consecutive rounds of silence it took, which is
+	 * `cycles` is how many consecutive cycles of silence it took, which is
 	 * `numMissesAllowed + 1`: the avatar may miss that many, and dies in the
-	 * round after. Absent when the deployment does not state the tolerance, in
+	 * cycle after. Absent when the deployment does not state the tolerance, in
 	 * which case the sentence says what happened without a number rather than
 	 * quoting one this build happens to believe.
 	 */
-	| {kind: 'silence'; rounds?: number}
+	| {kind: 'silence'; cycles?: number}
 	/**
 	 * Something this client cannot name.
 	 *
@@ -56,10 +56,10 @@ export function causeOfDeath(config: {numMissesAllowed?: number}): DeathCause {
 	const {numMissesAllowed} = config;
 	return {
 		kind: 'silence',
-		// The avatar may miss `numMissesAllowed` rounds and dies in the one after,
+		// The avatar may miss `numMissesAllowed` cycles and dies in the one after,
 		// so the run of silence is one longer than the tolerance. Off by one here
 		// would be the client stating the rules of a game nobody is playing.
-		rounds:
+		cycles:
 			numMissesAllowed === undefined || !Number.isFinite(numMissesAllowed)
 				? undefined
 				: numMissesAllowed + 1,
@@ -78,10 +78,10 @@ export function explainDeath(cause: DeathCause): string {
 	switch (cause.kind) {
 		case 'silence':
 			return `${
-				cause.rounds === undefined
-					? 'It went several rounds in a row without committing and revealing a turn.'
-					: `It went ${cause.rounds} rounds in a row without committing and revealing a turn.`
-			} That is the only way to die here: a player who could go quiet for free could walk away from a turn they had committed to and did not like, so the game takes the avatar of anyone who stops playing. This browser keeps the round turning for you while it is open, even when you stand still.`;
+				cause.cycles === undefined
+					? 'It went several cycles in a row without committing and revealing a turn.'
+					: `It went ${cause.cycles} cycles in a row without committing and revealing a turn.`
+			} That is the only way to die here: a player who could go quiet for free could walk away from a turn they had committed to and did not like, so the game takes the avatar of anyone who stops playing. This browser keeps taking your turn for you while it is open, even when you stand still.`;
 		case 'unknown':
 			return 'The contract reports it as dead, and nothing on chain records what killed it.';
 	}

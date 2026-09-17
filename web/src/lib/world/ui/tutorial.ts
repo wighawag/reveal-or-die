@@ -87,7 +87,7 @@ export function startTour(onFinished?: () => void) {
 				popover: {
 					title: 'Your timer',
 					description:
-						'reveal-or-die is a simultaneous turn-based game with two phases, commit and reveal. The dial counts down whichever phase you are in. While it is green you can plan; once it turns red your moves are being resolved and the round is no longer yours to change.',
+						'reveal-or-die is a simultaneous turn-based game with two phases, commit and reveal. The dial counts down whichever phase you are in. While it is green you can plan; once it turns red your moves are being resolved and the turn is no longer yours to change.',
 				},
 			},
 			{

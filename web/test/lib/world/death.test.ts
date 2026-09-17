@@ -10,18 +10,18 @@ import {causeOfDeath, explainDeath} from '$lib/world/death';
  * a tested function rather than a string in a component.
  */
 describe('why an avatar died', () => {
-	it('counts the rounds of silence it actually takes, which is one more than the tolerance', () => {
+	it('counts the cycles of silence it actually takes, which is one more than the tolerance', () => {
 		// `_getResolvedAvatar` kills it when `epoch > lastEpoch + 1 + M` - the
 		// contract's own spelling, and this game's contracts are not renamed. With
-		// M = 3 and a last turn in round L, it is dead in L+5, having said nothing
-		// in L+1, L+2, L+3 and L+4: four rounds, not three.
+		// M = 3 and a last turn in cycle L, it is dead in L+5, having said nothing
+		// in L+1, L+2, L+3 and L+4: four cycles, not three.
 		expect(causeOfDeath({numMissesAllowed: 3})).toEqual({
 			kind: 'silence',
-			rounds: 4,
+			cycles: 4,
 		});
 		expect(causeOfDeath({numMissesAllowed: 0})).toEqual({
 			kind: 'silence',
-			rounds: 1,
+			cycles: 1,
 		});
 	});
 
@@ -29,14 +29,14 @@ describe('why an avatar died', () => {
 		// A deployment made before the tolerance was a parameter. Quoting the
 		// number this build happens to believe would be the client explaining the
 		// rules of a game nobody is playing.
-		expect(causeOfDeath({})).toEqual({kind: 'silence', rounds: undefined});
-		expect(explainDeath(causeOfDeath({}))).toMatch(/several rounds/);
+		expect(causeOfDeath({})).toEqual({kind: 'silence', cycles: undefined});
+		expect(explainDeath(causeOfDeath({}))).toMatch(/several cycles/);
 		expect(explainDeath(causeOfDeath({}))).not.toMatch(/\d/);
 	});
 
 	it('puts the number in the sentence when there is one', () => {
 		expect(explainDeath(causeOfDeath({numMissesAllowed: 3}))).toMatch(
-			/4 rounds in a row/,
+			/4 cycles in a row/,
 		);
 	});
 

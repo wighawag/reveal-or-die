@@ -289,7 +289,7 @@ export function describeSubmission(
 				// This game bonds nothing per cycle, so claiming a loss would be a
 				// lie; what it actually costs is the turn AND the next one, until the
 				// commitment is acknowledged. That is the part worth stating.
-				label: `Missed the reveal for cycle ${state.cycleNumber}. Those moves are lost, and the next round is blocked until you acknowledge it.`,
+				label: `Missed the reveal for cycle ${state.cycleNumber}. Those moves are lost, and the next turn is blocked until you acknowledge it.`,
 				tone: 'bad',
 			};
 		case 'Error':
@@ -368,8 +368,8 @@ export function describeRecovery(
 					// thing with a different remedy - press again.
 					`Those moves could not be checked: ${recovery.message}. Nothing is lost yet - try again.`
 				: auto.step === 'AskThePlayer' && auto.reason === 'not-searchable'
-					? 'Your avatar was entering the world, and where it was going to appear is not something this browser can work out. Point at the cell you chose and recover the round.'
-					: 'The commitment is still on chain and can still be revealed, but only this cycle. Re-enter the same moves and recover the round.';
+					? 'Your avatar was entering the world, and where it was going to appear is not something this browser can work out. Point at the cell you chose and recover the turn.'
+					: 'The commitment is still on chain and can still be revealed, but only this cycle. Re-enter the same moves and recover the turn.';
 
 	return {headline, detail, busy: false, canRecover: plannedCount > 0};
 }
@@ -467,7 +467,7 @@ export function describeSetup(
 			return {
 				headline: 'Sign in to play',
 				detail:
-					'Signing in gives the game a key of its own, so your moves are sent without a wallet prompt every round.',
+					'Signing in gives the game a key of its own, so your moves are sent without a wallet prompt every turn.',
 			};
 		case 'authorise':
 			return {
@@ -477,7 +477,7 @@ export function describeSetup(
 				// contract enforces it: the key can commit and reveal for avatars this
 				// account owns, and it cannot withdraw them.
 				detail:
-					'Your moves are signed here by a key this browser made, so no round needs a wallet prompt. Authorising lets it play as you and pays it some gas. It can never withdraw your avatars, and you can take the permission back at any time.',
+					'Your moves are signed here by a key this browser made, so no turn needs a wallet prompt. Authorising lets it play as you and pays it some gas. It can never withdraw your avatars, and you can take the permission back at any time.',
 				action: 'authorise',
 			};
 		case 'deposit':
@@ -509,7 +509,7 @@ export function describeSetup(
 export function instructionOutsidePlay(phase: CyclePhase): string {
 	switch (phase) {
 		case 'commit':
-			return 'This round is closed and its moves are being committed. Nothing can be planned until the next window opens.';
+			return 'This cycle is closed and its moves are being committed. Nothing can be planned until the next window opens.';
 		case 'reveal':
 			return 'Moves are being revealed. Nothing can be planned until the next window opens - where your avatar ends up is exactly what is being decided right now.';
 		case 'catching-up':
@@ -525,11 +525,11 @@ export function phaseLabelOf(phase: CyclePhase): string {
 		case 'play':
 			return 'Your move window';
 		case 'commit':
-			return 'Committing this round';
+			return 'Committing this turn';
 		case 'reveal':
 			return 'Revealing moves';
 		case 'catching-up':
-			return 'Catching up on last round';
+			return 'Catching up on last cycle';
 	}
 }
 
@@ -640,7 +640,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			// thing it can do this cycle is choose where to appear.
 			const phaseLabel = needsSetup
 				? phase === 'play'
-					? 'Round in progress'
+					? 'Cycle in progress'
 					: phaseLabelOf(phase)
 				: playable
 					? inWorld
@@ -760,7 +760,7 @@ export function createHud(context: Context): Readable<HudModel> {
 					$submission.error instanceof SignerOutOfFundsError
 						? {
 								detail:
-									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this round carries on by itself.',
+									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this turn carries on by itself.',
 							}
 						: undefined,
 			};
