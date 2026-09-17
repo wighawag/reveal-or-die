@@ -37,12 +37,19 @@ interface UsingGameEvents is UsingGameTypes {
         uint64 indexed cycleNumber
     );
 
-    /// @notice A player revealed what they had committed to.
+    /// @notice A player revealed a chunk of what they had committed to.
+    /// @param commitmentHash The head this reveal opened, which for the second
+    ///        and later chunks of a turn is not the hash that was committed.
+    /// @param furtherActions The new head, or zero when this completed the turn.
+    ///        A reader that wants whole turns rather than transactions stitches
+    ///        on this: it is the only thing that distinguishes "that was all of
+    ///        it" from "there is more of this turn to come".
     event CommitmentRevealed(
         uint256 indexed player,
         uint64 indexed cycleNumber,
         bytes24 commitmentHash,
         Placement[] placements,
+        bytes24 furtherActions,
         uint256 cost
     );
 
@@ -52,6 +59,11 @@ interface UsingGameEvents is UsingGameTypes {
     ///        game's {UsingGameInternal-_forfeit} settles in. A game whose
     ///        stake is not a bond reports zero here and says what it took in an
     ///        event of its own.
+    ///
+    ///        For a turn that was PARTIALLY revealed this is what the rest of it
+    ///        would have cost, and not the whole bond: each chunk that landed
+    ///        took its own cost out of the bond as it went, so what is left to
+    ///        forfeit is exactly what was never opened.
     event CommitmentVoid(
         uint256 indexed player,
         uint64 indexed cycleNumber,

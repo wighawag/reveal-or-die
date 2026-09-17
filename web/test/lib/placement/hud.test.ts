@@ -90,6 +90,33 @@ describe('what the HUD says about a failed submission', () => {
 		expect(label).toBe('Missed the reveal for cycle 7. The bond is forfeit.');
 		expect(tone).toBe('bad');
 	});
+
+	it('counts the pieces of a turn bigger than a transaction', () => {
+		// A long turn is opened one transaction at a time, so the player watches
+		// their cells arrive in batches over a noticeable stretch of the reveal
+		// phase. Without the count that reads as a board filling in at random.
+		expect(
+			describeSubmission({
+				step: 'Revealing',
+				cycleNumber: 7,
+				actions: [{cellID: 1n}],
+				progress: {done: 1, total: 3},
+			}).label,
+		).toBe('Revealing... (1 of 3)');
+	});
+
+	it('does not dress an ordinary one-transaction reveal up as a procedure', () => {
+		for (const progress of [undefined, {done: 0, total: 1}]) {
+			expect(
+				describeSubmission({
+					step: 'Revealing',
+					cycleNumber: 7,
+					actions: [{cellID: 1n}],
+					progress,
+				}).label,
+			).toBe('Revealing...');
+		}
+	});
 });
 
 /** A context with only the parts `createHud` reads. */

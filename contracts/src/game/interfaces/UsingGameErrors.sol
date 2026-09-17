@@ -42,6 +42,29 @@ interface UsingGameErrors {
     /// @notice the revealed placements cost more than the bond set aside
     error BondTooLow(uint256 bond, uint256 required);
 
+    /// @notice this reveal carries more actions than one transaction may
+    /// @dev The chunk is what makes a reveal's worst case CALCULABLE, on every
+    ///      chain and whatever a game puts at stake, which is what lets a client
+    ///      pass a real gas limit instead of a guess. A final chunk allowed to
+    ///      be any length would give that back: the bound would hold for every
+    ///      reveal except the last one of every turn.
+    error TooManyActions(uint256 length, uint256 allowed);
+
+    /// @notice a reveal that promises more actions did not carry a full chunk
+    /// @dev LOAD-BEARING RATHER THAN TIDY. Without it a player dribbles one
+    ///      action per transaction and spreads a turn across an unbounded number
+    ///      of reveals, which is a denial of service on the reveal phase and on
+    ///      everyone else's reads of the board. A chunk that promises a
+    ///      successor must therefore be exactly full; only the LAST one may be
+    ///      short.
+    error InvalidFurtherActions(uint256 length, uint256 required);
+
+    /// @notice a chunk size of zero, which would make every turn unrevealable
+    /// @dev Same class as a zero phase duration and refused in the same place:
+    ///      it is a deployment mistake whose cost is the first player's stake
+    ///      rather than a revert anybody sees.
+    error InvalidActionsPerReveal();
+
     /// @notice this game's cycle is advanced by the clock and by nothing else
     /// @dev A purely timed cycle needs no transaction at all - it simply is
     ///      what the clock says - so there is nothing for a caller to do here

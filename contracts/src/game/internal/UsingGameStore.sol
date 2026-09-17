@@ -18,8 +18,22 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     /// @notice how the cycle advances: see {UsingGameTypes-CyclePolicy}
     CyclePolicy internal immutable CYCLE_POLICY;
 
-    /// @notice the number of placements a hash represents
-    uint8 internal constant MAX_NUM_PLACEMENTS_PER_HASH = 32;
+    /// @notice THE CHUNK: how many actions one reveal transaction may carry.
+    /// @dev Deliberately an IMMUTABLE read off the deployment rather than the
+    ///      constant that used to sit here. `MAX_NUM_PLACEMENTS_PER_HASH = 32`
+    ///      was stratagems' number for stratagems' chain, left in this game's
+    ///      first commit, referenced by nothing; it was never a cap on a turn,
+    ///      it was a note-to-self for the chunked reveal this now implements.
+    ///      What it should have said is that a chunk size is a property of a
+    ///      GAME on a CHAIN, so it belongs in {UsingGameTypes-Config}.
+    ///
+    ///      It bounds the TRANSACTION and not the TURN. A turn here is unbounded
+    ///      and arrives in as many reveals as it takes; what a game may
+    ///      additionally want is a cap on how many actions a turn contains at
+    ///      all, and that is a game RULE rather than a mechanism - it only binds
+    ///      where identity is scarce, which is not true of every game, so the
+    ///      framework does not take a position on it.
+    uint256 internal immutable ACTIONS_PER_REVEAL;
 
     /// @notice WHO PLAYS, as a number, and never as an address.
     /// @dev A player is a `uint256` here whatever a given game means by one,
@@ -81,6 +95,7 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
         REVEAL_PHASE_DURATION = config.revealPhaseDuration;
         TOKENS = config.tokens;
         PLACEMENT_COST = config.placementCost;
+        ACTIONS_PER_REVEAL = config.actionsPerReveal;
         CYCLE_POLICY = config.cyclePolicy;
         // What makes a configuration VALID is checked one level up, in
         // {UsingGameInternal}, which is where the errors are declared.

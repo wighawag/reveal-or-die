@@ -1,8 +1,11 @@
 import {test, expect, describe} from '../fixtures/test';
 import {
+	actionsPerReveal,
 	authoriseToPlay,
 	clearAnyMissedReveal,
 	clickCanvas,
+	planManyOnCanvas,
+	plannedCellIDs,
 	planOnCanvas,
 	submissionStep,
 	stake,
@@ -197,6 +200,146 @@ describe('Commit-reveal submission', () => {
 		expect(
 			(await submissionStep(page)).planned,
 			'the planned marker should have cleared',
+		).toBe(0);
+	});
+});
+
+/**
+ * A TURN BIGGER THAN A TRANSACTION, end to end.
+ *
+ * Every chain has a gas ceiling, so a turn longer than the deployment's
+ * `actionsPerReveal` is committed as the head of a hash chain and opened in
+ * several transactions, in order, all of them inside one reveal phase.
+ *
+ * IT IS HERE AND NOT ONLY IN UNIT TESTS because every part of it that can go
+ * wrong lives in a different layer: the client has to cut the turn the way the
+ * contract will accept, the contract has to keep the commitment open between
+ * chunks, the cycle must not close on a half-revealed turn, and the HUD has to
+ * say what is happening while the board fills in a few cells at a time. A
+ * progress flow that never renders passes every other gate in this repo -
+ * nothing type-checks this directory at all.
+ */
+describe('A turn bigger than one transaction', () => {
+	// Its own burner account, like every suite that sends transactions: files run
+	// in parallel workers and two of them sending from one account race for a
+	// nonce. `test/e2e-account-claims.test.ts` enforces it.
+	test.use({walletAccountIndex: 6});
+
+	test('commits a long turn as a chain and opens it across several reveals', async ({
+		connectedPage,
+		authoriseBrowser,
+	}) => {
+		// A full submission waits out a commit phase and a reveal phase, and this
+		// one plans several cells inside the play phase first.
+		test.slow();
+		const page = connectedPage;
+
+		await authoriseToPlay(page, authoriseBrowser);
+		await clearAnyMissedReveal(page);
+		await stake(page);
+		await expect
+			.poll(async () => (await submissionStep(page)).reserve !== '0', {
+				message: 'a reserve to bond from',
+				timeout: 60_000,
+			})
+			.toBe(true);
+
+		// ONE MORE THAN A CHUNK, read off the deployment. Exactly one more, because
+		// every extra click is budget out of a play phase this whole test has to
+		// fit inside, and two chunks is all it takes to make the reveal a sequence.
+		const chunk = await actionsPerReveal(page);
+		expect(chunk, 'the deployment should declare a chunk size').toBeGreaterThan(
+			0,
+		);
+		await planManyOnCanvas(page, chunk + 1);
+
+		const cells = await plannedCellIDs(page);
+		expect(cells.length).toBe(chunk + 1);
+		const before = new Map<string, bigint>();
+		for (const cellID of cells) {
+			// The e2e chain is shared and reused, so every assertion is about the
+			// CHANGE rather than an absolute figure.
+			before.set(cellID, BigInt(await stakeOnCell(page, cellID)));
+		}
+
+		const commit = page.getByRole('button', {name: /commit now/i});
+		if (await commit.isEnabled().catch(() => false)) {
+			await commit.click().catch(() => {});
+		}
+		await expect
+			.poll(async () => (await submissionStep(page)).step, {
+				message: 'the whole turn should be committed as ONE hash',
+				timeout: 90_000,
+			})
+			.toBe('Committed');
+
+		// A turn spanning two transactions is still one commitment: nothing about
+		// the board changes until it is opened.
+		for (const cellID of cells) {
+			expect(
+				BigInt(await stakeOnCell(page, cellID)),
+				'a commitment must not change the board',
+			).toBe(before.get(cellID));
+		}
+
+		// THE COUNT THE PLAYER IS SHOWN, caught while the reveal is still running.
+		// Polled for rather than waited on: the two transactions land quickly on a
+		// local node, so this is a race the assertion has to be allowed to lose
+		// without failing the test on it - what must not happen is the submission
+		// reporting a count that says there is only one.
+		let sawATotalOf = 0;
+		await expect
+			.poll(
+				async () => {
+					const state = await submissionStep(page);
+					if (state.revealProgress) {
+						sawATotalOf = Math.max(sawATotalOf, state.revealProgress.total);
+					}
+					return state.step;
+				},
+				{
+					message: 'the submission should open the whole chain by itself',
+					timeout: 120_000,
+					intervals: [200],
+				},
+			)
+			.toBe('Revealed');
+		expect(
+			sawATotalOf,
+			'the reveal should have reported itself as a sequence of transactions',
+		).toBeGreaterThan(1);
+
+		// THE WHOLE TURN LANDED, not just the first chunk. This is the assertion
+		// the feature exists for: without the chain advancing and the client
+		// following it, the cells past the first chunk would simply never arrive.
+		const placementCost = BigInt(
+			await page.evaluate(() =>
+				(
+					globalThis as unknown as {context: any}
+				).context.game.config.placementCost.toString(),
+			),
+		);
+		await expect
+			.poll(
+				async () => {
+					for (const cellID of cells) {
+						const now = BigInt(await stakeOnCell(page, cellID));
+						if (now !== (before.get(cellID) ?? 0n) + placementCost) {
+							return false;
+						}
+					}
+					return true;
+				},
+				{
+					message: 'every cell of the turn should reach the board',
+					timeout: 30_000,
+				},
+			)
+			.toBe(true);
+
+		expect(
+			(await submissionStep(page)).planned,
+			'the planned markers should have cleared',
 		).toBe(0);
 	});
 });

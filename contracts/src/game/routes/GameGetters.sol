@@ -52,6 +52,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
             time: TIME,
             tokens: TOKENS,
             placementCost: PLACEMENT_COST,
+            actionsPerReveal: ACTIONS_PER_REVEAL,
             cyclePolicy: CYCLE_POLICY
         });
     }

@@ -16,6 +16,12 @@ export default deployScript(
 			time: zeroAddress,
 			tokens: GameToken.address,
 			placementCost: parseEther('1'),
+			// THE CHUNK: how many actions one reveal transaction may carry. Recorded
+			// in `linkedData` below like everything else the client has to agree with
+			// the contract about, and this one is not optional: a client that split a
+			// turn into pieces of a different size would have every reveal past the
+			// first revert, after the stake was already bonded.
+			actionsPerReveal: data.Game.actionsPerReveal,
 			// How the cycle advances, said out loud rather than derived from the
 			// phase durations being zero. It is recorded in `linkedData` below,
 			// which is where the client reads it: a client that had to infer the
