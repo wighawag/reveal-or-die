@@ -219,6 +219,17 @@ export const config = {
 		 * available, and until something does, a player who plans a very long turn
 		 * can lose their avatar to the phase ending. Recorded here rather than
 		 * silently inheriting a sentence that divides by zero.
+		 *
+		 * AND THE THREE-SENDS FACTOR IS THE CLIENT'S, NOT THE CHAIN'S, which
+		 * matters more here than on `main` because here it is the only thing that
+		 * could ever make an unbounded turn openable. Nonces are per account and
+		 * strictly sequential, so a turn's chunks could be broadcast in ONE burst
+		 * and would still execute in order: the cost of a long turn would stop
+		 * being round trips inside the window and become block space, which is a
+		 * bound that exists. The client sends them one at a time today for reasons
+		 * written at its reveal loop (`placement/commit-reveal.ts`), none of which
+		 * is that a burst would not work. So "refuse to plan a turn that cannot be
+		 * opened in time" is the honest short-term answer and not the only one.
 		 */
 		Game: {
 			localhost: {
