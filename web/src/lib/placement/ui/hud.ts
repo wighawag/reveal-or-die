@@ -313,7 +313,7 @@ export function describeSetup(
 			return {
 				headline: 'Sign in to play',
 				detail:
-					'Signing in gives the game a key of its own, so your moves are sent without a wallet prompt every round.',
+					'Signing in gives the game a key of its own, so your moves are sent without a wallet prompt every turn.',
 			};
 		case 'authorise':
 			return {
@@ -323,7 +323,7 @@ export function describeSetup(
 				// the contract enforces it: the key can commit and reveal, and it
 				// cannot withdraw the reserve, which only this account can do.
 				detail:
-					'Your moves are signed here by a key this browser made, so no round needs a wallet prompt. Authorising lets it play as you and pays it some gas. It can never take your stake out, and you can withdraw the permission at any time.',
+					'Your moves are signed here by a key this browser made, so no turn needs a wallet prompt. Authorising lets it play as you and pays it some gas. It can never take your stake out, and you can withdraw the permission at any time.',
 				action: 'authorise',
 			};
 		case 'stake':
@@ -361,20 +361,24 @@ export function describeRecovery(
 ): HudModel['recovery'] {
 	if (state.step === 'Idle') return undefined;
 
-	const headline = `This browser has lost the round you committed for cycle ${state.cycleNumber}.`;
+	// NOT "has lost the turn", which is what this said while the copy still
+	// called a submission a round. In a game "lose a turn" is an idiom for
+	// forfeiting your go, so the shorter wording announced exactly the thing the
+	// note above says this must not announce. MISLAID, not forfeited.
+	const headline = `This browser no longer has the turn you committed for cycle ${state.cycleNumber}.`;
 	if (state.step === 'Checking') {
 		return {headline, detail: 'Checking...', busy: true, canRecover: false};
 	}
 
 	const detail =
 		state.step === 'Refused'
-			? 'Those are not the placements that were committed. Try again: nothing is spent, and the round can still be revealed until this cycle ends.'
+			? 'Those are not the placements that were committed. Try again: nothing is spent, and the turn can still be revealed until this cycle ends.'
 			: state.step === 'Failed'
 				? // NOT phrased as a wrong plan. The app could not ask, which is a
 					// different thing, and the remedy is to press again rather than to
 					// go looking for a misremembered turn.
-					`The round could not be checked: ${state.message}. Nothing is lost yet - try again.`
-				: 'The commitment is still on chain and can still be revealed, but only this cycle. Click the same cells you planned and recover the round.';
+					`The turn could not be checked: ${state.message}. Nothing is lost yet - try again.`
+				: 'The commitment is still on chain and can still be revealed, but only this cycle. Click the same cells you planned and recover the turn.';
 
 	return {headline, detail, busy: false, canRecover: plannedCount > 0};
 }
@@ -444,7 +448,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			return {
 				// Never invite a move the player cannot make: while they are still
 				// being set up the clock is just a clock.
-				phaseLabel: needsSetup ? 'Round in progress' : phaseLabelOf(phase),
+				phaseLabel: needsSetup ? 'Cycle in progress' : phaseLabelOf(phase),
 				phase,
 				secondsLeft: Math.max(0, Math.ceil(timeLeft)),
 				progress:
@@ -509,7 +513,7 @@ export function createHud(context: Context): Readable<HudModel> {
 					$submission.error instanceof SignerOutOfFundsError
 						? {
 								detail:
-									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this round carries on by itself.',
+									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this turn carries on by itself.',
 							}
 						: undefined,
 			};

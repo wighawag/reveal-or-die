@@ -62,7 +62,7 @@
 			/>
 			<div>
 				<p class="text-sm font-semibold">{$hud.phaseLabel}</p>
-				<p class="text-xs text-muted-foreground">round {$hud.cycleNumber}</p>
+				<p class="text-xs text-muted-foreground">cycle {$hud.cycleNumber}</p>
 			</div>
 		</div>
 		{#if $hud.walletSigningNotice}
@@ -72,7 +72,7 @@
 		{/if}
 		{#if $hud.planningForNextCycle}
 			<p class="mt-1 text-xs text-amber-400">
-				This round is closed. New picks count for the next one.
+				This cycle is closed. New picks count for the next one.
 			</p>
 		{/if}
 	</div>
@@ -129,7 +129,7 @@
 					disabled={!$hud.recovery.canRecover}
 					onclick={() => recovery.offer($plannedActions)}
 				>
-					{$hud.recovery.busy ? 'Checking...' : 'Recover round'}
+					{$hud.recovery.busy ? 'Checking...' : 'Recover turn'}
 				</Button>
 			</div>
 		{/if}
