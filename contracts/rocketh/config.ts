@@ -61,6 +61,34 @@ export const config = {
 				// player always gets, rather than one that drifts down with the
 				// mempool while they sit still.
 				expectedWorstGasPrice: parseEther('1', 'gwei'), // TODO use same value from hardhat config
+				// Gas ONE TURN costs: a commit plus the reveal that must follow it.
+				// MEASURED, on a local node, not reasoned about - the worst case a
+				// player can actually reach is a full stake spent in one turn, which
+				// is ten placements (the sale's `amount` divided by `placementCost`
+				// below), every cell claimed for the first time, and every cell in a
+				// different zone. That last part is what makes it the worst case:
+				// `_place` appends to a per-zone index only on a cell's first claim,
+				// so ten first claims across ten zones is ten new dynamic arrays.
+				//
+				//   ten fresh cells, ten zones  116,898 + 1,217,425 = 1,334,323
+				//   ten fresh cells, one zone   116,898 +   909,067 = 1,025,965
+				//   ten cells already claimed    99,798 +   434,797 =   534,595
+				//   one fresh cell              116,898 +   181,227 =   298,125
+				//
+				// So this is the top of that range plus about 12%, kept a round
+				// number because it is a policy figure with a margin rather than a
+				// reading. The margin is what keeps the credit count a FLOOR when a
+				// contract edit moves the gas a little; if one moves it a lot, this
+				// is measured again rather than nudged.
+				//
+				// NOT the same number as `COMMIT_GAS + REVEAL_GAS` in
+				// web/src/lib/placement/config.ts, and deliberately so. Those size
+				// the STIPEND, which is a reservation and is generous on purpose;
+				// this is what a turn is actually CHARGED, because moves are sent
+				// without a gas limit and a player pays for gas used. Pricing
+				// credits at the reservation would understate the moves left by
+				// half, which is the opposite of the question the number answers.
+				creditsGasMultiplier: 1_500_000n,
 				supportsSendRawTransactionSync: false,
 			},
 			tags: ['local', 'memory', 'testnet'],
