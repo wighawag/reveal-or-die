@@ -99,6 +99,50 @@ export const CYCLE_POLICY = {
 const COMMIT_GAS = 125_000n;
 const REVEAL_GAS = 425_000n;
 
+/**
+ * How many actions a player is EXPECTED to submit in one turn.
+ *
+ * AN EXPECTATION AND NOT A MAXIMUM, which is the whole reason it has to be
+ * stated rather than derived. `REVEAL_GAS` bounds a TRANSACTION, and that is a
+ * real bound in every game on every chain - it is what the chunk buys. What
+ * nothing bounds is a TURN: a turn arrives in `ceil(actions / actionsPerReveal)`
+ * transactions, and wherever an action costs nothing there is no worst case for
+ * how many. So anything answering the player's actual question - how many more
+ * TURNS can I play - cannot be computed from a maximum, because there is not
+ * one. It has to be sized from a number the game states out loud.
+ *
+ * The alternative is to price everything PER TRANSACTION, which is exact and
+ * gives up the thing being measured: "you have 40 of something" is not an
+ * answer when the player does not know how many of that something a turn costs.
+ * An average with its expectation written down is worth more than an exact
+ * figure with no unit.
+ *
+ * TWELVE, ON THIS BRANCH, AND THIS IS THE BRANCH THE PARAMETER EXISTS FOR.
+ * `main` justifies four by an economic bound - one stake buys ten placements
+ * and no more, so a turn is a few cells - and that argument does not survive
+ * the move here. A placement costs NOTHING on this branch, because custody of
+ * the avatar is the stake, so there is no economic bound on a turn at all and
+ * no maximum anywhere to size a stipend from. Twelve is a claim about players
+ * rather than a reading off the contracts, which is what this parameter is for
+ * and why it has to be declared instead of derived.
+ *
+ * It is three chunks, so an expected turn here is one commit and THREE reveals,
+ * and the stipend is about 2.6x what it was when a turn was assumed to be one
+ * of each. That is the correction rather than an increase: the old figure was
+ * not a smaller estimate of this, it was an answer to a different question.
+ *
+ * For scale, the measured ceiling on what a client can OPEN in a ten-second
+ * reveal phase at four actions per reveal is 36 actions, so an expected turn is
+ * a third of the longest one anybody can submit. See
+ * `web/src/lib/game/core/reveal-window.ts`.
+ *
+ * It sizes the gas stipend and nothing else today. It is deliberately NOT used
+ * to price a credit: a credit count is shown to the player as what they can
+ * still do, so it has to be a FLOOR, and an expectation is not one. See the
+ * stipend in `web/src/lib/placement/config.ts`.
+ */
+const EXPECTED_ACTIONS_PER_TURN = 12n;
+
 // we define our config and export it as "config"
 export const config = {
 	// Chain properties are exported with the deployments and read by the web app
@@ -304,6 +348,7 @@ export const config = {
 				cyclePolicy: CYCLE_POLICY.Timed,
 				commitGas: COMMIT_GAS,
 				revealGas: REVEAL_GAS,
+				expectedActionsPerTurn: EXPECTED_ACTIONS_PER_TURN,
 			},
 			default: {
 				commitPhaseDuration: 30n,
@@ -312,6 +357,7 @@ export const config = {
 				cyclePolicy: CYCLE_POLICY.Timed,
 				commitGas: COMMIT_GAS,
 				revealGas: REVEAL_GAS,
+				expectedActionsPerTurn: EXPECTED_ACTIONS_PER_TURN,
 			},
 		},
 	},
