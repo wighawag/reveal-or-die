@@ -92,7 +92,16 @@ export type HudModel = {
 	plannedCount: number;
 	costLabel: string;
 	reserveLabel: string;
-	/** Set when the plan costs more than the reserve can cover. */
+	/**
+	 * Set when the plan cannot be submitted as it stands.
+	 *
+	 * TWO DIFFERENT WAYS TO BE UNSUBMITTABLE, and they are not the same hazard.
+	 * Costing more than the reserve is refused by the CONTRACT, so it costs a
+	 * failed commit. Being longer than the reveal window can open is refused by
+	 * nothing: it commits happily and then cannot be revealed in time, which
+	 * forfeits the stake. The second is the one with the player's money in it, so
+	 * it is the one reported when both are true.
+	 */
 	warning?: string;
 
 	submissionLabel: string;
@@ -205,6 +214,26 @@ export function describeSubmission(state: SubmissionState<Placement>): {
 				tone: 'bad',
 			};
 	}
+}
+
+/**
+ * What to tell a player whose turn is as long as this client can open.
+ *
+ * NOT A RULE OF THE GAME, and the wording has to say so: nothing forbids a
+ * longer turn, it is this browser that cannot get all of its chunks into the
+ * reveal phase before it shuts. Said as a limit of the window rather than as a
+ * refusal, because a player who reads it as a rule will go looking for the rule.
+ *
+ * It is the warning with money in it. A turn too long to open commits happily
+ * and then misses its reveal, which forfeits whatever the game puts at stake -
+ * here the bond, on the identity branches the avatar itself.
+ */
+export function describePlanLimit(
+	planned: number,
+	maxActions: number | undefined,
+): string | undefined {
+	if (maxActions === undefined || planned < maxActions) return undefined;
+	return `That is as much as can be revealed in one cycle here (${maxActions}). A longer turn would not finish revealing before the phase ends, which forfeits your stake.`;
 }
 
 /**
@@ -404,6 +433,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.phase,
 			game.submission,
 			game.planning.count,
+			game.planning.maxActions,
 			game.cost,
 			game.reserve,
 			game.cycleInfo,
@@ -417,6 +447,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			$phase,
 			$submission,
 			$count,
+			$maxActions,
 			$cost,
 			$reserve,
 			$cycle,
@@ -494,9 +525,10 @@ export function createHud(context: Context): Readable<HudModel> {
 				reserveLabel:
 					reserveAmount === undefined ? '-' : STAKE.amount(reserveAmount),
 				warning:
-					reserveAmount !== undefined && $cost > reserveAmount
+					describePlanLimit($count, $maxActions as number | undefined) ??
+					(reserveAmount !== undefined && $cost > reserveAmount
 						? STAKE.notEnough
-						: undefined,
+						: undefined),
 
 				submissionLabel: submission.label,
 				submissionTone: submission.tone,

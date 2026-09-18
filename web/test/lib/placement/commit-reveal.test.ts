@@ -219,8 +219,13 @@ const PLAYER = '0x00000000000000000000000000000000000000ff' as const;
 function adapterRecording(options?: {
 	head?: `0x${string}`;
 	actionsPerReveal?: number;
+	revealPhaseDuration?: number;
 }) {
 	const sent: {functionName: string; args: readonly unknown[]}[] = [];
+	// HOW OFTEN THE CLIENT LOOKS FOR A RECEIPT, recorded because it decides how
+	// much of a turn can be opened before the phase shuts. See the test named
+	// for it below.
+	const waits: {pollingInterval?: number}[] = [];
 	let head = options?.head ?? ('0x' as `0x${string}`);
 	const deps = {
 		connection: {ensureConnected: async () => {}},
@@ -248,7 +253,10 @@ function adapterRecording(options?: {
 			contracts: {Game: {address: '0xgame', abi: []}},
 		}) as never,
 		publicClient: {
-			waitForTransactionReceipt: async () => ({status: 'success'}),
+			waitForTransactionReceipt: async (args: {pollingInterval?: number}) => {
+				waits.push(args);
+				return {status: 'success'};
+			},
 			readContract: async () => ({hash: head, cycleNumber: 7n, bond: 0n}),
 		},
 		signerBalance: FUNDED,
@@ -256,11 +264,19 @@ function adapterRecording(options?: {
 
 	return {
 		sent,
+		waits,
 		adapter: createPlacementCommitReveal({
 			deps,
 			config: {
 				placementCost: 10n,
 				actionsPerReveal: options?.actionsPerReveal ?? 4,
+				// The adapter sizes its receipt polling from the reveal phase, so a
+				// config without a cycle is not one it could be built from. See
+				// `game/core/reveal-window.ts`.
+				cycle: {
+					revealPhaseDuration: options?.revealPhaseDuration ?? 10,
+				},
+				gas: {commit: 150_000n, reveal: 600_000n},
 			} as unknown as PlacementConfig,
 		}),
 	};
@@ -562,6 +578,8 @@ describe('revealing a turn bigger than a transaction', () => {
 			config: {
 				placementCost: 10n,
 				actionsPerReveal: 4,
+				cycle: {revealPhaseDuration: 10},
+				gas: {commit: 150_000n, reveal: 600_000n},
 			} as unknown as PlacementConfig,
 		});
 
@@ -635,5 +653,81 @@ describe('a signer with nothing in it never reaches the node', () => {
 		const {run, reachedTheNode} = sendWithBalance({step: 'Unloaded'});
 		await expect(run()).resolves.toBe('0xhash');
 		expect(reachedTheNode()).toBe(true);
+	});
+});
+
+describe('how long the client waits before looking for a receipt', () => {
+	const row = (count: number): Placement[] =>
+		Array.from({length: count}, (_, i) => ({cellID: BigInt(i)}));
+
+	/**
+	 * THIS IS HALF OF WHAT A LONG TURN COSTS, and it was invisible until it was
+	 * measured.
+	 *
+	 * A chained reveal sends one chunk, waits for the receipt, then signs the
+	 * next, so the cost of one chunk is `max(block time, poll interval)`. viem's
+	 * default poll is four seconds. Measured against a local node mining on a
+	 * one-second interval with a ten-second reveal phase: at the default, three
+	 * chunks land before the window shuts; at a poll sized from the phase, nine
+	 * do. A turn whose chunks do not all land is a missed reveal, which forfeits
+	 * the stake - so this is not a latency nicety.
+	 *
+	 * Pinned here because the change is one argument that nothing else would
+	 * notice: removing it leaves every other test in this file green.
+	 */
+	it('sizes the wait from the reveal phase rather than taking viem default', async () => {
+		const {adapter, waits} = adapterRecording({revealPhaseDuration: 10});
+		await adapter.commit({
+			identity: PLAYER,
+			hash: '0xhash' as `0x${string}`,
+			actions: row(1),
+			secret: SECRET,
+			cycleNumber: 3,
+			revealDueAt: 0,
+		});
+
+		expect(waits.length).toBeGreaterThan(0);
+		// A twentieth of a ten-second phase.
+		expect(waits[0].pollingInterval).toBe(500);
+	});
+
+	it('leaves a long cycle alone, where four seconds is already small', async () => {
+		const {adapter, waits} = adapterRecording({revealPhaseDuration: 3_600});
+		await adapter.commit({
+			identity: PLAYER,
+			hash: '0xhash' as `0x${string}`,
+			actions: row(1),
+			secret: SECRET,
+			cycleNumber: 3,
+			revealDueAt: 0,
+		});
+
+		// viem's own default. Two of the games in this lineage run a 23h/1h
+		// split, and they must not start polling harder because this arrived.
+		expect(waits[0].pollingInterval).toBe(4_000);
+	});
+
+	it('waits the same way for every chunk of a turn, not just the first', async () => {
+		const actions = row(9);
+		const chain = buildPlacementChain({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+		const {adapter, waits} = adapterRecording({
+			revealPhaseDuration: 10,
+			head: chain[0].hash,
+		});
+		await adapter.reveal({
+			identity: PLAYER,
+			actions,
+			secret: SECRET,
+		});
+
+		// Three chunks at four per reveal, and the window closes on all of them
+		// together: a poll that was only applied to the first would leave the
+		// rest costing four seconds each.
+		expect(waits.length).toBe(3);
+		for (const wait of waits) expect(wait.pollingInterval).toBe(500);
 	});
 });

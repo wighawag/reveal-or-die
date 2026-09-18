@@ -389,6 +389,13 @@ export function setupFixtures(provider: EthereumProvider) {
 				time: `0x${string}`;
 				placementCost: string;
 				actionsPerReveal: string;
+				// NOT members of the on-chain `Config`: the contract never reads a
+				// gas figure. They are recorded on the deployment because they are
+				// measured against THESE contracts and the client that budgets with
+				// them is inherited from a template that does not run them. See
+				// `GasBudget.test.ts`.
+				commitGas: string;
+				revealGas: string;
 			};
 
 			let _timeOverride: {timestamp: number; whenMs: number} | undefined;

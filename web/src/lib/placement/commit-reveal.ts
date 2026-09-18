@@ -13,6 +13,7 @@ import type {Context} from '$lib/context/types';
 import type {CommitRevealAdapter} from '$lib/game/core/seams';
 import {onchainIdentity, type GameIdentity} from '$lib/game/identity';
 import {costOfPlacements, type PlacementConfig} from './config';
+import {receiptPollingInterval} from '$lib/game/core/reveal-window';
 import {isInsufficientFundsFailure} from '$lib/core/transaction';
 import {SignerOutOfFundsError} from './errors';
 
@@ -276,6 +277,7 @@ async function send(
 	},
 	request: unknown,
 	what: string,
+	pollingInterval?: number,
 ): Promise<`0x${string}`> {
 	refuseWhenTheSignerHoldsNothing(deps);
 	let hash: `0x${string}`;
@@ -295,7 +297,23 @@ async function send(
 		}
 		throw error;
 	}
-	const receipt = await deps.publicClient.waitForTransactionReceipt({hash});
+	// HOW OFTEN WE LOOK IS SIZED FROM THE REVEAL PHASE, not left at viem's
+	// default of four seconds.
+	//
+	// Measured against a local node mining on a 1s interval with a 10s reveal
+	// phase: at the default poll, one chunk costs ~4.0s and only THREE land
+	// before the window shuts, so a turn of sixteen actions could not be opened
+	// at all - and a turn that cannot be opened is a missed reveal, which takes
+	// the stake. At a poll sized from the phase the cost per chunk falls to the
+	// block time and nine land. The cost of one chunk is `max(block time, poll)`,
+	// so this term is half of what a long turn costs and it was free.
+	//
+	// `undefined` leaves viem's default in place, which is what a deployment
+	// with no declared reveal phase gets. See `game/core/reveal-window.ts`.
+	const receipt = await deps.publicClient.waitForTransactionReceipt({
+		hash,
+		...(pollingInterval === undefined ? {} : {pollingInterval}),
+	});
 	if (receipt.status === 'reverted') {
 		throw new Error(`${what} was rejected by the contract`);
 	}
@@ -317,6 +335,17 @@ export function createPlacementCommitReveal(params: {
 	beforeCommit?: () => Promise<void>;
 }): CommitRevealAdapter<GameIdentity, Placement> {
 	const {deps, config} = params;
+
+	/**
+	 * How often to look for a receipt, sized from the reveal phase.
+	 *
+	 * Computed once: it depends only on the deployment. See
+	 * `game/core/reveal-window.ts` for the measurement behind it, and note that
+	 * this is half of what a long turn costs - the cost of one sequential chunk
+	 * is `max(block time, poll interval)`, so leaving this at viem's four-second
+	 * default made a ten-second reveal phase hold three chunks instead of nine.
+	 */
+	const receiptPoll = receiptPollingInterval(config.cycle.revealPhaseDuration);
 
 	async function ready() {
 		const {connection, signerExecutor, deployments} = deps;
@@ -420,6 +449,7 @@ export function createPlacementCommitReveal(params: {
 						chain: null,
 					},
 					'The commitment',
+					receiptPoll,
 				),
 			};
 		},
@@ -514,6 +544,7 @@ export function createPlacementCommitReveal(params: {
 					chain.length === 1
 						? 'The reveal'
 						: `Part ${i + 1} of ${chain.length} of the reveal`,
+					receiptPoll,
 				);
 				onProgress?.({done: i + 1, total: chain.length});
 			}

@@ -37,6 +37,14 @@ export type PlacementConfig = {
 	 * cheaper than saying it a cycle later with somebody's bond in the balance.
 	 */
 	actionsPerReveal: number;
+	/**
+	 * What one commit and one reveal step are budgeted at on THIS deployment.
+	 *
+	 * Off the deployment rather than out of this file, so that a game running its
+	 * own contracts cannot inherit gas measured against another game's. See the
+	 * comment above {@link resolvePlacementConfig}.
+	 */
+	gas: GasBudget;
 	/** The ERC20 the reserve is denominated in. */
 	tokenAddress: `0x${string}`;
 	/**
@@ -100,36 +108,35 @@ type GameLinkedData = DeclaredValues & {
 	revealPhaseDuration: unknown;
 };
 
+/** What one commit and one reveal step are budgeted at, per deployment. */
+export type GasBudget = {
+	commit: bigint;
+	reveal: bigint;
+};
+
 /**
  * Gas to allow for ONE TRANSACTION of each kind: a commit, and one reveal step.
  *
- * MEASURED, NOT REASONED ABOUT, and both numbers moved when the reveal became
- * chunked. On a local node, at `actionsPerReveal` of four:
+ * READ OFF THE DEPLOYMENT, NOT DECLARED HERE, and that is the important part.
+ * These used to be two constants in this file, and this file is INHERITED down
+ * the template tree while contracts are NOT: every game writes its own. So a
+ * descendant ran its own contracts while budgeting with gas measured against
+ * somebody else's, in a file whose text did not differ at all - which is the
+ * failure this tree keeps paying for, a value merging cleanly while its
+ * reasoning does not. `with/nft-identity` is the worked example: the same two
+ * transactions measure 99,102 and 374,085 there against `main`'s 116,898 and
+ * 535,561, because a placement costs nothing so a reveal writes no stake.
  *
- *   first commit (cold slots)                     116,898
- *   later commit (warm slots)                       82,698
- *   reveal, full chunk, four fresh cells,
- *     each in a different zone, final              535,561
- *   the same chunk, non-final (writes the
- *     new head instead of closing the turn)        534,756
- *
- * The reveal's worst case is four FRESH cells in four DIFFERENT zones, because
- * `_place` appends to a per-zone index only on a cell's first claim, so that is
- * four new dynamic arrays. It is a bound on a TRANSACTION rather than on a turn,
- * which is the whole point of the chunk: a turn is unbounded and arrives in
- * `ceil(actions / actionsPerReveal)` of these.
- *
- * WHAT WAS WRONG BEFORE, since it is the reason these are measured now.
- * `COMMIT_GAS` was 100,000 against a real first commit of 116,898 - 16.9% short,
- * under a comment calling it "deliberately generous". It was harmless only
- * because it merely sizes the stipend; it stops being harmless the moment
- * anything passes it as a LIMIT, and the same comment says what that costs.
- * `REVEAL_GAS` was 2,000,000 against a measured 535,561, which is over-reserving
- * by a factor of four.
+ * Now the deploy declares them (`contracts/rocketh/config.ts`, recorded into
+ * `linkedData` by `deploy/010_deploy_game.ts`) and this reads them, exactly as
+ * it already does for `actionsPerReveal` and `placementCost`. A game that
+ * writes its own contracts cannot inherit a wrong figure, because there is
+ * nothing here to inherit. `contracts/test/js/GasBudget.test.ts` is what stops
+ * the declared figures rotting as the contracts change.
  *
  * WHAT THE CHUNK BOUNDS AND WHAT IT DOES NOT, because the next reader of these
- * numbers will be the credits work and this is the distinction it turns on.
- * `REVEAL_GAS` is a true maximum of ONE TRANSACTION and stays one in every game
+ * numbers will be the credits work and this is the distinction it turns on. The
+ * reveal figure is a true maximum of ONE TRANSACTION and stays one in every game
  * on every chain, however long a turn is - that is the whole property the chunk
  * buys, and it is what makes a gas LIMIT possible at all. What the chunk does
  * not bound is the number of reveal STEPS, and in a game whose turns are
@@ -150,19 +157,14 @@ type GameLinkedData = DeclaredValues & {
  * number nobody can plan against. An average with its expectation written down
  * is worth more than an exact figure with no unit.
  *
- * THEY ARE NOT PASSED AS GAS LIMITS, which is a deliberate stop short of what
- * the credits design eventually wants. Passing a limit turns a number that is
- * too low into an out-of-gas mid-submission, and that is not a slow turn, it is
- * a missed reveal, which loses the bond AND blocks the next cycle until it is
- * acknowledged. These are measured against THIS game's contracts; contracts are
- * not inherited in this template tree, so a descendant runs code these numbers
- * were never measured against while inheriting this file unchanged. Sizing a
- * reservation that way is safe and imposing a ceiling that way is not. Passing
- * them as limits is the credits task's to do, with a per-deployment number and a
- * test that fails when a contract change outgrows it.
+ * THEY ARE STILL NOT PASSED AS GAS LIMITS, which is a deliberate stop short of
+ * what the credits design eventually wants. Passing a limit turns a number that
+ * is too low into an out-of-gas mid-submission, and that is not a slow turn, it
+ * is a missed reveal, which loses the bond AND blocks the next cycle until it is
+ * acknowledged. Declaring them per deployment and pinning them with a test is
+ * the half of that work which makes a limit possible; the other half is the
+ * expectation above.
  */
-const COMMIT_GAS = 150_000n;
-const REVEAL_GAS = 600_000n;
 
 /**
  * How many SUBMISSION STEPS of gas a new player is given.
@@ -196,16 +198,27 @@ export function resolvePlacementConfig(
 	const worstGasPrice =
 		optionalBigInt(deployments.chain.properties, 'expectedWorstGasPrice') ?? 0n;
 
+	// REQUIRED, like `actionsPerReveal` and for the same reason: there is no safe
+	// default for a number measured against contracts this build cannot see. A
+	// deployment that does not declare its gas is one this client cannot size a
+	// stipend for, and saying so at startup is cheaper than funding a signer with
+	// a guess.
+	const gas: GasBudget = {
+		commit: readBigInt(linkedData, 'commitGas'),
+		reveal: readBigInt(linkedData, 'revealGas'),
+	};
+
 	return {
 		cycle: resolveCycleConfig(linkedData),
 		placementCost: readBigInt(linkedData, 'placementCost'),
 		actionsPerReveal: readNumber(linkedData, 'actionsPerReveal'),
+		gas,
 		tokenAddress: readAddress(linkedData, 'tokens'),
 		sale: {
 			address: StakeSale.address,
 			price: readBigInt(saleData, 'price'),
 			amount: readBigInt(saleData, 'amount'),
-			stipend: worstGasPrice * (COMMIT_GAS + REVEAL_GAS) * STEPS_OF_GAS,
+			stipend: worstGasPrice * (gas.commit + gas.reveal) * STEPS_OF_GAS,
 		},
 		cellSize: 10,
 		camera: {
