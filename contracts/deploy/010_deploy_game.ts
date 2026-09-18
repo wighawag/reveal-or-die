@@ -30,6 +30,25 @@ export default deployScript(
 			cyclePolicy: data.Game.cyclePolicy,
 		};
 
+		/**
+		 * What the CLIENT has to budget with, which the contract never reads.
+		 *
+		 * Recorded alongside the config rather than inside it: these are gas
+		 * figures measured against THIS deployment's contracts, and the contract
+		 * has no use for them, so putting them in the `Config` struct would spend
+		 * deploy gas and a storage slot on a number only the front end reads.
+		 *
+		 * They are here rather than in the client because contracts are not
+		 * inherited in this template tree and the client's files are: a descendant
+		 * writes its own game and would otherwise inherit gas measured against a
+		 * game it does not run. See `rocketh/config.ts` for the measurements and
+		 * `test/js/GasBudget.test.ts` for what stops them rotting.
+		 */
+		const clientGas = {
+			commitGas: data.Game.commitGas,
+			revealGas: data.Game.revealGas,
+		};
+
 		const routes = [
 			{name: 'Getters', artifact: artifacts.GameGetters, args: [config]},
 			{name: 'Commit', artifact: artifacts.GameCommit, args: [config]},
@@ -51,7 +70,10 @@ export default deployScript(
 			},
 			{
 				owner: admin,
-				linkedData: config,
+				// The struct the contract was constructed with, PLUS what only the
+				// client needs. `linkedData` is the deployment record's, not the
+				// contract's, so it may say more than the constructor took.
+				linkedData: {...config, ...clientGas},
 			},
 		);
 	},

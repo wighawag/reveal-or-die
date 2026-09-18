@@ -16,6 +16,10 @@ import type {CoreServices} from './core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
 import {
+	actionsOpenableInRevealPhase,
+	receiptPollingInterval,
+} from '$lib/game/core/reveal-window';
+import {
 	createCycleTrackers,
 	createThreePhase,
 	staticCycleConfig,
@@ -602,7 +606,35 @@ export function createGameContext(core: CoreServices): GameContext {
 		},
 	});
 
-	const planning = createPlanning({submission});
+	/**
+	 * How much of a turn this client could still OPEN before the reveal phase
+	 * shuts, in placements.
+	 *
+	 * Derived from a MEASUREMENT rather than a constant: `averageBlockTime` comes
+	 * off the chain clock, which is already watching blocks to drive the phase
+	 * countdown, so the bound follows the chain the player is actually on. Before
+	 * the first sync it is `undefined`, which bounds nothing - see
+	 * `createPlanning` for why a guessed block time would be worse than none.
+	 *
+	 * This is not a rule about how much a player may do. It is what fits in the
+	 * window, and going over it is a missed reveal, which forfeits the stake.
+	 */
+	const maxOpenableActions = derived(chainTime, ($chainTime) => {
+		const averageBlockTime = $chainTime.lastSync?.averageBlockTime;
+		if (averageBlockTime === undefined) return undefined;
+		// A MANUAL cycle has no clock, so its phase durations are zero and nothing
+		// is racing: `actionsOpenableInRevealPhase` answers `undefined` for that
+		// rather than reading the zero as a deadline, which would bound the one
+		// policy that needs no bound to a single chunk.
+		return actionsOpenableInRevealPhase({
+			revealPhaseDuration: config.cycle.revealPhaseDuration,
+			averageBlockTime,
+			pollingInterval: receiptPollingInterval(config.cycle.revealPhaseDuration),
+			actionsPerReveal: config.actionsPerReveal,
+		});
+	});
+
+	const planning = createPlanning({submission, maxActions: maxOpenableActions});
 
 	/**
 	 * The chain says a commitment exists; this browser may not know that.
