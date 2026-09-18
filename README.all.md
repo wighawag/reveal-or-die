@@ -100,7 +100,7 @@ web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts"
 check() { BASE="$1" FEATURES=with/all EXT="ts svelte" WATCH="web/src web/test web/e2e" \
   ALLOWED="$2" bash <(git show tooling:check-shared-divergence.sh); }
 
-check main             "$PIXI $NFT"   # the union: thirteen, and nothing else
+check main             "$PIXI $NFT"   # the union: fourteen, and nothing else
 check with/pixi-js     "$NFT"         # exactly what the identity axis contributes
 check with/nft-identity "$PIXI"       # exactly what the renderer axis contributes
 ```
@@ -116,12 +116,18 @@ the second run failed on exactly that entry.
 
 That is the check earning its keep rather than an inconvenience. Green on run two
 now means "`with/all` differs from `with/pixi-js` in exactly the identity axis's
-twelve files, ALL of them" - which is the claim this README makes - where before
-it only meant "nothing unexpected differs".
+thirteen files, ALL of them" - which is the claim this README makes - where
+before it only meant "nothing unexpected differs".
 
 Run the `BASE=main` one once more with `ALLOWED=` empty. That is the run that
-checks the checker, and on this branch it should name exactly thirteen files and
-no others. (That run also means what it says now: `ALLOWED=` used to fall back to
+checks the checker, and on this branch it should name exactly fourteen files and
+no others. **Those three numbers in this section said twelve and thirteen until
+2026-09-18, and they were the pre-`placement/config.ts` counts**: when the
+identity axis went from twelve to thirteen, the table above and the paragraph
+under it were updated and the worked commands were not. Nothing failed, because
+the script counts and this file only describes - which is the argument for
+re-running the three commands and reading their output rather than for trusting
+the comment beside them. (That run also means what it says now: `ALLOWED=` used to fall back to
 the script's default rather than allowing nothing.) `tooling` is a local orphan
 branch adopted verbatim from jolly-roger's and deliberately not pushed;
 `README.pixi-js.md` explains why and how to rebuild it.
