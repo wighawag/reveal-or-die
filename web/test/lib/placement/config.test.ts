@@ -32,6 +32,7 @@ function deploymentsDeclaring(game: Record<string, unknown>): TypedDeployments {
 					// contracts. See the gas budget block below.
 					commitGas: '150000',
 					revealGas: '600000',
+					expectedActionsPerTurn: '4',
 					...game,
 				},
 			},
@@ -86,6 +87,50 @@ describe('the gas budget the client sizes a stipend from', () => {
 		// gas for the same number of steps. That is the whole reason the figure
 		// has to come from the deployment.
 		expect(dear.sale.stipend).toBe(cheap.sale.stipend * 2n);
+	});
+
+	it('sizes the stipend in TURNS, which costs more where a turn is longer', () => {
+		// THE PARAMETER EARNS ITS KEEP ON THE BRANCH WHERE A PLACEMENT IS FREE.
+		// A turn of four is one chunk, so one commit and one reveal; a turn of
+		// twelve is three chunks, so one commit and three reveals. The stipend
+		// has to follow, and before this parameter existed there was nothing for
+		// it to follow: `revealGas` bounds a transaction and nothing bounds a
+		// turn.
+		const short = resolvePlacementConfig(
+			deploymentsDeclaring({actionsPerReveal: '4', expectedActionsPerTurn: '4'}),
+		);
+		const long = resolvePlacementConfig(
+			deploymentsDeclaring({actionsPerReveal: '4', expectedActionsPerTurn: '12'}),
+		);
+
+		// (150,000 + 600,000) against (150,000 + 3 x 600,000).
+		expect(long.sale.stipend).toBe(short.sale.stipend * 1_950_000n / 750_000n);
+		expect(long.expectedActionsPerTurn).toBe(12);
+	});
+
+	it('charges a whole extra transaction for one action past a chunk', () => {
+		// `ceil`, because that is the cost the chunk actually imposes.
+		const exact = resolvePlacementConfig(
+			deploymentsDeclaring({actionsPerReveal: '4', expectedActionsPerTurn: '4'}),
+		);
+		const oneMore = resolvePlacementConfig(
+			deploymentsDeclaring({actionsPerReveal: '4', expectedActionsPerTurn: '5'}),
+		);
+		expect(oneMore.sale.stipend).toBeGreaterThan(exact.sale.stipend);
+	});
+
+	it('refuses a deployment that does not say what a turn is', () => {
+		// It cannot be measured and it cannot be derived: it is the game's claim
+		// about its own players. A guess here funds a signer for a game nobody is
+		// playing.
+		expect(() =>
+			resolvePlacementConfig(
+				deploymentsDeclaring({
+					actionsPerReveal: '4',
+					expectedActionsPerTurn: undefined,
+				}),
+			),
+		).toThrow(/expectedActionsPerTurn/);
 	});
 
 	it('refuses a deployment that declares no gas, rather than guessing', () => {
