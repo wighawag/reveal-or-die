@@ -33,13 +33,12 @@ import {parseEther, zeroAddress} from 'viem';
  * expensive shape a single reveal can take. For the commit it is the FIRST one
  * a player makes, when every slot it writes is cold.
  *
- * WHAT IT DELIBERATELY DOES NOT DO is require the budget to be tight. Over
- * declaring costs a slightly larger stipend; under declaring costs a player
- * their gas mid-turn, and if these figures are ever passed as gas LIMITS it
- * costs them the stake, because a reveal that runs out of gas is a missed
- * reveal. So the assertion is one-sided on purpose. The companion assertion -
- * that the budget has not drifted into meaninglessness - is a loose ceiling
- * rather than a tight one.
+ * IT IS TWO-SIDED, BECAUSE THE FIGURES ARE NOW CEILINGS. The client passes them
+ * as the gas LIMIT on every commit and every reveal, so a transaction that needs
+ * more than the deployment declares does not cost more - it runs out of gas, and
+ * on a reveal that is a missed reveal, which forfeits the stake. So the budget
+ * must cover the worst case AND keep room above it; and it must not have drifted
+ * so far above that nobody has re-measured in a long time.
  */
 
 const {provider, networkHelpers} = await network.connect();
@@ -56,6 +55,32 @@ const SECRET =
 
 /** How far above the measured worst case a declared figure may sit. */
 const GENEROSITY_CEILING = 3n;
+
+/**
+ * How far above it a declared figure MUST sit, as a percentage.
+ *
+ * Ten per cent, and the number is a judgement rather than a measurement, so
+ * here is what it is buying. The case measured below is the worst case these
+ * contracts can reach today - a full chunk of cells claimed for the first time,
+ * each in a different zone - so the headroom is not covering a shape the test
+ * missed. It covers the two things the test cannot see: a chain that prices
+ * some opcode differently from the one this runs on, and the contracts growing
+ * a little between one re-measurement and the next.
+ *
+ * GAS USAGE IS OTHERWISE A PROPERTY OF THE CODE AND THE EVM REVISION RATHER
+ * THAN OF THE CHAIN, which is why this is a margin and not a per-chain
+ * measurement: `hardhat.config.ts` pins `evmVersion` on every profile, so the
+ * same contracts cost the same gas wherever they run. What genuinely varies per
+ * chain is the PRICE, and that is `expectedWorstGasPrice` in the chain
+ * properties, which is already declared per chain and is what turns these
+ * figures into money.
+ *
+ * It is deliberately looser than the margin the figures actually carry (12% to
+ * 28%). A tripwire set exactly at the current value fires on the first trivial
+ * change and gets raised reflexively, which is how a limit stops meaning
+ * anything.
+ */
+const MINIMUM_HEADROOM_PERCENT = 10n;
 
 describe('the declared gas budget', function () {
 	it('covers the worst commit and the worst reveal these contracts can produce', async function () {
@@ -130,6 +155,23 @@ describe('the declared gas budget', function () {
 			`a full fresh chunk of ${actionsPerReveal} costs ${revealUsed} gas and the deployment declares revealGas ${declaredReveal}. ` +
 				`Raise it in contracts/rocketh/config.ts, and note that a chunk is what this bounds: ` +
 				`raising actionsPerReveal raises this figure roughly in proportion.`,
+		);
+
+		// WITH ROOM TO SPARE, because the figure is a CEILING and not a
+		// reservation: the client passes it as the gas limit, so a transaction that
+		// needs more does not cost more, it runs OUT OF GAS. On a reveal that is a
+		// missed reveal and the stake is forfeited.
+		const required = (measured: bigint) =>
+			(measured * (100n + MINIMUM_HEADROOM_PERCENT)) / 100n;
+		assert.ok(
+			declaredCommit >= required(commitUsed),
+			`commitGas is declared at ${declaredCommit} against a measured ${commitUsed}, which is less than ${MINIMUM_HEADROOM_PERCENT}% of headroom. ` +
+				`It is passed as a gas LIMIT, so it has to be a ceiling rather than a close fit.`,
+		);
+		assert.ok(
+			declaredReveal >= required(revealUsed),
+			`revealGas is declared at ${declaredReveal} against a measured ${revealUsed}, which is less than ${MINIMUM_HEADROOM_PERCENT}% of headroom. ` +
+				`It is passed as a gas LIMIT on every reveal, and a reveal that runs out of gas is a missed reveal, which forfeits the stake.`,
 		);
 
 		// AND THE OTHER DIRECTION, loosely. A budget that has drifted far above

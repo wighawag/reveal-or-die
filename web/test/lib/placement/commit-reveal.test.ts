@@ -220,8 +220,13 @@ function adapterRecording(options?: {
 	head?: `0x${string}`;
 	actionsPerReveal?: number;
 	revealPhaseDuration?: number;
+	gas?: {commit: bigint; reveal: bigint};
 }) {
-	const sent: {functionName: string; args: readonly unknown[]}[] = [];
+	const sent: {
+		functionName: string;
+		args: readonly unknown[];
+		gas?: bigint;
+	}[] = [];
 	// HOW OFTEN THE CLIENT LOOKS FOR A RECEIPT, recorded because it decides how
 	// much of a turn can be opened before the phase shuts. See the test named
 	// for it below.
@@ -236,6 +241,7 @@ function adapterRecording(options?: {
 				writeContract: async (request: {
 					functionName: string;
 					args: readonly unknown[];
+					gas?: bigint;
 				}) => {
 					sent.push(request);
 					// The chain the contract keeps: a reveal rewrites the head to
@@ -276,7 +282,7 @@ function adapterRecording(options?: {
 				cycle: {
 					revealPhaseDuration: options?.revealPhaseDuration ?? 10,
 				},
-				gas: {commit: 150_000n, reveal: 600_000n},
+				gas: options?.gas ?? {commit: 150_000n, reveal: 600_000n},
 			} as unknown as PlacementConfig,
 		}),
 	};
@@ -729,5 +735,72 @@ describe('how long the client waits before looking for a receipt', () => {
 		// rest costing four seconds each.
 		expect(waits.length).toBe(3);
 		for (const wait of waits) expect(wait.pollingInterval).toBe(500);
+	});
+});
+
+describe('the gas limit every move carries', () => {
+	const row = (count: number): Placement[] =>
+		Array.from({length: count}, (_, i) => ({cellID: BigInt(i)}));
+
+	/**
+	 * THE FIGURE IS A CEILING, AND IT COMES OFF THE DEPLOYMENT.
+	 *
+	 * Passing it rather than estimating is what makes the cost of a move a
+	 * number the player can be told in advance, and it removes an
+	 * `eth_estimateGas` round trip from every chunk of a reveal. The danger is
+	 * the other direction: a limit below what the transaction needs is an
+	 * out-of-gas reveal, which is a MISSED reveal and forfeits the stake. That
+	 * is guarded in the contracts suite (`GasBudget.test.ts` fails when the
+	 * worst case comes within 10% of the declared figure); what is guarded here
+	 * is that the declared figure is the one actually used, rather than a
+	 * constant or nothing at all.
+	 */
+	it('commits with the limit the deployment declared', async () => {
+		const {adapter, sent} = adapterRecording();
+		await adapter.commit({
+			identity: PLAYER,
+			hash: '0xhash' as `0x${string}`,
+			actions: row(1),
+			secret: SECRET,
+			cycleNumber: 3,
+			revealDueAt: 0,
+		});
+		expect(sent[0].gas).toBe(150_000n);
+	});
+
+	it('reveals every chunk with it, not just the first', async () => {
+		const actions = row(9);
+		const chain = buildPlacementChain({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+		const {adapter, sent} = adapterRecording({head: chain[0].hash});
+		await adapter.reveal({identity: PLAYER, actions, secret: SECRET});
+
+		// Three chunks. A limit applied only to the first would leave the rest
+		// estimating, which is the round trip this removes - and on a chain where
+		// the estimate reverts (chunk 2 is checked against a head chunk 1 has not
+		// written yet) it would not merely be slower.
+		expect(sent.length).toBe(3);
+		for (const request of sent) expect(request.gas).toBe(600_000n);
+	});
+
+	it('takes the figures from the config rather than hardcoding them', async () => {
+		const {adapter, sent} = adapterRecording({
+			gas: {commit: 111_000n, reveal: 222_000n},
+		});
+		await adapter.commit({
+			identity: PLAYER,
+			hash: '0xhash' as `0x${string}`,
+			actions: row(1),
+			secret: SECRET,
+			cycleNumber: 3,
+			revealDueAt: 0,
+		});
+		// A different deployment declares different numbers, and the client
+		// follows without a code change. That is the whole point of the figures
+		// living on the deployment: contracts are not inherited in this tree.
+		expect(sent[0].gas).toBe(111_000n);
 	});
 });

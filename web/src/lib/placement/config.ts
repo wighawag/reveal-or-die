@@ -167,13 +167,27 @@ export type GasBudget = {
  * number nobody can plan against. An average with its expectation written down
  * is worth more than an exact figure with no unit.
  *
- * THEY ARE STILL NOT PASSED AS GAS LIMITS, which is a deliberate stop short of
- * what the credits design eventually wants. Passing a limit turns a number that
- * is too low into an out-of-gas mid-submission, and that is not a slow turn, it
- * is a missed reveal, which loses the bond AND blocks the next cycle until it is
- * acknowledged. Declaring them per deployment and pinning them with a test is
- * the half of that work which makes a limit possible; the other half is the
- * expectation above.
+ * THEY ARE PASSED AS GAS LIMITS, and that is what the rest of this comment is
+ * insurance for. A limit below what the transaction needs is not a slow turn, it
+ * is an out-of-gas reveal, which is a MISSED reveal: it loses the bond and
+ * blocks the next cycle until it is acknowledged. Three things stand behind it,
+ * and none of them is optimism.
+ *
+ * The figure is measured against THESE contracts, because the deployment
+ * declares it rather than this inherited file carrying one game's number into
+ * another game's build (ADR-0003). `contracts/test/js/GasBudget.test.ts` fails
+ * if the worst case a chunk can reach ever comes within 10% of it, so the
+ * headroom is a tested property rather than an accident of when it was last
+ * looked at. And gas USAGE is a property of the contract code and the pinned EVM
+ * revision rather than of the chain, so the figure travels: what genuinely
+ * varies per deployment is the gas PRICE, which is `expectedWorstGasPrice` in
+ * the chain properties and is declared per chain already.
+ *
+ * What it buys is the reason to take the risk at all: the cost of a move becomes
+ * a ceiling stated in advance instead of an estimate, which is the only way gas
+ * can honestly be denominated in moves - and it removes an `eth_estimateGas`
+ * round trip from every chunk, inside a window a multi-chunk turn is already
+ * spending several transactions of.
  */
 
 /**
@@ -254,7 +268,10 @@ export function resolvePlacementConfig(
 	// from the other two. This one cannot be measured or derived at all: it is the
 	// game's statement about how its players behave, and a client that guessed it
 	// would fund a signer for a game nobody is playing.
-	const expectedActionsPerTurn = readNumber(linkedData, 'expectedActionsPerTurn');
+	const expectedActionsPerTurn = readNumber(
+		linkedData,
+		'expectedActionsPerTurn',
+	);
 
 	return {
 		cycle: resolveCycleConfig(linkedData),
