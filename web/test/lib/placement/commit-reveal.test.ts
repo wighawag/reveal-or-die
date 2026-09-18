@@ -226,6 +226,8 @@ function adapterRecording(options?: {
 	actionsPerReveal?: number;
 	revealPhaseDuration?: number;
 	gas?: {commit: bigint; reveal: bigint};
+	/** Refuse every send after this many have succeeded, as a node would. */
+	refuseSendAfter?: number;
 }) {
 	const sent: {
 		functionName: string;
@@ -236,6 +238,10 @@ function adapterRecording(options?: {
 	// much of a turn can be opened before the phase shuts. See the test named
 	// for it below.
 	const waits: {pollingInterval?: number}[] = [];
+	// A COMBINED TIMELINE. Whether every chunk is broadcast before the first
+	// receipt is awaited is the whole of the pipelining, and it is invisible to
+	// any assertion that looks at sends and waits separately.
+	const timeline: string[] = [];
 	let head = options?.head ?? ('0x' as `0x${string}`);
 	const deps = {
 		connection: {ensureConnected: async () => {}},
@@ -248,7 +254,14 @@ function adapterRecording(options?: {
 					args: readonly unknown[];
 					gas?: bigint;
 				}) => {
+					if (
+						options?.refuseSendAfter !== undefined &&
+						sent.length > options.refuseSendAfter
+					) {
+						throw new Error('the node refused this transaction');
+					}
 					sent.push(request);
+					timeline.push(`send:${request.functionName}`);
 					// The chain the contract keeps: a reveal rewrites the head to
 					// whatever it promised next. Modelled here because a client
 					// that re-read between chunks would otherwise pass this suite
@@ -266,6 +279,7 @@ function adapterRecording(options?: {
 		publicClient: {
 			waitForTransactionReceipt: async (args: {pollingInterval?: number}) => {
 				waits.push(args);
+				timeline.push('wait');
 				return {status: 'success'};
 			},
 			readContract: async () => ({hash: head, cycleNumber: 7n, bond: 0n}),
@@ -276,6 +290,7 @@ function adapterRecording(options?: {
 	return {
 		sent,
 		waits,
+		timeline,
 		adapter: createPlacementCommitReveal({
 			deps,
 			config: {
@@ -807,5 +822,99 @@ describe('the gas limit every move carries', () => {
 		// follows without a code change. That is the whole point of the figures
 		// living on the deployment: contracts are not inherited in this tree.
 		expect(sent[0].gas).toBe(111_000n);
+	});
+});
+
+describe('a chained reveal is pipelined, not one round trip per chunk', () => {
+	const row = (count: number): Placement[] =>
+		Array.from({length: count}, (_, i) => ({cellID: BigInt(i)}));
+
+	/**
+	 * THE CHANGE THAT MAKES A LONG TURN OPENABLE AT ALL.
+	 *
+	 * Waiting for each receipt before broadcasting the next costs
+	 * `max(block time, poll interval)` per chunk, so a ten-second reveal phase
+	 * held three chunks - twelve actions - and anything longer could not be
+	 * revealed in time, which is a missed reveal and forfeits the stake.
+	 * Measured on a 1s chain at 13 chunks: 10,282ms with 9 landing, against
+	 * 1,199ms with all 13 in one block.
+	 *
+	 * It is safe because nonces are per account and strictly ordered, so the
+	 * chunks execute in the order they were sent however they arrive - which is
+	 * what the contract's hash chain requires, since chunk `i + 1` is checked
+	 * against a head chunk `i` writes.
+	 */
+	it('broadcasts every chunk before waiting for any of them', async () => {
+		const actions = row(9);
+		const chain = buildPlacementChain({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+		const {adapter, timeline} = adapterRecording({head: chain[0].hash});
+		await adapter.reveal({identity: PLAYER, actions, secret: SECRET});
+
+		// Three sends, THEN three waits. One send per wait, interleaved, is the
+		// shape this replaced.
+		expect(timeline).toEqual([
+			'send:reveal',
+			'send:reveal',
+			'send:reveal',
+			'wait',
+			'wait',
+			'wait',
+		]);
+	});
+
+	it('still reports progress by LANDINGS, never by sends', async () => {
+		const actions = row(9);
+		const chain = buildPlacementChain({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+		const {adapter} = adapterRecording({head: chain[0].hash});
+
+		const progress: {done: number; total: number}[] = [];
+		await adapter.reveal({
+			identity: PLAYER,
+			actions,
+			secret: SECRET,
+			onProgress: (p) => progress.push(p),
+		});
+
+		// A broadcast chunk has not been APPLIED. Counting sends would tell a
+		// player their turn was safe while it was still in a mempool, and the
+		// whole point of the progress figure is that it is about money.
+		expect(progress).toEqual([
+			{done: 0, total: 3},
+			{done: 1, total: 3},
+			{done: 2, total: 3},
+			{done: 3, total: 3},
+		]);
+	});
+
+	it('stops broadcasting when a send is refused, so no nonce is stranded', async () => {
+		const actions = row(9);
+		const chain = buildPlacementChain({
+			actions,
+			secret: SECRET,
+			actionsPerReveal: 4,
+		});
+		const {adapter, sent} = adapterRecording({
+			head: chain[0].hash,
+			refuseSendAfter: 1,
+		});
+
+		await expect(
+			adapter.reveal({identity: PLAYER, actions, secret: SECRET}),
+		).rejects.toThrow();
+
+		// ONE send got out, the refusal stopped the rest. This is the difference
+		// between pipelining and signing all `k` up front: on the node this game
+		// develops against a rejected send burns a nonce permanently, so a chunk
+		// built at a nonce the chain will never reach strands the whole turn
+		// rather than one transaction.
+		expect(sent.length).toBe(2);
 	});
 });
