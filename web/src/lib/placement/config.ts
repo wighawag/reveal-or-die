@@ -38,6 +38,16 @@ export type PlacementConfig = {
 	 */
 	actionsPerReveal: number;
 	/**
+	 * How many actions a player is EXPECTED to submit in one turn.
+	 *
+	 * An expectation, not a bound. `actionsPerReveal` bounds a TRANSACTION and
+	 * nothing bounds a turn, so this is the only thing anything counted in turns
+	 * can be sized from. Declared by the deploy because it is a claim about this
+	 * game's players, which no amount of measurement would produce. It sizes the
+	 * gas stipend and deliberately not the credit count - see `TURNS_OF_GAS`.
+	 */
+	expectedActionsPerTurn: number;
+	/**
 	 * What one commit and one reveal step are budgeted at on THIS deployment.
 	 *
 	 * Off the deployment rather than out of this file, so that a game running its
@@ -167,20 +177,51 @@ export type GasBudget = {
  */
 
 /**
- * How many SUBMISSION STEPS of gas a new player is given.
+ * How many TURNS of gas a new player is given.
  *
- * A step is one commit or one reveal transaction, which is the unit a chunked
- * reveal leaves: a turn longer than `actionsPerReveal` costs one commit plus
- * several reveals, so a player who plans long turns spends this faster than one
- * who plays a cell at a time. That is honest rather than unfortunate - a long
- * turn really does cost more - and it is why this is no longer counted in turns.
+ * IT COUNTS TURNS AGAIN, AND ONLY BECAUSE THE DEPLOYMENT NOW SAYS WHAT A TURN
+ * IS. When the reveal became chunked this had to become a count of STEPS - one
+ * commit or one reveal transaction - because a turn had stopped having a fixed
+ * cost: it arrives in `ceil(actions / actionsPerReveal)` transactions and,
+ * wherever an action is free, nothing bounds how many. Counting steps was
+ * honest and it did not answer the player's question, which is how many more
+ * TURNS they can play.
  *
- * The whole point of the stipend is that a player who has just staked can play
- * for a while without thinking about gas at all. When it does run out the
- * top-up flow is the remedy (and `resumeWhenGasArrives` picks the submission
- * back up by itself), so this is a starting float rather than a budget.
+ * `expectedActionsPerTurn` is that missing number, declared by the deploy
+ * because it is a statement about the GAME rather than about the framework. It
+ * is an expectation and not a maximum - there is no maximum to be had - so a
+ * player who plans much longer turns than the game expects will get fewer than
+ * this many. That is the honest trade, and it is acceptable HERE precisely
+ * because this is a starting float rather than a promise: when it runs out the
+ * top-up flow is the remedy, and `resumeWhenGasArrives` picks the submission
+ * back up by itself.
+ *
+ * IT IS NOT HOW CREDITS ARE PRICED, and the difference is the point. The credit
+ * count is shown to the player as what they can still do, so it must be a FLOOR
+ * (`core/connection/credits.ts` says so, and prices it at the worst expected gas
+ * price for the same reason). An expectation is not a floor. So credits stay
+ * denominated in what a TRANSACTION costs, which is a real bound, and only this
+ * float is sized from what a turn is expected to cost.
  */
-const STEPS_OF_GAS = 100n;
+const TURNS_OF_GAS = 100n;
+
+/**
+ * What one expected turn costs in gas: a commit, and the reveals it takes.
+ *
+ * `ceil` because a turn that spills one action past a chunk pays for a whole
+ * extra transaction, which is the cost the chunk imposes and the reason a long
+ * turn honestly costs more than a short one.
+ */
+function gasPerExpectedTurn(
+	gas: GasBudget,
+	expectedActionsPerTurn: number,
+	actionsPerReveal: number,
+): bigint {
+	const reveals = BigInt(
+		Math.max(1, Math.ceil(expectedActionsPerTurn / actionsPerReveal)),
+	);
+	return gas.commit + gas.reveal * reveals;
+}
 
 export function resolvePlacementConfig(
 	deployments: TypedDeployments,
@@ -208,17 +249,28 @@ export function resolvePlacementConfig(
 		reveal: readBigInt(linkedData, 'revealGas'),
 	};
 
+	const actionsPerReveal = readNumber(linkedData, 'actionsPerReveal');
+	// REQUIRED, for the third time in this function and for a different reason
+	// from the other two. This one cannot be measured or derived at all: it is the
+	// game's statement about how its players behave, and a client that guessed it
+	// would fund a signer for a game nobody is playing.
+	const expectedActionsPerTurn = readNumber(linkedData, 'expectedActionsPerTurn');
+
 	return {
 		cycle: resolveCycleConfig(linkedData),
 		placementCost: readBigInt(linkedData, 'placementCost'),
-		actionsPerReveal: readNumber(linkedData, 'actionsPerReveal'),
+		actionsPerReveal,
+		expectedActionsPerTurn,
 		gas,
 		tokenAddress: readAddress(linkedData, 'tokens'),
 		sale: {
 			address: StakeSale.address,
 			price: readBigInt(saleData, 'price'),
 			amount: readBigInt(saleData, 'amount'),
-			stipend: worstGasPrice * (gas.commit + gas.reveal) * STEPS_OF_GAS,
+			stipend:
+				worstGasPrice *
+				gasPerExpectedTurn(gas, expectedActionsPerTurn, actionsPerReveal) *
+				TURNS_OF_GAS,
 		},
 		cellSize: 10,
 		camera: {
