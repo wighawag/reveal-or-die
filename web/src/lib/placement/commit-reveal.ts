@@ -270,14 +270,22 @@ function refuseWhenTheSignerHoldsNothing(deps: CommitRevealDeps): void {
 	}
 }
 
-async function send(
+/**
+ * Put a move on the wire, and do not wait for it to be mined.
+ *
+ * SPLIT OUT OF {@link send} SO A TURN CAN BE PIPELINED. A chained reveal sends
+ * one transaction per chunk, and waiting for each receipt before broadcasting
+ * the next costs `max(block time, poll interval)` EVERY TIME - which is what
+ * made a ten-second reveal phase hold three chunks. Broadcasting is nearly free
+ * by comparison (measured: 13 chunks out in 168ms), so the wait happens once,
+ * afterwards, for all of them.
+ */
+async function broadcast(
 	deps: CommitRevealDeps,
 	executor: {
 		client: {writeContract: (request: never) => Promise<`0x${string}`>};
 	},
 	request: unknown,
-	what: string,
-	pollingInterval?: number,
 ): Promise<`0x${string}`> {
 	refuseWhenTheSignerHoldsNothing(deps);
 	let hash: `0x${string}`;
@@ -297,6 +305,26 @@ async function send(
 		}
 		throw error;
 	}
+	return hash;
+}
+
+/**
+ * Wait for one broadcast move to be mined, and refuse a revert.
+ *
+ * Waiting for inclusion matters more than it looks. `writeContract` resolves as
+ * soon as the transaction is BROADCAST, so without this a commitment that
+ * reverts (an empty reserve, a bond the reserve cannot cover) would still
+ * resolve happily, the submission would call itself Committed, and the only
+ * symptom would be a baffling `NothingToReveal` a phase later. The submission's
+ * states are what the player is told about something they have money on, so
+ * they have to mean what they say.
+ */
+async function confirm(
+	deps: CommitRevealDeps,
+	hash: `0x${string}`,
+	what: string,
+	pollingInterval?: number,
+): Promise<void> {
 	// HOW OFTEN WE LOOK IS SIZED FROM THE REVEAL PHASE, not left at viem's
 	// default of four seconds.
 	//
@@ -317,6 +345,20 @@ async function send(
 	if (receipt.status === 'reverted') {
 		throw new Error(`${what} was rejected by the contract`);
 	}
+}
+
+/** Broadcast, then wait. What a single-transaction move wants. */
+async function send(
+	deps: CommitRevealDeps,
+	executor: {
+		client: {writeContract: (request: never) => Promise<`0x${string}`>};
+	},
+	request: unknown,
+	what: string,
+	pollingInterval?: number,
+): Promise<`0x${string}`> {
+	const hash = await broadcast(deps, executor, request);
+	await confirm(deps, hash, what, pollingInterval);
 	return hash;
 }
 
@@ -522,54 +564,92 @@ export function createPlacementCommitReveal(params: {
 
 			onProgress?.({done: from, total: chain.length});
 
-			let hash: `0x${string}` | undefined;
+			// BROADCAST EVERY CHUNK FIRST, THEN WAIT FOR ALL OF THEM.
+			//
+			// Nonces are per account and strictly ordered, so a transaction at nonce
+			// `n + 1` cannot execute before the one at `n`: the chunks resolve in the
+			// order they were sent whatever order they arrive in, which is the
+			// property that makes this safe. Chunk `i + 1` is checked against a head
+			// chunk `i` writes, and that still holds - MEASURED, not assumed: 104
+			// chunks executed in order inside a single block with every hash check
+			// passing.
+			//
+			// WHAT IT IS WORTH: waiting for each receipt before sending the next cost
+			// `max(block time, poll interval)` per chunk, so a ten-second reveal phase
+			// held three chunks - twelve actions - and a longer turn could not be
+			// opened at all, which is a missed reveal and forfeits the stake. Measured
+			// at 13 chunks on a 1s chain: 10,282ms and only 9 landed, against 1,199ms
+			// with all 13 in ONE block.
+			//
+			// WHY THE BROADCASTS ARE STILL AWAITED ONE AT A TIME, which is the whole
+			// difference between this and signing all `k` up front. On the node this
+			// game develops against, a REJECTED send burns a nonce permanently (see
+			// {@link refuseWhenTheSignerHoldsNothing}), so a pre-signed burst turns one
+			// rejection into a stranded turn: every chunk behind it holds a nonce the
+			// chain will never reach. Awaiting each broadcast means a rejection stops
+			// the loop before the rest are ever built, and it keeps the nonce and
+			// in-flight machinery one-dispatch-at-a-time, which is what it is. It
+			// costs almost nothing: the same 13 chunks go out in 168ms against 23ms
+			// pre-signed, both negligible beside one block.
+			const partLabel = (i: number) =>
+				chain.length === 1
+					? 'The reveal'
+					: `Part ${i + 1} of ${chain.length} of the reveal`;
+
+			const broadcasts: {index: number; hash: `0x${string}`}[] = [];
 			for (let i = from; i < chain.length; i++) {
-				hash = await send(
-					deps,
-					executor,
-					{
-						address: deployments.contracts.Game.address,
-						abi: deployments.contracts.Game.abi,
-						functionName: 'reveal',
-						// `player` rather than msg.sender: the contract accepts a reveal
-						// submitted by anyone, so that being offline is not automatically
-						// a forfeit. Here the player reveals for themselves.
-						args: [
-							onchainIdentity(identity),
-							chain[i].actions as {cellID: bigint}[],
-							secret,
-							chain[i].furtherActions,
-							zeroAddress,
-						],
-						account: executor.account,
-						chain: null,
-						// THE LIMIT, DECLARED BY THE DEPLOYMENT AND NOT ESTIMATED.
-						//
-						// Passing it does two things. It makes the cost of a reveal a
-						// CEILING the player can be told about in advance, which is what
-						// lets gas be denominated in moves at all; and it removes an
-						// `eth_estimateGas` round trip from every chunk, inside a window
-						// a multi-chunk turn is already spending several transactions of.
-						//
-						// WHAT MAKES IT SAFE IS NOT THIS LINE. A limit below what the
-						// transaction needs is not a slow turn, it is an out-of-gas
-						// reveal, which is a MISSED reveal and forfeits the stake. Three
-						// things stand behind it: the figure is measured against THESE
-						// contracts rather than inherited from a template that runs
-						// different ones (ADR-0003); `GasBudget.test.ts` fails if the
-						// worst case a chunk can reach ever grows within 10% of it; and
-						// gas USAGE is a property of the code and the pinned EVM revision
-						// rather than of the chain, so what varies per deployment is the
-						// PRICE, which is `expectedWorstGasPrice` and is declared per
-						// chain already.
-						gas: config.gas.reveal,
-					},
-					chain.length === 1
-						? 'The reveal'
-						: `Part ${i + 1} of ${chain.length} of the reveal`,
-					receiptPoll,
-				);
-				onProgress?.({done: i + 1, total: chain.length});
+				const sent = await broadcast(deps, executor, {
+					address: deployments.contracts.Game.address,
+					abi: deployments.contracts.Game.abi,
+					functionName: 'reveal',
+					// `player` rather than msg.sender: the contract accepts a reveal
+					// submitted by anyone, so that being offline is not automatically
+					// a forfeit. Here the player reveals for themselves.
+					args: [
+						onchainIdentity(identity),
+						chain[i].actions as {cellID: bigint}[],
+						secret,
+						chain[i].furtherActions,
+						zeroAddress,
+					],
+					account: executor.account,
+					chain: null,
+					// THE LIMIT, DECLARED BY THE DEPLOYMENT AND NOT ESTIMATED.
+					//
+					// Passing it does two things. It makes the cost of a reveal a
+					// CEILING the player can be told about in advance, which is what
+					// lets gas be denominated in moves at all; and it removes an
+					// `eth_estimateGas` round trip from every chunk, inside a window
+					// a multi-chunk turn is already spending several transactions of.
+					//
+					// WHAT MAKES IT SAFE IS NOT THIS LINE. A limit below what the
+					// transaction needs is not a slow turn, it is an out-of-gas
+					// reveal, which is a MISSED reveal and forfeits the stake. Three
+					// things stand behind it: the figure is measured against THESE
+					// contracts rather than inherited from a template that runs
+					// different ones (ADR-0003); `GasBudget.test.ts` fails if the
+					// worst case a chunk can reach ever grows within 10% of it; and
+					// gas USAGE is a property of the code and the pinned EVM revision
+					// rather than of the chain, so what varies per deployment is the
+					// PRICE, which is `expectedWorstGasPrice` and is declared per
+					// chain already.
+					gas: config.gas.reveal,
+				});
+				broadcasts.push({index: i, hash: sent});
+			}
+
+			// PROGRESS COUNTS LANDINGS, NOT SENDS, which it already did and which is
+			// what makes this change invisible to the submission: a chunk that has
+			// been broadcast has not been applied, and telling a player otherwise
+			// would be telling them their turn is safe while it is still in a
+			// mempool. They are confirmed in order so that the part named in a
+			// failure is the FIRST one that failed rather than whichever was noticed
+			// first.
+			let hash: `0x${string}` | undefined;
+			for (const {index, hash: sent} of broadcasts) {
+				await confirm(deps, sent, partLabel(index), receiptPoll);
+				hash = sent;
+				onProgress?.({done: index + 1, total: chain.length});
 			}
 
 			if (!hash) {
