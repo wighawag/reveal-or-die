@@ -103,24 +103,38 @@ describe('the gas budget the client sizes a stipend from', () => {
 		// it to follow: `revealGas` bounds a transaction and nothing bounds a
 		// turn.
 		const short = resolvePlacementConfig(
-			deploymentsDeclaring({actionsPerReveal: '4', expectedActionsPerTurn: '4'}),
+			deploymentsDeclaring({
+				actionsPerReveal: '4',
+				expectedActionsPerTurn: '4',
+			}),
 		);
 		const long = resolvePlacementConfig(
-			deploymentsDeclaring({actionsPerReveal: '4', expectedActionsPerTurn: '12'}),
+			deploymentsDeclaring({
+				actionsPerReveal: '4',
+				expectedActionsPerTurn: '12',
+			}),
 		);
 
 		// (150,000 + 600,000) against (150,000 + 3 x 600,000).
-		expect(long.sale.stipend).toBe(short.sale.stipend * 1_950_000n / 750_000n);
+		expect(long.sale.stipend).toBe(
+			(short.sale.stipend * 1_950_000n) / 750_000n,
+		);
 		expect(long.expectedActionsPerTurn).toBe(12);
 	});
 
 	it('charges a whole extra transaction for one action past a chunk', () => {
 		// `ceil`, because that is the cost the chunk actually imposes.
 		const exact = resolvePlacementConfig(
-			deploymentsDeclaring({actionsPerReveal: '4', expectedActionsPerTurn: '4'}),
+			deploymentsDeclaring({
+				actionsPerReveal: '4',
+				expectedActionsPerTurn: '4',
+			}),
 		);
 		const oneMore = resolvePlacementConfig(
-			deploymentsDeclaring({actionsPerReveal: '4', expectedActionsPerTurn: '5'}),
+			deploymentsDeclaring({
+				actionsPerReveal: '4',
+				expectedActionsPerTurn: '5',
+			}),
 		);
 		expect(oneMore.sale.stipend).toBeGreaterThan(exact.sale.stipend);
 	});
