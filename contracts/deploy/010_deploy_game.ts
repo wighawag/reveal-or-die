@@ -62,6 +62,11 @@ export default deployScript(
 		const clientGas = {
 			commitGas: data.Game.commitGas,
 			revealGas: data.Game.revealGas,
+			// AN EXPECTATION, NOT A BOUND, and the contract could not enforce it if
+			// it wanted to: it is how many actions a turn is expected to carry, which
+			// is what lets the client size anything in TURNS. `revealGas` bounds one
+			// transaction; nothing bounds a turn wherever an action is free.
+			expectedActionsPerTurn: data.Game.expectedActionsPerTurn,
 		};
 
 		const routes = [
