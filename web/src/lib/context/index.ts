@@ -14,13 +14,26 @@
  * matters: the game needs the connection, and the health/refresh wiring needs
  * the game's chain reads. See the injection point in `core.ts`.
  */
-import {createCoreContext} from './core.js';
+import {createCoreContext, type ConnectionFactory} from './core.js';
 import {createGameContext, SIGNER_GRANT} from './game.js';
 import type {Context} from './types.js';
 
-export type {CoreServices} from './core.js';
+export type {
+	CoreServices,
+	ConnectionFactory,
+	ConnectionRequest,
+} from './core.js';
 
-export function createContext(): {
+/**
+ * @param options.establishConnection WHICH WORLD this context describes. Omit
+ * it for the app's own remote chain, which is what a single-world app wants and
+ * what every route here passes today. An app offering a second world - another
+ * network, or an execution-only node in the tab - builds a context per world and
+ * hands each one its own factory. See `ConnectionFactory` in `./core.ts`.
+ */
+export function createContext(options?: {
+	establishConnection?: ConnectionFactory;
+}): {
 	context: Context;
 	start: () => () => void;
 } {
@@ -32,5 +45,6 @@ export function createContext(): {
 	return createCoreContext({
 		createApp: createGameContext,
 		signerGrant: SIGNER_GRANT,
+		establishConnection: options?.establishConnection,
 	});
 }
