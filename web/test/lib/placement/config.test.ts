@@ -30,6 +30,10 @@ function deploymentsDeclaring(game: Record<string, unknown>): TypedDeployments {
 					// avatar is the stake, so a placement costs nothing.
 					placementCost: '0',
 					tokens: '0x0000000000000000000000000000000000000002',
+					// Declared by the deploy because they are measured against ITS
+					// contracts. See the gas budget block below.
+					commitGas: '150000',
+					revealGas: '600000',
 					...game,
 				},
 			},
@@ -44,6 +48,68 @@ function deploymentsDeclaring(game: Record<string, unknown>): TypedDeployments {
 		},
 	} as unknown as TypedDeployments;
 }
+
+describe('the gas budget the client sizes a stipend from', () => {
+	/**
+	 * WHOSE NUMBERS THEY ARE IS THE POINT. These used to be constants in
+	 * `$lib/placement/config`, which is inherited down the template tree while
+	 * contracts are not, so a descendant budgeted with gas measured against a
+	 * game it does not run - in a file whose text did not differ at all. They are
+	 * declared by the deploy now, and `contracts/test/js/GasBudget.test.ts` is
+	 * the other half of this pair: it fails when the contracts outgrow what the
+	 * deployment claims, and this fails when the client stops reading it.
+	 */
+	it('is whatever the deployment declared', () => {
+		const config = resolvePlacementConfig(
+			deploymentsDeclaring({
+				actionsPerReveal: '4',
+				commitGas: '99102',
+				revealGas: '374085',
+			}),
+		);
+		// The identity branches' real figures, which differ from `main`'s by about
+		// 30% for the same two transactions.
+		expect(config.gas.commit).toBe(99_102n);
+		expect(config.gas.reveal).toBe(374_085n);
+	});
+
+	it('sizes the stipend from them rather than from a constant', () => {
+		const cheap = resolvePlacementConfig(
+			deploymentsDeclaring({
+				actionsPerReveal: '4',
+				commitGas: '100000',
+				revealGas: '400000',
+			}),
+		);
+		const dear = resolvePlacementConfig(
+			deploymentsDeclaring({
+				actionsPerReveal: '4',
+				commitGas: '200000',
+				revealGas: '800000',
+			}),
+		);
+		// A game whose transactions cost twice as much hands its players twice the
+		// gas for the same number of steps. That is the whole reason the figure
+		// has to come from the deployment.
+		expect(dear.sale.stipend).toBe(cheap.sale.stipend * 2n);
+	});
+
+	it('refuses a deployment that declares no gas, rather than guessing', () => {
+		// Same argument as `actionsPerReveal` below: there is no safe default for
+		// a number measured against contracts this build cannot see, and a guessed
+		// stipend is a signer funded for a game it is not playing.
+		expect(() =>
+			resolvePlacementConfig(
+				deploymentsDeclaring({actionsPerReveal: '4', commitGas: undefined}),
+			),
+		).toThrow(/commitGas/);
+		expect(() =>
+			resolvePlacementConfig(
+				deploymentsDeclaring({actionsPerReveal: '4', revealGas: undefined}),
+			),
+		).toThrow(/revealGas/);
+	});
+});
 
 describe('the chunk size the client cuts a turn to', () => {
 	it('is whatever the deployment declared', () => {

@@ -39,6 +39,66 @@ export const CYCLE_POLICY = {
 	TimedWithEarlyAdvance: 2n,
 } as const;
 
+/**
+ * Gas to allow for ONE TRANSACTION of each kind: a commit, and one reveal step.
+ *
+ * THESE BELONG TO THE CONTRACTS AND THEREFORE TO THIS FILE, which is the change
+ * that matters rather than the numbers. They used to be constants in
+ * `web/src/lib/placement/config.ts`, and that file is INHERITED down this
+ * template tree while contracts are NOT: every game writes its own. So a
+ * descendant ran its own contracts while reading gas figures measured against
+ * somebody else's, in a file whose text did not differ at all. That is not
+ * hypothetical - `with/nft-identity` measures 99,102 and 374,085 for the same
+ * two transactions `main` measures at 116,898 and 535,561, because a placement
+ * costs nothing there so a reveal writes no stake.
+ *
+ * Declared here, they travel with the contracts they were measured against:
+ * they are recorded in the Game's `linkedData` by `deploy/010_deploy_game.ts`
+ * and read off the deployment by the client, exactly as `actionsPerReveal` and
+ * `placementCost` already are. A game that writes its own contracts cannot
+ * inherit a wrong figure, because there is nothing to inherit.
+ *
+ * They are NOT in the Solidity `Config` struct, deliberately. The contract never
+ * reads a gas figure, and putting one in constructor storage would cost gas
+ * forever for a number only the client budgets with. `linkedData` is the
+ * established channel for what the client must agree with the deploy about.
+ *
+ * MEASURED ON THIS BRANCH, on a local node, at four actions per reveal. The
+ * reveal's worst case is a FULL chunk of cells claimed for the first time, each
+ * in a different zone: `_place` appends to a per-zone index only on a cell's
+ * first claim, so four first claims across four zones is four new dynamic
+ * arrays.
+ *
+ *   first commit (cold slots)                 99,102
+ *   later commit (warm slots)                 64,902
+ *   full fresh chunk, four zones, final      374,085
+ *   the same chunk, non-final                368,480
+ *
+ * EVERY ONE OF THOSE IS BELOW `main`'S, which measures 116,898 and 535,561 for
+ * the same two transactions, and the reason is this branch's stake model rather
+ * than anything about the chunk: a placement costs NOTHING here, because custody
+ * of the avatar is the stake, so a reveal writes no per-cell stake, no cell
+ * total and nothing to the reserve, and a commit bonds zero. Inheriting `main`'s
+ * figures would over-reserve every player's stipend by about a third - which is
+ * exactly what used to happen, in a client file whose text does not differ
+ * between branches. That is the whole reason these moved here.
+ *
+ * Both carry a margin over the reading, because they size a RESERVATION: over
+ * reserving costs a slightly larger first payment, under reserving costs a
+ * player their gas mid-turn. `contracts/test/js/GasBudget.test.ts` fails if a
+ * contract change outgrows either, which is what stops the margin being a
+ * guess that rots.
+ *
+ * THEY ARE STILL NOT PASSED AS GAS LIMITS. A limit that is too low is not a slow
+ * turn, it is a missed reveal, which takes the stake and blocks the next cycle
+ * until it is acknowledged. Declaring them per deployment and pinning them with
+ * a test is the half of that work which makes a limit possible later; the other
+ * half is an explicit EXPECTATION of actions per turn, because a limit bounds a
+ * transaction and nothing bounds a turn wherever an action is free.
+ */
+const COMMIT_GAS = 125_000n;
+const REVEAL_GAS = 425_000n;
+
 // we define our config and export it as "config"
 export const config = {
 	// Chain properties are exported with the deployments and read by the web app
@@ -94,11 +154,16 @@ export const config = {
 				// have merged cleanly, because the FILE does not differ: only the
 				// contracts the number was measured against do.
 				//
-				// It is therefore NOT the same number as `COMMIT_GAS + REVEAL_GAS`
-				// in web/src/lib/placement/config.ts on this branch, and the two
-				// answer different questions: this prices what a step is CHARGED,
-				// and that sizes a reservation which is deliberately generous.
-				creditsGasMultiplier: 550_000n,
+				// IT IS NO LONGER A SECOND NUMBER. It used to be typed out here as
+				// 550,000 and separately as `COMMIT_GAS + REVEAL_GAS` in
+				// web/src/lib/placement/config.ts, where the figures were `main`'s and
+				// did NOT agree with this one. That disagreement was the bug: the copy
+				// that mattered lived in a file which does not differ between branches,
+				// so it merged cleanly and its reasoning did not. There is one
+				// measurement now, at the top of this file, and both are derived from
+				// it - so the client's reservation and the credit price move together
+				// and cannot drift apart per branch again.
+				creditsGasMultiplier: COMMIT_GAS + REVEAL_GAS,
 				supportsSendRawTransactionSync: false,
 			},
 			tags: ['local', 'memory', 'testnet'],
@@ -237,12 +302,16 @@ export const config = {
 				revealPhaseDuration: 10n,
 				actionsPerReveal: 4n,
 				cyclePolicy: CYCLE_POLICY.Timed,
+				commitGas: COMMIT_GAS,
+				revealGas: REVEAL_GAS,
 			},
 			default: {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
 				actionsPerReveal: 4n,
 				cyclePolicy: CYCLE_POLICY.Timed,
+				commitGas: COMMIT_GAS,
+				revealGas: REVEAL_GAS,
 			},
 		},
 	},

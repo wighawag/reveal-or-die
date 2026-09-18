@@ -1,6 +1,10 @@
 import {describe, it, expect} from 'vitest';
 import {get, writable, type Writable} from 'svelte/store';
-import {createHud, describeSubmission} from '$lib/placement/ui/hud';
+import {
+	createHud,
+	describePlanLimit,
+	describeSubmission,
+} from '$lib/placement/ui/hud';
 import type {Context} from '$lib/context/types';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
 import type {SubmissionState} from '$lib/game/core/submission';
@@ -136,7 +140,10 @@ function fakeContext(submission: State, hasLocalSigner = true) {
 			// catch-up has no countdown at all. See game/core/cycle-phase.ts.
 			phase: writable('play'),
 			submission: writable(submission),
-			planning: {count: writable(1)},
+			// `maxActions` is how many placements this client could still OPEN in one
+			// reveal phase, and `undefined` bounds nothing: it is what the chain
+			// clock answers before it has measured a block time.
+			planning: {count: writable(1), maxActions: writable(undefined)},
 			cost: writable(0n),
 			reserve: writable({step: 'Loaded', amount: 100n}),
 			cycleInfo: writable({currentCycleNumber: 3}),
@@ -284,5 +291,57 @@ describe('a submission the chain holds and this browser has lost', () => {
 		const failed = get(createHud(context)).recovery?.detail ?? '';
 		expect(failed).toContain('no signer');
 		expect(failed).not.toMatch(/not the placements/i);
+	});
+});
+
+describe('what the HUD says about a turn too long to open', () => {
+	/**
+	 * THE WARNING WITH THE MONEY IN IT. A plan that costs more than the reserve
+	 * is refused by the contract, so it costs a failed commit. A plan longer
+	 * than the reveal phase can open is refused by nothing: it commits happily,
+	 * cannot finish revealing, and the missed reveal forfeits the stake.
+	 */
+	it('says nothing until the plan reaches the limit', () => {
+		expect(describePlanLimit(5, 36)).toBeUndefined();
+		expect(describePlanLimit(35, 36)).toBeUndefined();
+	});
+
+	it('names the number, and says what going over would cost', () => {
+		const message = describePlanLimit(36, 36) ?? '';
+		expect(message).toContain('36');
+		// The consequence, not just the refusal: a player who is told only "no"
+		// has no way to know this is the one limit that costs them money.
+		expect(message).toMatch(/forfeit/i);
+	});
+
+	it('does not present it as a rule of the game', () => {
+		// It is a limit of this client and this chain - how many transactions fit
+		// in the window - not something the game forbids. A player who reads it
+		// as a rule goes looking for a rule that does not exist.
+		const message = describePlanLimit(36, 36) ?? '';
+		expect(message).toMatch(/revealed in one cycle|phase ends/i);
+		expect(message).not.toMatch(/not allowed|forbidden|maximum turn/i);
+	});
+
+	it('says nothing at all while the limit is unknown', () => {
+		expect(describePlanLimit(100, undefined)).toBeUndefined();
+	});
+
+	it('is the warning that wins when the plan is also unaffordable', () => {
+		const context = fakeContext(idle());
+		const game = context.game as unknown as {
+			planning: {
+				count: Writable<number>;
+				maxActions: Writable<number | undefined>;
+			};
+			cost: Writable<bigint>;
+		};
+		game.planning.maxActions.set(4);
+		game.planning.count.set(4);
+		game.cost.set(1_000n); // reserve is 100n in the fixture
+
+		// Both are true. The one that is reported is the one that would cost the
+		// stake rather than a reverted transaction.
+		expect(get(createHud(context)).warning).toMatch(/forfeit/i);
 	});
 });
