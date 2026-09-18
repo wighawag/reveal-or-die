@@ -447,6 +447,9 @@ export function createPlacementCommitReveal(params: {
 						args: [onchainIdentity(identity), hash, bond, zeroAddress],
 						account: executor.account,
 						chain: null,
+						// THE LIMIT, DECLARED BY THE DEPLOYMENT. See the reveal below
+						// for why this is passed rather than estimated.
+						gas: config.gas.commit,
 					},
 					'The commitment',
 					receiptPoll,
@@ -540,6 +543,26 @@ export function createPlacementCommitReveal(params: {
 						],
 						account: executor.account,
 						chain: null,
+						// THE LIMIT, DECLARED BY THE DEPLOYMENT AND NOT ESTIMATED.
+						//
+						// Passing it does two things. It makes the cost of a reveal a
+						// CEILING the player can be told about in advance, which is what
+						// lets gas be denominated in moves at all; and it removes an
+						// `eth_estimateGas` round trip from every chunk, inside a window
+						// a multi-chunk turn is already spending several transactions of.
+						//
+						// WHAT MAKES IT SAFE IS NOT THIS LINE. A limit below what the
+						// transaction needs is not a slow turn, it is an out-of-gas
+						// reveal, which is a MISSED reveal and forfeits the stake. Three
+						// things stand behind it: the figure is measured against THESE
+						// contracts rather than inherited from a template that runs
+						// different ones (ADR-0003); `GasBudget.test.ts` fails if the
+						// worst case a chunk can reach ever grows within 10% of it; and
+						// gas USAGE is a property of the code and the pinned EVM revision
+						// rather than of the chain, so what varies per deployment is the
+						// PRICE, which is `expectedWorstGasPrice` and is declared per
+						// chain already.
+						gas: config.gas.reveal,
 					},
 					chain.length === 1
 						? 'The reveal'
