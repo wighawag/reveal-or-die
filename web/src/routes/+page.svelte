@@ -71,11 +71,19 @@
 			     The MECHANISM did come down and is kept: `$lib/embedded` boots a
 			     chain, runs deploy scripts on it and hands back a world. What is
 			     missing is this game's own composition of it - the manual cycle
-			     policy declared by an in-tab deploy, a provisioning hook that bonds
-			     the ERC20 stake, and a client that calls `advanceCycle`, which
-			     nothing in `web/src` does yet. Add the button with that, not
-			     before: a link to a world this game cannot finish a cycle in is
-			     worse than no link. -->
+			     policy declared by an in-tab deploy, a provisioning hook that gives
+			     the offline player whatever THIS game puts at stake, and a client
+			     that calls `advanceCycle`, which nothing in `web/src` does yet.
+
+			     The stake is deliberately not named here, and this file is the
+			     reason: it is byte-identical in every repo that inherits it, and
+			     what is at stake is the one thing they are guaranteed to disagree
+			     about - a bonded ERC20 in the reference game, custody of an NFT in
+			     reveal-or-die, a docked level elsewhere. The framework requires
+			     only that something is lost by not revealing.
+
+			     Add the button with that, not before: a link to a world this game
+			     cannot finish a cycle in is worse than no link. -->
 		</div>
 	</div>
 </div>
