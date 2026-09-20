@@ -62,6 +62,20 @@
 				class="min-w-40 bg-linear-to-r from-pink-600 via-pink-500 to-rose-500 font-semibold text-white shadow-lg transition-all duration-300 hover:from-pink-700 hover:via-pink-600 hover:to-rose-600 hover:shadow-xl"
 				>Play</Button
 			>
+			<!-- NO "Play Offline" BUTTON HERE YET, and its absence is deliberate
+			     rather than pending. The stem's home page has one, pointing at the
+			     `/offline-demo` route that plays ITS demo against a chain in the
+			     tab; this repo deletes the demo routes it inherits, so that button
+			     arrived here by a clean merge with nothing left to link to.
+
+			     The MECHANISM did come down and is kept: `$lib/embedded` boots a
+			     chain, runs deploy scripts on it and hands back a world. What is
+			     missing is this game's own composition of it - the manual cycle
+			     policy declared by an in-tab deploy, a provisioning hook that bonds
+			     the ERC20 stake, and a client that calls `advanceCycle`, which
+			     nothing in `web/src` does yet. Add the button with that, not
+			     before: a link to a world this game cannot finish a cycle in is
+			     worse than no link. -->
 		</div>
 	</div>
 </div>
