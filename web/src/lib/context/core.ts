@@ -329,6 +329,7 @@ function buildConnection(params: {
 		publicClient,
 		account,
 		deployments,
+		walletPrompts,
 		forceRpcFailure,
 	} = establishConnection({
 		nodeURL,
@@ -387,6 +388,10 @@ function buildConnection(params: {
 		chainInfo,
 		rawPayment,
 		hasLocalSigner,
+		// Defaulted HERE as well as in the remote factory, because a world is
+		// free to build an `EstablishedConnection` by hand and omitting this
+		// must mean "it prompts" rather than "it does not".
+		walletPrompts: walletPrompts ?? true,
 		rawWalletClient,
 		publicClient,
 		account,
@@ -594,6 +599,7 @@ function buildWalletClient(params: {
 	rawPayment: ReturnType<typeof buildConnection>['rawPayment'];
 	clock: ReturnType<typeof buildChainConfig>['clock'];
 	connection: ReturnType<typeof buildConnection>['connection'];
+	walletPrompts: ReturnType<typeof buildConnection>['walletPrompts'];
 	rawWalletClient: ReturnType<typeof buildConnection>['rawWalletClient'];
 	publicClient: ReturnType<typeof buildConnection>['publicClient'];
 	inFlight: ReturnType<typeof buildInFlight>['inFlight'];
@@ -601,6 +607,7 @@ function buildWalletClient(params: {
 	const {
 		clock,
 		connection,
+		walletPrompts,
 		rawWalletClient,
 		publicClient,
 		inFlight,
@@ -691,14 +698,24 @@ function buildWalletClient(params: {
 	// therefore needs its own guard. Nothing can do that on its behalf, so the two
 	// call sites are deliberately written to look alike.
 	//
-	// They differ in one word, and it is the one the user sees. This client
-	// PROMPTS, which is the default and therefore unwritten: a send from here goes
-	// to a wallet a human has to answer, so "Wallet Action Required" is a true
-	// instruction. The signer's passes `{prompts: false}`, because it signs with a
-	// key the app already holds and nobody is waiting on anything.
+	// They differ in one word, and it is the one the user sees. The signer's passes
+	// a literal `{prompts: false}`, because it signs with a key the app already
+	// holds and nobody is waiting on anything.
+	//
+	// THIS ONE IS THE WORLD'S ANSWER RATHER THAN A CONSTANT, which is what this
+	// node adds to that pair and the reason the word is a variable here and a
+	// literal there. For the app's own remote chain it is a wallet the user
+	// installed, so it prompts, and "Wallet Action Required" is a true instruction.
+	// A world that generated its own wallet - an embedded chain signs with a key it
+	// made and the player never sees a dialog - says false, and then "your wallet
+	// will ask you to confirm" is a sentence about nothing. So the local signer's
+	// silence is a property of the KEY and this client's is a property of the
+	// WORLD, and the two must not be collapsed into one flag.
+
 	const walletClient = guardDispatch(
 		accountTrackerBuilder.using(rawWalletClient, publicClient),
 		inFlight,
+		{prompts: walletPrompts},
 	);
 
 	// THE THIRD CLIENT THAT SENDS, AND THE ONE THAT MOVES REAL MONEY.
@@ -782,6 +799,7 @@ function buildExecution(params: {
 	walletClient: ReturnType<typeof buildWalletClient>['walletClient'];
 	payment: ReturnType<typeof buildWalletClient>['payment'];
 	accountData: ReturnType<typeof buildChainConfig>['accountData'];
+	chain: ReturnType<typeof buildChainConfig>['chain'];
 	finality: ReturnType<typeof buildChainConfig>['finality'];
 	inFlight: ReturnType<typeof buildInFlight>['inFlight'];
 }) {
@@ -790,6 +808,7 @@ function buildExecution(params: {
 		walletClient,
 		payment,
 		accountData,
+		chain,
 		finality,
 		inFlight,
 		signer,
@@ -927,7 +946,16 @@ function buildExecution(params: {
 		alwaysFetchReceipt: true,
 	});
 
-	const tabLeader = createTabLeaderService();
+	// NAMESPACED BY THE CHAIN, and with one world that changes nothing.
+	//
+	// The election decides which TAB polls for a transaction's receipt. With a
+	// second context in the same tab - a second world, which is what
+	// `establishConnection` exists for - an origin-wide election makes them
+	// compete: one wins, and the loser's observer never runs at all, so its
+	// transactions mine and stay "pending" forever with no error anywhere.
+	// Measured on `with/embedded-chain`, 2026-09-19, and it took a chain dump
+	// to see, because every other signal says the transaction succeeded.
+	const tabLeader = createTabLeaderService({namespace: String(chain.id)});
 
 	// EVERY CLIENT THAT SENDS FEEDS ACCOUNT DATA, so a transaction is recorded
 	// whichever key signed it. Operations are keyed by the AUTHENTICATED account,
@@ -1253,6 +1281,7 @@ export function createCoreContext<App extends AppContext>(params: {
 		publicClient,
 		account,
 		deployments,
+		walletPrompts,
 		forceRpcFailure,
 	} = buildConnection({
 		establishConnection,
@@ -1300,6 +1329,7 @@ export function createCoreContext<App extends AppContext>(params: {
 	const {walletClient, payment, signerTrackerBuilder} = buildWalletClient({
 		clock,
 		connection,
+		walletPrompts,
 		rawWalletClient,
 		publicClient,
 		inFlight,
@@ -1331,6 +1361,7 @@ export function createCoreContext<App extends AppContext>(params: {
 		chainFetchGate,
 		signerTrackerBuilder,
 		delegationTarget,
+		chain,
 		finality,
 		inFlight,
 	});
