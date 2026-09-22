@@ -24,6 +24,8 @@ import {
 	pokeWhenTheHumanActs,
 	type OfflinePlayer,
 } from '$lib/offline-players';
+import {seatsPlayedByTheWorld, type Table} from '$lib/offline-seats';
+import {authoriseTheBrowsersKey} from '$lib/offline-authorise';
 import {resolvePlacementConfig} from '$lib/placement/config';
 
 /**
@@ -68,10 +70,14 @@ import {resolvePlacementConfig} from '$lib/placement/config';
  * 4. **Who else is in it**, which is the difference between a commit-reveal
  *    game and a demonstration of one. A cycle with a single waited-for member
  *    hides nothing and two of `advanceCycle`'s three conditions cannot be
- *    reached at all, so this world enrols THREE and plays two of them. What
- *    those two DO is `$lib/offline-players`, which is identical on every branch
- *    of this template; what is decided here is who they are, because an
- *    identity is spelled differently per branch and this file differs already.
+ *    reached at all, so a world enrols at least THREE and plays all but one of
+ *    them. HOW MANY is the player's, chosen at the lobby before the world
+ *    boots (`$lib/offline-lobby`), and it arrives here as a TABLE of seats.
+ *    What those players DO is `$lib/offline-players` and who is in each seat is
+ *    `$lib/offline-seats`, both identical on every branch of this template;
+ *    what is decided here is what each of them is GIVEN and how this game
+ *    spells who they are, because that is what differs per branch and this file
+ *    differs already.
  *
  * It lives beside `lib/index.ts` rather than in a route, for the reason the
  * mechanism's README gives: this repo deletes the demo routes it inherits, and
@@ -99,38 +105,14 @@ const ADMIN =
 const ADMIN_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
 
 /**
- * THE TWO PLAYERS THE WORLD PLAYS, by the same argument as the keys above:
- * hardhat's well-known development accounts, public and fixed on purpose.
+ * Where the id of the world in this browser is kept.
  *
- * THREE PLAYERS AND NOT TWO, and not one. One waited-for member satisfies
- * unanimity by existing, so the commit phase hides nothing and `advanceCycle`
- * can never reach `StillWaitingToCommit` or `StillWaitingToReveal`; two is a
- * duel, where "everyone" and "the other one" are the same statement and a
- * contested cell is a special case rather than an instance of the rule. At
- * three the accumulation in `_place` has something to accumulate.
- *
- * KEYS AND ADDRESSES ONLY: who these two PLAY AS is a different question and
- * is answered by {@link playedByTheWorld}, because the answer differs per
- * branch of this template and one of the two forms is not known until the
- * chain has been asked.
+ * EXPORTED because the LOBBY is what decides a world is over: changing how
+ * many seats are at the table cannot be done to a world that is already
+ * provisioned, so the lobby forgets this and the next boot mints a fresh id.
+ * The key lives here rather than there because this file is what writes it.
  */
-export const PLAYED_BY_THE_WORLD = [
-	{
-		privateKey:
-			'0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
-		address: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
-	},
-	{
-		privateKey:
-			'0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6',
-		address: '0x90F79bf6EB2c4f870365E785982E1f101E93b906',
-	},
-] as const satisfies readonly {
-	privateKey: `0x${string}`;
-	address: `0x${string}`;
-}[];
-
-const CHAIN_ID_STORAGE_KEY = 'offline-world:chain-id';
+export const CHAIN_ID_STORAGE_KEY = 'offline-world:chain-id';
 const PLAY_MONEY = 10n ** 24n;
 
 /**
@@ -212,9 +194,17 @@ export const offlineWorld: Readable<OfflineWorldStatus> = {
  */
 let pending: Promise<OfflineWorldStatus> | undefined;
 
-export function startOfflineWorld(): Promise<OfflineWorldStatus> {
+export function startOfflineWorld(params: {
+	/**
+	 * Everyone this world will wait for, chosen at the lobby before anything
+	 * booted. A world that is already building keeps the table it was started
+	 * with: membership is provisioned once and cannot be changed afterwards
+	 * without staking or withdrawing members mid-cycle.
+	 */
+	table: Table;
+}): Promise<OfflineWorldStatus> {
 	if (!pending) {
-		pending = buildOfflineWorld().catch((err) => {
+		pending = buildOfflineWorld(params.table).catch((err) => {
 			// The promise is dropped so a retry is possible: a failed boot is
 			// usually a missing dependency or a deploy script throwing, and both
 			// are things a developer fixes and reloads into.
@@ -230,7 +220,7 @@ export function startOfflineWorld(): Promise<OfflineWorldStatus> {
 	return pending;
 }
 
-async function buildOfflineWorld(): Promise<OfflineWorldStatus> {
+async function buildOfflineWorld(table: Table): Promise<OfflineWorldStatus> {
 	// The id is minted once and remembered, because it is what keys everything
 	// the player keeps: the operations ledger, and this game's submission
 	// storage (`placement/storage.ts` keys by `chainID_gameAddress_player`). See
@@ -240,7 +230,7 @@ async function buildOfflineWorld(): Promise<OfflineWorldStatus> {
 		key: CHAIN_ID_STORAGE_KEY,
 	});
 
-	const world = await openWorld(chainId);
+	const world = await openWorld(chainId, table);
 
 	status.set({step: 'Booting', what: 'connecting'});
 
@@ -300,6 +290,30 @@ async function buildOfflineWorld(): Promise<OfflineWorldStatus> {
 	}
 
 	/**
+	 * AND IT AUTHORISES THE KEY THIS BROWSER PLAYS WITH, which is the last thing
+	 * standing between a player and the board.
+	 *
+	 * HERE rather than in provisioning, and that is the whole reason this step
+	 * could not simply be moved. The signer is derived in the tab from the
+	 * SIGNATURE the line above just asked for, so at provisioning time it does
+	 * not exist and has no address to register; after sign-in it does. Same
+	 * argument as the connect above, one step later.
+	 *
+	 * NOT FATAL. If it fails the game's own setup gate comes back with the
+	 * button on it, which is exactly the remedy a player would have had anyway,
+	 * and it is a better outcome than throwing away a booted world.
+	 */
+	status.set({step: 'Booting', what: "authorising this browser's key"});
+	try {
+		await authoriseTheBrowsersKey(context.context);
+	} catch (err) {
+		console.error(
+			"the offline world could not authorise this browser's key",
+			err,
+		);
+	}
+
+	/**
 	 * THE OTHER TWO PLAYERS, STARTED WITH THE BOARD AND STOPPED WITH IT.
 	 *
 	 * Wrapped around the context's own `start` rather than started here, so that
@@ -312,7 +326,7 @@ async function buildOfflineWorld(): Promise<OfflineWorldStatus> {
 		provider: world.provider,
 		deployments: world.deployments,
 		config: resolvePlacementConfig(world.deployments.get()),
-		players: await playedByTheWorld({env: world.env}),
+		players: await playedByTheWorld({env: world.env, table}),
 		// A played commit can complete unanimity just as the human's can, and the
 		// advance client would otherwise find out on its own one-second poll.
 		onActed: () => void context.context.game.cycleAdvance.check(),
@@ -356,7 +370,10 @@ async function buildOfflineWorld(): Promise<OfflineWorldStatus> {
  * persists (it always did, keyed by chain id), and without a persisted chain it
  * would come back describing transactions on a chain that no longer exists.
  */
-async function openWorld(chainId: number): Promise<EmbeddedWorld> {
+async function openWorld(
+	chainId: number,
+	table: Table,
+): Promise<EmbeddedWorld> {
 	status.set({step: 'Booting', what: 'starting a chain in this tab'});
 
 	const deploymentStore = await createIndexedDBDeploymentStore({
@@ -388,7 +405,7 @@ async function openWorld(chainId: number): Promise<EmbeddedWorld> {
 		status.set({step: 'Booting', what: 'starting a new world'});
 		const fresh = mintChainId();
 		localStorage.setItem(CHAIN_ID_STORAGE_KEY, String(fresh));
-		return openWorld(fresh);
+		return openWorld(fresh, table);
 	}
 
 	return createEmbeddedWorld({
@@ -430,7 +447,7 @@ async function openWorld(chainId: number): Promise<EmbeddedWorld> {
 			db: `offline-world-chain:${chainId}`,
 		}),
 		deploymentStore,
-		provision: (params) => provisionOfflinePlayer({...params, chainId}),
+		provision: (params) => provisionOfflinePlayer({...params, chainId, table}),
 	});
 }
 
@@ -453,31 +470,49 @@ let announced: (() => void) | undefined;
  *    and can forward a gas stipend, and using it here means the offline world
  *    exercises the contract path the online one depends on instead of a
  *    private shortcut that could quietly stop matching it.
- * 4. **SOMEBODY TO PLAY AGAINST**, which is gas and a stake for two more
- *    players and is the same three things over again. It is not a courtesy:
- *    the stake is what makes them waited-for members (`_startWaitingFor` fires
- *    on a funded reserve), and a cycle with one member is a cycle that hides
- *    nothing. They are given exactly what the human is given and nothing more,
- *    so what the world can do, the human can do.
+ * 4. **EVERYONE ELSE AT THE TABLE**, which is gas and a stake for every seat
+ *    the lobby laid out and is the same three things over again. It is not a
+ *    courtesy: the stake is what makes them waited-for members
+ *    (`_startWaitingFor` fires on a funded reserve), and a cycle with one
+ *    member is a cycle that hides nothing. They are given exactly what the
+ *    human is given and nothing more, so what the world can do, the human can
+ *    do.
  *
- * WHAT IT DELIBERATELY DOES NOT DO IS AUTHORISE THE BROWSER'S KEY. The signer
- * is derived in the tab from a wallet signature AFTER this runs (and after the
- * context exists at all), so the world cannot know its address, let alone
- * register it. That step stays the player's one press, which is the honest
- * split: the world gives what only the world can give - a chain, contracts,
- * gas and a stake - and the browser gives what only it can, a key and the
- * authority to play with it.
+ * WHAT IT STILL DOES NOT DO IS AUTHORISE THE BROWSER'S KEY, and this paragraph
+ * used to go on to say that authorising was therefore the player's one press.
+ * It is not any more, and the REASON given here was true and stays true: the
+ * signer is derived in the tab from a wallet signature AFTER this runs (and
+ * after the context exists at all), so provisioning cannot know its address,
+ * let alone register it. What has changed is who does it once it exists. The
+ * world does, in the step that asks for that signature and is therefore the
+ * first moment there is an address to register - see `connectOfflinePlayer`
+ * and the call beside it.
+ *
+ * ASKING WAS RIGHT WHEN THE WORLD HAD ONE MEMBER, AND IS NOT NOW. With one
+ * member that press was the only thing in the whole world that the player was
+ * asked for, so it read as the honest split: the world gives what only the
+ * world can give - a chain, contracts, gas and a stake - and the browser gives
+ * what only it can, a key and the authority to play with it. With a table of
+ * members already provisioned and already waiting, the same press is one
+ * dialog with one possible answer in front of a game that is otherwise ready:
+ * both sides of "who pays" are the same wallet, on a chain in this tab,
+ * holding money this file invented. A question with one answer is not consent,
+ * it is a gate. The SPLIT is unchanged - the browser still supplies the key
+ * and the authority - what went is being asked to confirm it.
  *
  * THE STIPEND IS ZERO HERE, and the sale refuses a stipend with nowhere to go,
- * so the two move together. There is no key to forward gas to yet, for the
- * reason in the paragraph above.
+ * so the two move together. There is still no key to forward gas to at this
+ * point, for the reason above; the authorisation that happens later carries
+ * its own gas with it, in the same transaction, exactly as the online one
+ * does.
  */
 async function provisionOfflinePlayer(params: {
 	env: EmbeddedWorld['env'];
 	node: {provider: {request: (args: never) => Promise<unknown>}};
 	chainId: number;
+	table: Table;
 }) {
-	const {env, node} = params;
+	const {env, node, table} = params;
 
 	status.set({step: 'Booting', what: 'handing the player a wallet'});
 	const wallet = await announceEmbeddedWallet({
@@ -501,18 +536,22 @@ async function provisionOfflinePlayer(params: {
 		} as never);
 	}
 
-	// GAS FOR THE TWO PLAYERS THE WORLD PLAYS, on the same terms and for the
-	// same reason: it is a number on a chain in a tab, and a player who cannot
-	// pay for a commit freezes the cycle for the human rather than for itself.
-	for (const played of PLAYED_BY_THE_WORLD) {
+	// GAS FOR EVERY SEAT THE WORLD PLAYS, on the same terms and for the same
+	// reason: it is a number on a chain in a tab, and a player who cannot pay
+	// for a commit freezes the cycle for the human rather than for itself.
+	for (const played of seatsPlayedByTheWorld(table)) {
 		await node.provider.request({
 			method: 'evm_setBalance',
 			params: [played.address, `0x${PLAY_MONEY.toString(16)}`],
 		} as never);
 	}
 
-	status.set({step: 'Booting', what: 'staking for everyone playing'});
-	await stakeForEveryoneInTheWorld({env, player: wallet.accounts[0]});
+	status.set({step: 'Booting', what: 'staking for everyone at the table'});
+	await stakeForEveryoneInTheWorld({
+		env,
+		player: wallet.accounts[0],
+		table,
+	});
 
 	// HANDED BACK rather than announced-and-hoped-for. The connection this world
 	// builds will use exactly this wallet, so the player is never asked to
@@ -521,16 +560,22 @@ async function provisionOfflinePlayer(params: {
 }
 
 /**
- * GIVE ALL THREE MEMBERS SOMETHING TO LOSE.
+ * GIVE EVERY SEAT AT THE TABLE SOMETHING TO LOSE.
  *
- * ONE FUNCTION RATHER THAN THREE CALLS AT THE HOOK, because it is the half of
- * provisioning that can be asserted in node: the wallet and its gas need a
- * `window` to announce on, and this does not. `test/lib/embedded/world.test.ts`
- * calls exactly this, so it cannot check the human and miss the two the world
- * plays - which would be a green suite over a world with one waited-for member
- * and therefore over a cycle that hides nothing.
+ * ONE FUNCTION RATHER THAN A CALL PER SEAT AT THE HOOK, because it is the half
+ * of provisioning that can be asserted in node: the wallet and its gas need a
+ * `window` to announce on, and this does not.
+ * `test/lib/embedded/world.test.ts` calls exactly this, so it cannot check the
+ * human and miss the players the world plays - which would be a green suite
+ * over a world with one waited-for member and therefore over a cycle that
+ * hides nothing. That test reads the count back off `getAttendance` rather
+ * than off the table, because the table is what a cascade can quietly halve.
  *
- * THE OTHER TWO ARE NOT A COURTESY. A stake is what enrols a player as a
+ * A WALK OF THE TABLE rather than a loop over a key list, which is where the
+ * seat model earns its keep: this stakes for whoever is in each seat, so the
+ * day a seat holds a second human it is staked for by this same line.
+ *
+ * THE OTHER SEATS ARE NOT A COURTESY. A stake is what enrols a player as a
  * waited-for member here (`_addToReserve` starts waiting for anyone with a
  * funded reserve), so this call is what makes unanimity mean something; and it
  * is what they lose by going quiet, which is what makes their commitments
@@ -539,12 +584,17 @@ async function provisionOfflinePlayer(params: {
  */
 export async function stakeForEveryoneInTheWorld(params: {
 	env: EmbeddedWorld['env'];
-	/** The human. The world's own two are the same on every boot. */
+	/**
+	 * The human's address, which only exists once a wallet has been announced.
+	 * Every other seat carries its own, because the world holds those keys.
+	 */
 	player: `0x${string}`;
+	table: Table;
 }): Promise<void> {
-	await stakeForOfflinePlayer({env: params.env, player: params.player});
-	for (const played of PLAYED_BY_THE_WORLD) {
-		await stakeForOfflinePlayer({env: params.env, player: played.address});
+	for (const seat of params.table) {
+		const player =
+			seat.occupant.kind === 'you' ? params.player : seat.occupant.address;
+		await stakeForOfflinePlayer({env: params.env, player});
 	}
 }
 
@@ -653,12 +703,13 @@ export async function offlineIdentityOf(params: {
 	return BigInt(params.player);
 }
 
-/** The world's two players, with the identity each of their keys plays as. */
+/** The seats the world plays, with the identity each of their keys plays as. */
 export async function playedByTheWorld(params: {
 	env: EmbeddedWorld['env'];
+	table: Table;
 }): Promise<readonly OfflinePlayer[]> {
 	const resolved: OfflinePlayer[] = [];
-	for (const played of PLAYED_BY_THE_WORLD) {
+	for (const played of seatsPlayedByTheWorld(params.table)) {
 		resolved.push({
 			privateKey: played.privateKey,
 			identity: await offlineIdentityOf({

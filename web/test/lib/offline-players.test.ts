@@ -14,11 +14,15 @@ import {
 } from 'template-commit-reveal-contracts/rocketh/config.js';
 import {
 	OFFLINE_DEPLOYMENT,
-	PLAYED_BY_THE_WORLD,
 	offlineIdentityOf,
 	playedByTheWorld,
 	stakeForOfflinePlayer,
 } from '$lib/offline';
+import {
+	SEATS_BY_DEFAULT,
+	seatsPlayedByTheWorld,
+	tableOf,
+} from '$lib/offline-seats';
 import {costOfPlacements, resolvePlacementConfig} from '$lib/placement/config';
 import {buildPlacementChain} from '$lib/placement/commit-reveal';
 import {createOfflinePlayers, secretFor, turnFor} from '$lib/offline-players';
@@ -54,6 +58,18 @@ import {positionOf} from '$lib/placement/cells';
  */
 
 const CHAIN_ID = 9007199254740127;
+
+/**
+ * THE SMALLEST TABLE, which is the one this file is about.
+ *
+ * Three seats: the human, and the two the world plays. The lobby lets a player
+ * ask for more, and nothing below would read differently at eight - what these
+ * tests assert is the BEHAVIOUR of a played player, and a player does not know
+ * how many others there are. The count that has to be honoured is asserted
+ * where it can be, against `getAttendance` in the world test.
+ */
+const TABLE = tableOf(SEATS_BY_DEFAULT);
+const PLAYED = seatsPlayedByTheWorld(TABLE);
 
 /**
  * The human, in this test: hardhat's account #1, as the world test uses it.
@@ -108,7 +124,7 @@ async function buildWorld() {
 		provision: async ({env, node}) => {
 			for (const address of [
 				HUMAN.address,
-				...PLAYED_BY_THE_WORLD.map((played) => played.address),
+				...PLAYED.map((played) => played.address),
 			]) {
 				await node.provider.request({
 					method: 'evm_setBalance',
@@ -125,7 +141,7 @@ async function playersOf(built: EmbeddedWorld) {
 		provider: built.provider,
 		deployments: built.deployments,
 		config: resolvePlacementConfig(built.deployments.get()),
-		players: await playedByTheWorld({env: built.env}),
+		players: await playedByTheWorld({env: built.env, table: TABLE}),
 	});
 }
 
@@ -300,15 +316,20 @@ describe('the other players in the offline world', () => {
 		// had to swap to the same quantity on the identity branch: a placement is
 		// free there, so the stake on a cell never moves and an assertion against
 		// it would be trivially true of a board nothing had reached.
-		for (const played of await playedByTheWorld({env: world.env})) {
+		for (const played of await playedByTheWorld({
+			env: world.env,
+			table: TABLE,
+		})) {
 			const [action] = turnFor({
 				game: records.contracts.Game.address,
 				identity: played.identity,
 				cycleNumber: 2,
 			});
 			const cell = await read<Cell>('getCell', [action.cellID]);
-			expect(cell.numClaimants, JSON.stringify(positionOf(action.cellID)))
-				.toBeGreaterThanOrEqual(1);
+			expect(
+				cell.numClaimants,
+				JSON.stringify(positionOf(action.cellID)),
+			).toBeGreaterThanOrEqual(1);
 		}
 	});
 
@@ -321,7 +342,7 @@ describe('the other players in the offline world', () => {
 		world = await buildWorld();
 		const {read} = clientsOf(world);
 		const records = world.deployments.get();
-		const [first] = await playedByTheWorld({env: world.env});
+		const [first] = await playedByTheWorld({env: world.env, table: TABLE});
 
 		await (await playersOf(world)).tick();
 		const before = await read<Commitment>('getCommitment', [first.identity]);
@@ -357,8 +378,8 @@ describe('the other players in the offline world', () => {
 		// the cycle number, and re-commits when they disagree.
 		world = await buildWorld();
 		const {send, read, senderFor} = clientsOf(world);
-		const [first] = await playedByTheWorld({env: world.env});
-		const stranger = senderFor(PLAYED_BY_THE_WORLD[0].privateKey);
+		const [first] = await playedByTheWorld({env: world.env, table: TABLE});
+		const stranger = senderFor(PLAYED[0].privateKey);
 
 		const notOurs =
 			'0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef' as const;
@@ -396,7 +417,7 @@ describe('the other players in the offline world', () => {
 		world = await buildWorld();
 		const {send, read, senderFor} = clientsOf(world);
 		const placement = resolvePlacementConfig(world.deployments.get());
-		const [first] = await playedByTheWorld({env: world.env});
+		const [first] = await playedByTheWorld({env: world.env, table: TABLE});
 
 		if (placement.placementCost === 0n) {
 			// THE ONE BRANCH DIFFERENCE THIS FILE HAS, stated rather than hidden
@@ -412,7 +433,7 @@ describe('the other players in the offline world', () => {
 		// Down to one wei: too little for a placement, and NOT zero, because
 		// emptying a reserve is how a player leaves and the cycle would stop
 		// waiting for them altogether.
-		const broke = senderFor(PLAYED_BY_THE_WORLD[0].privateKey);
+		const broke = senderFor(PLAYED[0].privateKey);
 		const held = await read<bigint>('getReserve', [first.identity]);
 		await send(broke, {
 			functionName: 'withdrawFromReserve',
@@ -531,7 +552,7 @@ describe('the other players in the offline world', () => {
 			env: world.env,
 			player: HUMAN.address,
 		});
-		const [first] = await playedByTheWorld({env: world.env});
+		const [first] = await playedByTheWorld({env: world.env, table: TABLE});
 
 		await (await playersOf(world)).tick();
 		await send(human, {

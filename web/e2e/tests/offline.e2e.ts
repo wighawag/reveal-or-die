@@ -39,7 +39,22 @@ import {test, expect, describe} from '../fixtures/test';
  * when one player played alone, which is the honest thing to check after adding
  * two more: a three-player round is a small multiple of a one-player round and
  * not a different order of magnitude, so widening them would have hidden a slow
- * loop rather than accommodated an inherently slower game.
+ * loop rather than accommodated an inherently slower game. They are unchanged
+ * again now that a LOBBY chooses the table, for the same reason - what was
+ * added in front of the boot is a press, and what was taken out of it was a
+ * dialog.
+ *
+ * AND IT NO LONGER PRESSES THE AUTHORISE BUTTON, which is a deliberate loss of
+ * coverage and is recorded here rather than left to be noticed. That press used
+ * to be the only UNCONDITIONAL drive of the top-up modal in the whole suite -
+ * choose a payer, confirm, watch the registration land - and the world now does
+ * the registration itself, through the same two functions that modal calls
+ * (`registrationRequest` and `submitRegistration`), because offline the
+ * question has one answer. So the CONTRACT half of the delegation path is still
+ * exercised in a browser on every run, and asserted below off the chain rather
+ * than off a button disappearing; the modal's own half is left to its unit
+ * tests and to the suites that still meet that button when the shared chain has
+ * already staked their account.
  */
 describe('Playing offline', () => {
 	test('boots a world in the tab and plays a whole cycle in it', async ({
@@ -47,27 +62,65 @@ describe('Playing offline', () => {
 	}) => {
 		await page.goto('/offline/');
 
+		// THE LOBBY COMES FIRST, AND NOTHING HAS BOOTED YET. Membership is baked
+		// into a world by provisioning, so how many seats there are has to be
+		// settled before a chain exists - which is why this press is not a gate in
+		// front of the game but the one decision the game needs.
+		await expect(page.getByText('How many at the table?')).toBeVisible({
+			timeout: 60_000,
+		});
+		await page.getByTestId('sit-down').click();
+
 		// The world is up: this strip is rendered by the route only once the
 		// chain, the deploy and the connection have all happened.
 		await expect(
 			page.getByText('Everything below runs against a chain inside this tab'),
 		).toBeVisible({timeout: 120_000});
 
-		// The board starts gated on ONE thing, which is the honest split: the
-		// world gave the player a chain, contracts, gas and a stake, and only the
-		// browser can give the key that plays and the authority to use it.
-		await page.getByRole('button', {name: /authorise and carry on/i}).click();
-		await page.getByText('Pay from your account').click();
-		await page.getByRole('button', {name: /continue/i}).click();
-
-		// The gate is gone once the key is authorised and funded.
+		// AND THE BOARD IS NOT GATED ON ANYTHING. There is nothing left to ask
+		// for: the world gave every seat a stake and gas during provisioning, and
+		// it registered the key this browser plays with in the step that derived
+		// it. Asserted as an absence AND as a fact on the chain below, because an
+		// absent button is also what a world that never got that far looks like.
 		await expect(
 			page.getByRole('button', {name: /authorise and carry on/i}),
 		).toHaveCount(0, {timeout: 60_000});
-		// ...and so is the dialog, which would otherwise swallow the click below.
-		await expect(page.locator('[role="dialog"]')).toHaveCount(0, {
-			timeout: 30_000,
-		});
+
+		// THE CHAIN SAYS THIS BROWSER MAY PLAY. `delegationStatus` is read for the
+		// (account, signer) pair, so `allowed` is the answer about THIS browser's
+		// key rather than about whichever delegate happens to be listed first.
+		// Read through the world's own handle rather than the console one, which
+		// two contexts write to and the last one wins.
+		await expect
+			.poll(
+				() =>
+					page.evaluate(`(() => {
+					const read = (store) => {
+						let value;
+						const stop = store.subscribe((v) => (value = v));
+						if (typeof stop === 'function') stop();
+						return value;
+					};
+					const world = globalThis.offlineWorld;
+					if (!world) return 'no world';
+					const delegation = read(world.context.delegation);
+					if (delegation.step !== 'Loaded') return delegation.step;
+					return delegation.allowed === true ? 'allowed' : 'refused';
+				})()`),
+				{timeout: 60_000},
+			)
+			.toBe('allowed');
+
+		// AND IT SAID SO. A step taken for the player still has to be a step they
+		// were told about: online this one is a transaction they sign and pay for,
+		// and meeting it for the first time there, unexplained, in front of a board
+		// they have already decided to play, is the experience this sentence exists
+		// to prevent.
+		await expect(page.getByText('registered a play key for you')).toBeVisible();
+
+		// The membership this world was provisioned with, on screen, because it
+		// cannot be changed without starting a new one.
+		await expect(page.getByText('3 seats at this table')).toBeVisible();
 
 		// A manual cycle starts at 2 and moves for no reason except a transaction.
 		await expect(page.getByText('cycle 2')).toBeVisible({timeout: 30_000});

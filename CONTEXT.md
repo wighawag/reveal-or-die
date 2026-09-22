@@ -80,6 +80,28 @@ nothing and burns nothing: a forfeit that paid out would be a costless way to
 not reveal.
 _Avoid_: quit, withdraw, resign, settle
 
+### Before the first cycle
+
+**Lobby**:
+Where it is settled who will be in a game, BEFORE it exists. It is not a
+waiting room: what makes somebody a waited-for member is being given whatever
+this game puts at stake, and that happens once, while the game is being set up.
+So a lobby is the last moment membership can be decided at all, and changing it
+afterwards means a different game rather than a different setting.
+_Avoid_: menu, room, matchmaking, setup
+
+**Seat**:
+One place in a lobby, which becomes one waited-for member. A seat is not a
+player count: it has an OCCUPANT, and the question a lobby answers is who is in
+each one rather than how many there are.
+_Avoid_: slot, player slot, spot
+
+**Occupant**:
+Who is in a seat. It is the axis along which lobbies differ - a person at this
+browser, a person at the same keyboard, something the machine plays - and
+nothing else about a seat changes when it changes.
+_Avoid_: participant, agent, bot, NPC
+
 ### Who is who
 
 **Identity**:
