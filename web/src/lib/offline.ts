@@ -371,21 +371,22 @@ let announced: (() => void) | undefined;
  *    pick one - and cannot pick one that has no account on this chain, which is
  *    every other wallet they own.
  * 2. **Gas**, by cheat call. The chain is in the tab; its ether is a number.
- * 3. **A STAKE**, which is what THIS game puts at risk and therefore the only
- *    reason anybody here has to reveal. Bought through `StakeSale.purchase`,
- *    the same rail the online purchase uses, rather than by minting and
- *    bonding by hand: the rail is one call that mints, stakes for the player
- *    and can forward a gas stipend, and using it here means the offline world
- *    exercises the contract path the online one depends on instead of a
- *    private shortcut that could quietly stop matching it.
+ * 3. **AN AVATAR**, which is what THIS branch puts at risk and therefore the
+ *    only reason anybody here has to reveal. Bought through
+ *    `GameAvatarSale.purchase`, the same rail the online purchase uses, rather
+ *    than by minting and depositing by hand: the rail is one call that mints
+ *    it straight into the game contract and can forward a gas stipend, and
+ *    using it here means the offline world exercises the contract path the
+ *    online one depends on instead of a private shortcut that could quietly
+ *    stop matching it.
  *
  * WHAT IT DELIBERATELY DOES NOT DO IS AUTHORISE THE BROWSER'S KEY. The signer
  * is derived in the tab from a wallet signature AFTER this runs (and after the
  * context exists at all), so the world cannot know its address, let alone
  * register it. That step stays the player's one press, which is the honest
  * split: the world gives what only the world can give - a chain, contracts,
- * gas and a stake - and the browser gives what only it can, a key and the
- * authority to play with it.
+ * gas and an identity to play as - and the browser gives what only it can, a
+ * key and the authority to play with it.
  *
  * THE STIPEND IS ZERO HERE, and the sale refuses a stipend with nowhere to go,
  * so the two move together. There is no key to forward gas to yet, for the
