@@ -62,28 +62,26 @@
 				class="min-w-40 bg-linear-to-r from-pink-600 via-pink-500 to-rose-500 font-semibold text-white shadow-lg transition-all duration-300 hover:from-pink-700 hover:via-pink-600 hover:to-rose-600 hover:shadow-xl"
 				>Play</Button
 			>
-			<!-- NO "Play Offline" BUTTON HERE YET, and its absence is deliberate
-			     rather than pending. The stem's home page has one, pointing at the
-			     `/offline-demo` route that plays ITS demo against a chain in the
-			     tab; this repo deletes the demo routes it inherits, so that button
-			     arrived here by a clean merge with nothing left to link to.
+			<!-- OFFLINE IS A WORLD, NOT A DEMO, which is why this links to a route
+			     of this app's own rather than to the `/offline-demo` the stem's home
+			     page points at: this repo deletes the demo routes it inherits, and
+			     the mechanism it keeps (`$lib/embedded`) has no opinion about what a
+			     game does with it.
 
-			     The MECHANISM did come down and is kept: `$lib/embedded` boots a
-			     chain, runs deploy scripts on it and hands back a world. What is
-			     missing is this game's own composition of it - the manual cycle
-			     policy declared by an in-tab deploy, a provisioning hook that gives
-			     the offline player whatever THIS game puts at stake, and a client
-			     that calls `advanceCycle`, which nothing in `web/src` does yet.
-
-			     The stake is deliberately not named here, and this file is the
-			     reason: it is byte-identical in every repo that inherits it, and
-			     what is at stake is the one thing they are guaranteed to disagree
-			     about - a bonded ERC20 in the reference game, custody of an NFT in
-			     reveal-or-die, a docked level elsewhere. The framework requires
-			     only that something is lost by not revealing.
-
-			     Add the button with that, not before: a link to a world this game
-			     cannot finish a cycle in is worse than no link. -->
+			     WHAT THE BUTTON PROMISES IS A CHAIN IN THE TAB, and nothing about
+			     what is at stake in it. This file is byte-identical in every repo
+			     that inherits it, and what a game risks is the one thing they are
+			     guaranteed to disagree about: the framework requires only that
+			     something is lost by not revealing, and each game answers
+			     differently. A sentence naming one answer here would be false
+			     somewhere downstream, which has already happened once. -->
+			<Button
+				href={route('/offline/')}
+				size="lg"
+				variant="outline"
+				class="min-w-40 font-semibold shadow-lg transition-all duration-300 hover:shadow-xl"
+				>Play Offline</Button
+			>
 		</div>
 	</div>
 </div>
