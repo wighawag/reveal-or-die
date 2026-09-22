@@ -112,6 +112,14 @@ describe('Playing offline', () => {
 		// is three claimants however many of them chose the same cell, and a played
 		// turn is a deterministic function of the cycle, so a collision would be a
 		// permanent failure rather than a flake.
+		//
+		// A FLOOR AND NOT AN EQUALITY, because on a deployment where a placement is
+		// free this quantity is not what its name says. `_place` counts a claimant
+		// when the player's stake on the cell was zero, so at a zero placement cost
+		// it is still zero afterwards and every placement counts again - measured at
+		// nine for three rounds on that branch against seven here. That is a defect
+		// in the contract and not in this test; it is recorded on the `work` branch
+		// and is deliberately not fixed from here.
 		await expect
 			.poll(
 				() =>
