@@ -130,36 +130,54 @@ export const SEATS_BY_DEFAULT = 3;
  * and a transaction on a chain in a tab is 15 to 20 ms. Eighteen of them is a
  * third of a second.
  *
- * THE MEASUREMENT SAYS OTHERWISE, and the step is where this number comes
- * from. Headless chromium, production build, five runs each:
+ * AND IT IS NOW FREE, WHICH IT WAS NOT WHEN THIS NUMBER WAS FIVE. This used to
+ * be a staircase in whole poll intervals: four and five seats paid 1.33 s for
+ * their first round and six and eight paid 3.8-4.4 s for every round, because
+ * the `advanceCycle` that opens the reveal phase SUCCEEDED on chain, emitted
+ * `CycleAdvanced`, and left `getCycle` reporting the commit phase. The cause
+ * was not the seats and not the transactions: `webevm` ran everything that
+ * executes - transactions AND `eth_call` - on one state manager with one
+ * checkpoint stack, and nothing serialised them, so whichever of two
+ * overlapping executions reverted its checkpoint last discarded what the other
+ * had committed. What a table of N really bought was more traffic in flight
+ * while the world's writes executed, and the staircase was the probability of
+ * that overlap crossing one.
  *
- * | seats | a round |
- * |---|---|
- * | 3 | 114-237 ms |
- * | 4 | first 1.33 s, then 224-230 ms |
- * | 5 | first 1.32 s, then 210-273 ms |
- * | 6 | 3.8-4.4 s, every round |
- * | 8 | 3.8-4.4 s, every round |
+ * `webevm` 0.6.0 serialises the node's whole public surface (its ADR 0012),
+ * and that is what this number now rests on. Re-measured the same way,
+ * headless chromium, production build, load ~1.1, five runs of six rounds
+ * each, counting every steady round rather than quoting a range:
  *
- * It is a staircase in whole poll intervals rather than a slope, because the
- * cost is not the transactions: from four seats up, the advance that opens the
- * reveal phase SUCCEEDS on chain, emits `CycleAdvanced`, and leaves `getCycle`
- * still reporting the commit phase - so the round waits out the advance
- * client's one-second backstop and is pushed again. At six the second advance
- * also reverts with its condition met, which costs the framework's two-second
- * backoff on top. The same contract, driven the same way under node, refuses a
- * second advance exactly as it should, so this is the chain in the TAB rather
- * than the rules. It is written up on the `work` branch
- * (`a-second-advance-succeeds-in-the-tab-and-the-first-one-did-not-take`) and
- * it is not this file's to fix.
+ * | seats | boot | a steady round | rounds over 500 ms |
+ * |---|---|---|---|
+ * | 3 | 348-350 ms | median 228 ms | 0/25 |
+ * | 5 | 318-364 ms | median 221 ms | 0/25 |
+ * | 8 | 339-352 ms | median 223 ms | 0/25 |
+ * | 10 | 350-377 ms | median 232 ms | **0/56** |
+ * | 11 | 353-836 ms | median 231 ms | 4/56 |
+ * | 12 | 824-841 ms | median 235 ms | 2/25 |
+ * | 16 | 833-845 ms | median 330 ms | 5/25 |
+ * | 19 | 823-846 ms | median 334 ms | 10/25 |
  *
- * So FIVE, because that is the largest table at which a steady round is still
- * a fifth of a second, and because the number has to be one the world can
- * honour rather than one the key list happens to allow. It is a MEASUREMENT
- * and not a principle: when the tab's chain stops losing that write, re-measure
- * and raise it.
+ * The staircase is gone and so is the anomalous first round: the median is
+ * flat at about 230 ms from three seats to twelve, which is the arithmetic
+ * this file predicted all along.
+ *
+ * SO TEN, AND IT IS STILL A MEASUREMENT RATHER THAN A PRINCIPLE. Ten is the
+ * largest table at which every round measured was steady - 56 of 56, against
+ * 4 of 56 already slow at eleven - and what goes wrong above it is the old
+ * shape without the old cause: a pass over that many members occasionally
+ * outlasts the poke that would have ended the round, so the round waits out a
+ * one-second backstop instead. That is a latency budget, not a lost write, and
+ * whoever wants a bigger table should spend it on the poke rather than on this
+ * constant.
+ *
+ * IT IS STILL DELIBERATELY NOT THE KEY SUPPLY. That is eighteen (hardhat's
+ * accounts #2 to #19), so a table of nineteen is derivable and measurably
+ * worse: ten of twenty-five rounds over half a second. The key list was never
+ * the bound and must not become the reason.
  */
-export const MOST_SEATS = 5;
+export const MOST_SEATS = 10;
 
 /** Every table size the lobby offers, for whatever renders the choice. */
 export const SEAT_CHOICES: readonly number[] = Array.from(
