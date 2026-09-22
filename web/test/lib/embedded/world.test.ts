@@ -76,7 +76,12 @@ describe('this game\u2019s offline world', () => {
 		// CREATE2 implementation - so an embedded world lands its contracts at
 		// exactly the addresses a fresh local deploy does. What makes these
 		// records THIS world's is that the code is there, on this chain.
-		for (const name of ['Game', 'GameToken', 'StakeSale'] as const) {
+		for (const name of [
+			'Game',
+			'GameToken',
+			'GameAvatars',
+			'GameAvatarSale',
+		] as const) {
 			const code = await world.provider.request({
 				method: 'eth_getCode',
 				params: [inTab.contracts[name].address, 'latest'],
@@ -148,12 +153,13 @@ describe('this game\u2019s offline world', () => {
 		await expect(context.publicClient.getChainId()).resolves.toBe(CHAIN_ID);
 	});
 
-	it('stakes for the offline player, which is what makes them have to reveal', async () => {
-		// THE PROVISIONING SEAM, with this game's answer in it. The framework
-		// supplies the moment and the capability; what is at stake is the game's,
-		// and here it is a bonded ERC20 bought through the same rail an online
-		// purchase uses. A game that gates on custody of an NFT replaces exactly
-		// this call.
+	it('puts an avatar in the game for the offline player, which is what makes them have to reveal', async () => {
+		// THE PROVISIONING SEAM, with this branch's answer in it. What is at
+		// stake here is custody of the avatar itself: the sale mints it straight
+		// into the game contract, the account is recorded as who may play it, and
+		// a missed reveal is what takes it away. Upstream this same test asserts a
+		// bonded ERC20 and a reserve, which is the whole reason the hook exists
+		// rather than a list in the framework.
 		const player = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
 		let stakedDuringProvision = false;
 
@@ -168,41 +174,46 @@ describe('this game\u2019s offline world', () => {
 		expect(stakedDuringProvision).toBe(true);
 
 		const deployments = world.deployments.get();
-		const reserve = (await (
-			world.env as unknown as {
-				read: (deployment: unknown, args: unknown) => Promise<bigint>;
-			}
-		).read(deployments.contracts.Game, {
-			functionName: 'getReserve',
-			args: [BigInt(player)],
-		})) as bigint;
+		const read = (args: unknown) =>
+			(
+				world!.env as unknown as {
+					read: (deployment: unknown, args: unknown) => Promise<unknown>;
+				}
+			).read(deployments.contracts.Game, args);
 
-		// The sale's own `amount`, credited to the PLAYER while the DEPLOYER paid:
-		// `purchase` takes the player as an argument rather than using msg.sender,
-		// which is what lets a world set up an account that has never sent
-		// anything.
-		expect(reserve).toBe(config.data.sale.default.amount);
+		const avatars = (await read({
+			functionName: 'getAvatarsOf',
+			args: [player],
+		})) as readonly bigint[];
+		expect(avatars).toHaveLength(1);
 
-		// And the deployer holds none of it, which is the half that would be
-		// wrong if the rail credited the payer.
-		const payersReserve = (await (
-			world.env as unknown as {
-				read: (deployment: unknown, args: unknown) => Promise<bigint>;
-			}
-		).read(deployments.contracts.Game, {
-			functionName: 'getReserve',
-			args: [BigInt(DEPLOYER_ADDRESS)],
-		})) as bigint;
-		expect(payersReserve).toBe(0n);
+		// IN THE GAME'S CUSTODY AND PLAYABLE BY THE PLAYER, which is the pair
+		// that makes it a stake: the ERC721 belongs to the contract, so nobody can
+		// sell it out from under a commitment, and the game records who may act
+		// with it.
+		const owner = (await read({
+			functionName: 'getAvatarOwner',
+			args: [avatars[0]],
+		})) as `0x${string}`;
+		expect(owner.toLowerCase()).toBe(player.toLowerCase());
+
+		// And the payer plays nothing: `purchase` takes the owner as an argument
+		// rather than using msg.sender, which is what lets a world set up an
+		// account that has never sent anything.
+		const payersAvatars = (await read({
+			functionName: 'getAvatarsOf',
+			args: [DEPLOYER_ADDRESS],
+		})) as readonly bigint[];
+		expect(payersAvatars).toHaveLength(0);
 	});
 
-	it('does NOT hand out a second stake when the world is restored', async () => {
+	it('does NOT hand out a second avatar when the world is restored', async () => {
 		// A boot is not always a FIRST boot. The chain and the deployment records
 		// both persist, so a reload restores the world, skips the deploy, and runs
-		// provisioning again. Measured in a browser before this was guarded: a
-		// reserve of 10 became 20 on the second load. A stake that can be refilled
-		// by pressing F5 is not a stake, and this game's whole design rests on
-		// something being lost by not revealing.
+		// provisioning again. Measured on `main` before this was guarded: a
+		// reserve of 10 became 20 on the second load. Here it would be a second
+		// identity every time, and an account that can mint another one by
+		// pressing F5 has nothing at stake in the first.
 		const player = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
 		world = await buildWorld({
 			provision: async ({env}) => {
@@ -214,14 +225,14 @@ describe('this game\u2019s offline world', () => {
 		await stakeForOfflinePlayer({env: world.env, player});
 		await stakeForOfflinePlayer({env: world.env, player});
 
-		const reserve = (await (
+		const avatars = (await (
 			world.env as unknown as {
-				read: (deployment: unknown, args: unknown) => Promise<bigint>;
+				read: (deployment: unknown, args: unknown) => Promise<unknown>;
 			}
 		).read(world.deployments.get().contracts.Game, {
-			functionName: 'getReserve',
-			args: [BigInt(player)],
-		})) as bigint;
-		expect(reserve).toBe(config.data.sale.default.amount);
+			functionName: 'getAvatarsOf',
+			args: [player],
+		})) as readonly bigint[];
+		expect(avatars).toHaveLength(1);
 	});
 });

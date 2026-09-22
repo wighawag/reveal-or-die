@@ -5,6 +5,7 @@ import {
 	CYCLE_POLICY,
 } from 'template-commit-reveal-contracts/rocketh/config.js';
 import deployToken from 'template-commit-reveal-contracts/deploy/001_deploy_token.js';
+import deployAvatars from 'template-commit-reveal-contracts/deploy/005_deploy_avatars.js';
 import deployGame from 'template-commit-reveal-contracts/deploy/010_deploy_game.js';
 import deployStakeSale from 'template-commit-reveal-contracts/deploy/020_deploy_stake_sale.js';
 import {
@@ -54,10 +55,13 @@ import type {Context} from '$lib/context/types';
  *    would be a second copy of a measurement, which is exactly how the identity
  *    branches once came to price a credit 58% above what a step there costs.
  *
- * 3. **What the player is given**, which for this game is a bonded ERC20 stake,
- *    acquired through the same rail a purchase uses. A game that gates on
- *    custody of an NFT hands over an NFT here instead, and the framework
- *    requires only that SOMETHING is lost by not revealing.
+ * 3. **What the player is given**, which ON THIS BRANCH is an AVATAR, minted
+ *    straight into the game where it is at stake from the moment it exists.
+ *    That is the one thing in this file that differs from `main`'s, and it is
+ *    the difference the provisioning hook exists for: the framework supplies
+ *    the moment and the capability, and what is lost by not revealing is the
+ *    game's own answer. Upstream it is a bonded ERC20 in a reserve; here the
+ *    player never has a reserve at all.
  *
  * It lives beside `lib/index.ts` rather than in a route, for the reason the
  * mechanism's README gives: this repo deletes the demo routes it inherits, and
@@ -107,6 +111,11 @@ export const OFFLINE_DEPLOYMENT = {
 	environment: 'offline',
 	scripts: [
 		{id: '001_deploy_token', module: deployToken},
+		// THE FOURTH SCRIPT, which is this branch's and is easy to lose in a
+		// cascade: the avatars have to exist before the game that takes custody
+		// of them. A world missing it deploys a game with no identity to play as,
+		// and the failure arrives at the first click rather than at the deploy.
+		{id: '005_deploy_avatars', module: deployAvatars},
 		{id: '010_deploy_game', module: deployGame},
 		{id: '020_deploy_stake_sale', module: deployStakeSale},
 	],
@@ -421,13 +430,18 @@ async function provisionOfflinePlayer(params: {
 }
 
 /**
- * BOND THE STAKE, through the rail a purchase uses.
+ * PUT AN AVATAR IN THE GAME, through the rail a purchase uses.
  *
- * Its own exported function because it is the half of provisioning that is
- * about THIS GAME rather than about a browser: the wallet and its gas are the
- * mechanism's shape and need a `window` to announce on, while what is at stake
- * is the game's and can be asserted in node. A world test that could only
- * check the deploy would not be checking the thing this file decides.
+ * WHAT IS AT STAKE ON THIS BRANCH, and the shape of the difference is worth as
+ * much as the code. `main`'s version of this function buys a bonded ERC20 and
+ * checks `getReserve`; here the player owns no reserve and can lose no bond -
+ * what they lose by not revealing is custody of the avatar itself, which is
+ * why the sale mints it straight into the game contract and why the check
+ * below asks whether they already hold one.
+ *
+ * Its own exported function for the same reason as upstream: the wallet and
+ * its gas are the mechanism's shape and need a `window` to announce on, while
+ * what is at stake is the game's and can be asserted in node.
  */
 export async function stakeForOfflinePlayer(params: {
 	env: EmbeddedWorld['env'];
@@ -445,29 +459,30 @@ export async function stakeForOfflinePlayer(params: {
 	 *
 	 * Provisioning runs on every boot and a boot is not always a first boot: the
 	 * chain and the deployment records both persist, so a reload restores the
-	 * world and SKIPS the deploy - and then runs this hook again. Measured
-	 * exactly that way: a reserve of 10 became 20 on the second load, and 30 on
-	 * the third. That is not a cosmetic surplus, it is the stake becoming
-	 * refillable by pressing F5, which is the one property this game's whole
-	 * commit-reveal design rests on (`AGENTS.md`: something must be at stake, or
-	 * nobody has to reveal).
+	 * world and SKIPS the deploy - and then runs this hook again. Measured on
+	 * `main`, where the reserve went from 10 to 20 on the second load; here it
+	 * would be a second avatar every time, and an account that can mint another
+	 * identity by pressing F5 has nothing at stake in the first one.
 	 *
-	 * THE CHAIN IS ASKED RATHER THAN A FLAG KEPT, for the same reason
-	 * `missed-reveal.ts` asks it: local storage can be cleared, the world can be
-	 * restored into a different browser profile, and what is true is what the
-	 * contract holds.
-	 *
-	 * The framework could have offered "this world was restored" instead, and
-	 * that would be the wrong question. What a game needs to know is whether its
-	 * player already has what it was about to give them, and only the game knows
-	 * what that is.
+	 * `getAvatarsOf` then `getAvatarOwner`, which is the same pair
+	 * `$lib/game/identity` uses to find who this account plays as: the first is
+	 * a SEARCH SPACE (every avatar this account ever put in) and only the second
+	 * says whether it is still theirs.
 	 */
-	const held = (await env.read(env.get('Game'), {
-		functionName: 'getReserve',
-		args: [BigInt(params.player)],
-	})) as bigint;
-	if (held > 0n) return;
-	await env.execute(env.get('StakeSale'), {
+	const game = env.get('Game');
+	const candidates = (await env.read(game, {
+		functionName: 'getAvatarsOf',
+		args: [params.player],
+	})) as readonly bigint[];
+	for (const avatarID of candidates) {
+		const holder = (await env.read(game, {
+			functionName: 'getAvatarOwner',
+			args: [avatarID],
+		})) as `0x${string}`;
+		if (holder.toLowerCase() === params.player.toLowerCase()) return;
+	}
+
+	await env.execute(env.get('GameAvatarSale'), {
 		// THE RESOLVED ADDRESS, not the private key the spec was written with.
 		// rocketh resolves a named account to an address and keeps the signing
 		// material against it (`privateKey:` protocol, which this config already
@@ -477,10 +492,11 @@ export async function stakeForOfflinePlayer(params: {
 		// execution-only chain answers `eth_accounts` with a real `-32601`.
 		account: env.namedAccounts.deployer,
 		functionName: 'purchase',
-		// The player is an ARGUMENT rather than `msg.sender`: whoever sends this
-		// pays and `player` is credited, which is what lets the deployer set up an
-		// account that has never sent anything. Topping up somebody else's reserve
-		// is a gift rather than an attack, because only its owner can withdraw it.
+		// The owner is an ARGUMENT rather than `msg.sender`: whoever sends this
+		// pays and `owner` is recorded as who may play the avatar, which is what
+		// lets a world set up an account that has never sent anything. Buying
+		// somebody else an avatar is a gift, because only its owner can play it
+		// or take it out.
 		//
 		// THE STIPEND IS ZERO AND THE KEY IS THE ZERO ADDRESS, and the sale
 		// refuses a stipend with nowhere to go, so the two move together. There is
