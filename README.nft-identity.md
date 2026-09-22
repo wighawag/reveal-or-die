@@ -163,8 +163,22 @@ assertion against it would be trivially true of a board nothing had reached.
 The claim count is the right quantity here for a reason that does not hold
 upstream, which is why this is a swap rather than a fix: the e2e chain is
 shared and reused, and upstream the same burner ACCOUNT plays every run, so its
-second placement on a cell adds stake without adding a claimant. Here every run
-buys an avatar, so the identity is new and a claim is always a new claim.
+second placement on a cell adds stake without adding a claimant.
+
+**THE REASON THIS PARAGRAPH USED TO GIVE WAS THE WRONG ONE, and the right one
+is a defect.** It said "every run buys an avatar, so the identity is new and a
+claim is always a new claim", which is true and is not what makes the swap
+work. `_place` counts a claimant when the player's stake on the cell was zero -
+and at a placement cost of zero it is still zero afterwards, so EVERY placement
+counts again, by the same identity, on the same cell, for ever. Measured in a
+browser on the offline world: nine claimants for three rounds of three players
+here against seven upstream, for the same nine placements. So `numClaimants` is
+a placement count on this branch and `Cell.numClaimants` ("how many distinct
+players have placed here") is false here. The e2e assertion is a change and a
+floor, so it is unaffected, and nothing else reads the number today. It is not
+fixed here because the fix is a new storage slot in a contract file that is
+byte-identical across all four branches; see the finding of that name on the
+`work` branch.
 
 **Everything else in the suite is inherited unchanged**, including the setup
 gate, the missed reveal and the round recovery. Two of those were made to work
