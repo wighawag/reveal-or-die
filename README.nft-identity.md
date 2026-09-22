@@ -37,7 +37,7 @@ gives one.
 **The plan predicted TWO** (`game/identity.ts`, and one line in
 `context/game.ts`). The prediction was right about identity and counted only
 identity; D2 lists three differences, and the other two have designated files
-of their own. The list is **eighteen**, and it splits into five groups that are
+of their own. The list is **twenty**, and it splits into six groups that are
 worth reading separately, because they are not the same kind of cost.
 
 ### The seams: files that exist in order to differ (5)
@@ -129,6 +129,28 @@ even here.
 | --- | --- |
 | `web/test/lib/placement/reserve.test.ts` | custody, and the loading state that upstream does not have |
 
+### The offline world, which hands the player that stake (2)
+
+| file | what the branch changes | lines |
+| --- | --- | --- |
+| `web/src/lib/offline.ts` | a fourth deploy script, and provisioning mints an avatar | ~60 |
+| `web/test/lib/embedded/world.test.ts` | asserts custody rather than a reserve | ~50 |
+
+**THE THIRD ENTRY IN D2'S TABLE, arriving in the only place it had not yet.**
+`what is at stake` differs on this branch, and an offline world is the one
+thing in the app that has to HAND a player their stake before they start:
+upstream it buys a bonded ERC20 through `StakeSale`, and here it mints an
+avatar into the game through `GameAvatarSale`. The mechanism it sits on
+(`$lib/embedded`) is byte-identical on all four branches and stays that way,
+which is what the provisioning HOOK was for - the cost of the difference is
+two of this game's own files rather than an edit to the framework.
+
+The deploy script list is the half that is easy to lose in a cascade: this
+branch has four scripts and `main` has three, and a world missing
+`005_deploy_avatars` deploys a game with no identity to play as. The failure
+arrives at the first click rather than at the deploy, which is why the omission
+is called out at the line.
+
 ### The e2e, where the board is different (2)
 
 | file | what the branch changes | lines |
@@ -207,7 +229,7 @@ pnpm --filter ./web check
 pnpm --filter ./web run test:unit
 BASE=main FEATURES=with/nft-identity EXT="ts svelte" \
   WATCH="web/src web/test web/e2e" \
-  ALLOWED="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts web/src/lib/placement/config.ts web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts web/test/lib/placement/config.test.ts web/test/lib/placement/reserve.test.ts web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts" \
+  ALLOWED="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts web/src/lib/placement/config.ts web/src/lib/offline.ts web/test/lib/embedded/world.test.ts web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts web/test/lib/placement/config.test.ts web/test/lib/placement/reserve.test.ts web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts" \
   bash <(git show tooling:check-shared-divergence.sh)
 ```
 
