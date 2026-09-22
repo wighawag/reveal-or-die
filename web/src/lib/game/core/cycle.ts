@@ -659,13 +659,25 @@ export function currentCycleNumberOf(store: CycleInfoStore): number {
  *
  * `readCycle` is only used by the policies that need it. The timed one asks the
  * chain nothing at all, which is the point of it.
+ *
+ * `refresh` IS PART OF THE COMMON SHAPE, and it is a no-op under `timed`
+ * rather than absent. A caller that has just changed where the cycle IS - by
+ * advancing it, which is a transaction (see `./advance.ts`) - should say so
+ * rather than wait out a poll interval for the news, and it should be able to
+ * say so without first asking which policy is running. Under `timed` there is
+ * genuinely nothing to re-read: the cycle is the clock, and the clock is
+ * already ticking.
  */
 export function createCycleTrackers(params: {
 	chainTime: ChainTimeStore;
 	config: CycleConfigStore;
 	readCycle: () => Promise<CycleReading>;
 	pollInterval?: number;
-}): {cycleInfo: CycleInfoStore; twoPhase: Readable<TwoPhase>} {
+}): {
+	cycleInfo: CycleInfoStore;
+	twoPhase: Readable<TwoPhase>;
+	refresh: () => Promise<void>;
+} {
 	switch (params.config.current.policy) {
 		case 'manual':
 			return createManualCycleTrackers({
@@ -682,7 +694,7 @@ export function createCycleTrackers(params: {
 		case 'hybrid':
 			return createHybridCycleTrackers(params);
 		case 'timed':
-			return createTimedCycleTrackers(params);
+			return {...createTimedCycleTrackers(params), refresh: async () => {}};
 	}
 }
 
