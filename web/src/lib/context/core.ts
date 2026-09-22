@@ -330,6 +330,12 @@ function buildConnection(params: {
 		account,
 		deployments,
 		walletPrompts,
+		// WHERE THE CHAIN THIS CONNECTION IS ON ACTUALLY IS, which is not always
+		// where the app's configuration says. The url below is offered TO the
+		// factory; a world that connected to a different chain does not take it,
+		// and everything that broadcasts has to follow the connection rather than
+		// the app. See `EstablishedConnection.nodeURL`.
+		nodeURL: connectionNodeURL,
 		forceRpcFailure,
 	} = establishConnection({
 		nodeURL,
@@ -380,12 +386,18 @@ function buildConnection(params: {
 	// branch's payment rail was added afterwards, so nothing conflicted. A rail
 	// left on `PUBLIC_NODE_URL` would reach for `localhost` from a phone, i.e.
 	// the phone, and only when the user tried to PAY.
-	const rawPayment = createPaymentRail(chainInfo, {nodeURL});
+	// THE CONNECTION'S URL, not the app's, for the same reason the signer's
+	// transport uses it: a rail pointed at the app's node while the connection is
+	// on a chain in the tab would pay on a chain the player is not playing on.
+	const rawPayment = createPaymentRail(chainInfo, {
+		nodeURL: connectionNodeURL,
+	});
 
 	return {
 		connection,
 		signer,
 		chainInfo,
+		connectionNodeURL,
 		rawPayment,
 		hasLocalSigner,
 		// Defaulted HERE as well as in the remote factory, because a world is
@@ -408,7 +420,16 @@ function buildChainConfig(params: {
 	deployments: ReturnType<typeof buildConnection>['deployments'];
 	connection: ReturnType<typeof buildConnection>['connection'];
 	account: ReturnType<typeof buildConnection>['account'];
-	/** Already resolved against the page. See core/env/same-host. */
+	/**
+	 * THE CONNECTION'S OWN URL, already resolved against the page (see
+	 * core/env/same-host), and undefined for a world reachable only through its
+	 * provider.
+	 *
+	 * NOT the app's `PUBLIC_NODE_URL` any more, and the difference is the whole
+	 * point: both values it feeds - where the local signer BROADCASTS, and which
+	 * node the ledger compares a nonce against - are questions about the chain
+	 * the connection is on. See `EstablishedConnection.nodeURL`.
+	 */
 	nodeURL: string | undefined;
 }) {
 	const {
@@ -1282,6 +1303,7 @@ export function createCoreContext<App extends AppContext>(params: {
 		account,
 		deployments,
 		walletPrompts,
+		connectionNodeURL,
 		forceRpcFailure,
 	} = buildConnection({
 		establishConnection,
@@ -1313,7 +1335,16 @@ export function createCoreContext<App extends AppContext>(params: {
 		targetStep,
 		walletOnly,
 		fatal,
-		nodeURL,
+		// THE CONNECTION'S, not the app's. See `EstablishedConnection.nodeURL`.
+		//
+		// ONE CASE IS LEFT OPEN RATHER THAN GUESSED AT: under HOSTED sign-in
+		// (`walletOnly: false`) `resolveSignerRpc` treats a missing url as fatal,
+		// because a hosted account may have no wallet to broadcast through - and a
+		// world has no url while always having a wallet of its own, so the two
+		// rules disagree. That combination exists on no branch here (this repo has
+		// no wallet host, and the branch the embedded chain came from has no
+		// signer), so it is named rather than solved blind.
+		nodeURL: connectionNodeURL,
 	});
 
 	const {inFlight} = buildInFlight({

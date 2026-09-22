@@ -9,6 +9,21 @@ import {
 import {EthereumProvider} from 'hardhat/types/providers';
 import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
 
+/**
+ * The rocketh environment these helpers act through.
+ *
+ * NAMED rather than left as `any`, and it is the difference between a helper
+ * that type-checks and one that only runs: `deployGameWith` passes an explicit
+ * `<Abi_IGame>` to `deployViaProxy`, and a type argument on an UNTYPED call is
+ * an error (TS2347) rather than a hint. The suites run through tsx, which does
+ * not type-check, so `pnpm --filter ./contracts typescript` was the only thing
+ * that could see it - and nothing ran that until `dist` became a build input
+ * for the web workspace.
+ */
+type DeploymentEnvironment = Awaited<
+	ReturnType<typeof loadAndExecuteDeploymentsFromFiles>
+>;
+
 /** One placement, matching the contract's `Placement` struct. */
 export type Placement = {cellID: bigint};
 
@@ -223,7 +238,7 @@ export function cycleClock(config: {
 let deploymentSequence = 0;
 
 export async function deployGameWith(
-	fixtures: {env: any; GameToken: any; GameAvatars: any},
+	fixtures: {env: DeploymentEnvironment; GameToken: any; GameAvatars: any},
 	options: {
 		name: string;
 		cyclePolicy: CyclePolicy;
