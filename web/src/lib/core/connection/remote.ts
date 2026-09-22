@@ -503,6 +503,11 @@ export function establishConnectionOn(options: {
 		signer,
 		deployments: options.deployments,
 		walletPrompts: options.walletPrompts ?? true,
+		// WHAT THIS FACTORY ACTUALLY USED, reported back rather than assumed by
+		// the caller. A world that did not take the app's url does not pass one
+		// here, and then nothing downstream may broadcast to it. See
+		// `EstablishedConnection.nodeURL` for the bug this is the fix for.
+		nodeURL: options.nodeURL,
 		forceRpcFailure,
 	};
 }

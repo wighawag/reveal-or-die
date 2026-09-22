@@ -63,7 +63,8 @@
 		"zellij-launcher": "^0.0.1"
 	},
 	"scripts": {
-		"prepare": "set-defaults .vscode && pnpm compile",
+		"_prepare": "`tsc` is part of prepare because `dist` is a BUILD INPUT for the web workspace, not just a publish artifact: web/src/lib/offline.ts imports this package's deploy scripts and rocketh config to run them in the browser, and every one of those export paths resolves into dist. Without it a fresh clone or worktree fails `web check` with module-resolution errors that say nothing about this package. It is `tsc` and NOT `pnpm typescript`, which also type-checks test/js: an install must not be gated on a suite's types, and a descendant branch of this template whose own tests do not type-check yet would otherwise be unable to run `pnpm i` at all. Building dist is what an install owes; checking the tests is what `pnpm typescript` is for.",
+		"prepare": "set-defaults .vscode && pnpm compile && tsc",
 		"---------------------- INTERNAL ----------------------": "",
 		":deploy:dev+export": "expand-vars pnpm hardhat --network $MODE deploy --no-compile --skip-prompts && expand-vars rocketh-export -e $MODE",
 		"---------------------- DEV ---------------------- ": "",
