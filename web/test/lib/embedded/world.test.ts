@@ -6,7 +6,13 @@ import {
 	config,
 	extensions,
 } from 'template-commit-reveal-contracts/rocketh/config.js';
-import {OFFLINE_DEPLOYMENT, stakeForOfflinePlayer} from '$lib/offline';
+import {
+	OFFLINE_DEPLOYMENT,
+	PLAYED_BY_THE_WORLD,
+	offlineIdentityOf,
+	stakeForEveryoneInTheWorld,
+	stakeForOfflinePlayer,
+} from '$lib/offline';
 import {resolvePlacementConfig} from '$lib/placement/config';
 
 // No `.svelte.` infix, so this runs in the `server` project: node, no DOM.
@@ -205,6 +211,55 @@ describe('this game\u2019s offline world', () => {
 			args: [DEPLOYER_ADDRESS],
 		})) as readonly bigint[];
 		expect(payersAvatars).toHaveLength(0);
+	});
+
+	it('enrols ALL THREE members, because a cycle with one hides nothing', async () => {
+		// WHAT PROVISIONING ACTUALLY HANDS OUT, asserted over the set rather than
+		// over the human. A world that enrols ONE waited-for member is not a
+		// commit-reveal game: unanimity is satisfied by the only person present,
+		// and two of the three conditions `advanceCycle` exists to enforce cannot
+		// be reached at all. So the world plays two more, and what makes them
+		// members is precisely this call - here, custody of an avatar the sale
+		// mints straight into the game, where upstream it is a funded reserve.
+		//
+		// The count is read off the contract rather than from the list, because
+		// the list is what a cascade can quietly halve.
+		const human = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
+		world = await buildWorld({
+			provision: async ({env}) => {
+				await stakeForEveryoneInTheWorld({env, player: human});
+			},
+		});
+
+		const read = (
+			world.env as unknown as {
+				read: (deployment: unknown, args: unknown) => Promise<unknown>;
+			}
+		).read;
+		const Game = world.deployments.get().contracts.Game;
+
+		const attendance = (await read(Game, {
+			functionName: 'getAttendance',
+		})) as {waitedFor: bigint};
+		expect(attendance.waitedFor).toBe(3n);
+
+		// AND EACH OF THE TWO HAS AN IDENTITY TO PLAY AS, which upstream gets for
+		// nothing (there the identity is the address) and which here is the whole
+		// difference: an avatar that is not in custody is not an identity, so
+		// `offlineIdentityOf` throwing is a world with a member it cannot play.
+		for (const played of PLAYED_BY_THE_WORLD) {
+			const identity = await offlineIdentityOf({
+				env: world.env,
+				player: played.address,
+			});
+			const owner = (await read(Game, {
+				functionName: 'getAvatarOwner',
+				args: [identity],
+			})) as `0x${string}`;
+			expect(owner.toLowerCase(), played.address).toBe(
+				played.address.toLowerCase(),
+			);
+		}
 	});
 
 	it('does NOT hand out a second avatar when the world is restored', async () => {
