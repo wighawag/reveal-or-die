@@ -8,10 +8,15 @@ import {
 } from 'template-commit-reveal-contracts/rocketh/config.js';
 import {
 	OFFLINE_DEPLOYMENT,
-	PLAYED_BY_THE_WORLD,
 	stakeForEveryoneInTheWorld,
 	stakeForOfflinePlayer,
 } from '$lib/offline';
+import {
+	MOST_SEATS,
+	SEATS_BY_DEFAULT,
+	seatsPlayedByTheWorld,
+	tableOf,
+} from '$lib/offline-seats';
 import {resolvePlacementConfig} from '$lib/placement/config';
 
 // No `.svelte.` infix, so this runs in the `server` project: node, no DOM.
@@ -201,21 +206,28 @@ describe('this game\u2019s offline world', () => {
 		expect(payersReserve).toBe(0n);
 	});
 
-	it('stakes ALL THREE members, because a cycle with one hides nothing', async () => {
-		// WHAT PROVISIONING ACTUALLY HANDS OUT, asserted over the set rather than
-		// over the human. A world that enrols ONE waited-for member is not a
-		// commit-reveal game: unanimity is satisfied by the only person present,
-		// and two of the three conditions `advanceCycle` exists to enforce cannot
-		// be reached at all. So the world plays two more, and what makes them
-		// members is precisely this call - `_addToReserve` starts waiting for
-		// anyone holding a funded reserve.
-		//
-		// The count is read off the contract rather than from the list, because
-		// the list is what a cascade can quietly halve.
+	/**
+	 * WHAT PROVISIONING ACTUALLY HANDS OUT, asserted over the TABLE rather than
+	 * over the human. A world that enrols ONE waited-for member is not a
+	 * commit-reveal game: unanimity is satisfied by the only person present, and
+	 * two of the three conditions `advanceCycle` exists to enforce cannot be
+	 * reached at all. So the world plays every seat but one, and what makes them
+	 * members is precisely this call - `_addToReserve` starts waiting for anyone
+	 * holding a funded reserve.
+	 *
+	 * THE COUNT IS READ OFF `getAttendance`, NOT OFF THE TABLE, and that is the
+	 * assertion rather than a detail of it. The table is a list this code built;
+	 * `waitedFor` is what the CONTRACT will block the cycle on. A cascade that
+	 * quietly halved the seats, or a provisioning loop that skipped one, would
+	 * leave a table of N and an attendance of fewer, and only the second number
+	 * decides whether the game moves.
+	 */
+	async function stakesEverySeat(seats: number) {
 		const human = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
+		const table = tableOf(seats);
 		world = await buildWorld({
 			provision: async ({env}) => {
-				await stakeForEveryoneInTheWorld({env, player: human});
+				await stakeForEveryoneInTheWorld({env, player: human, table});
 			},
 		});
 
@@ -229,16 +241,33 @@ describe('this game\u2019s offline world', () => {
 		const attendance = (await read(Game, {
 			functionName: 'getAttendance',
 		})) as {waitedFor: bigint};
-		expect(attendance.waitedFor).toBe(3n);
+		expect(attendance.waitedFor).toBe(BigInt(seats));
 
-		for (const played of PLAYED_BY_THE_WORLD) {
+		for (const played of seatsPlayedByTheWorld(table)) {
 			const reserve = (await read(Game, {
 				functionName: 'getReserve',
 				args: [BigInt(played.address)],
 			})) as bigint;
 			expect(reserve, played.address).toBe(config.data.sale.default.amount);
 		}
+	}
+
+	it('stakes every seat at the table, because a cycle with one member hides nothing', async () => {
+		await stakesEverySeat(SEATS_BY_DEFAULT);
 	});
+
+	it('waits for exactly the table it was asked for, at a count that is not the default', async () => {
+		// A DEFAULT THAT HAPPENS TO WORK PROVES NOTHING ABOUT A PARAMETER. The
+		// count only became one when the lobby landed, and the failure it can now
+		// have - provisioning the default however many seats were asked for - is
+		// invisible to every assertion made at the default.
+		//
+		// The CEILING specifically, because it is the other end that can be wrong
+		// on its own: the world's keys are derived per seat, so the largest table
+		// is the one that asks for the last of them.
+		expect(MOST_SEATS).toBeGreaterThan(SEATS_BY_DEFAULT);
+		await stakesEverySeat(MOST_SEATS);
+	}, 60_000);
 
 	it('does NOT hand out a second stake when the world is restored', async () => {
 		// A boot is not always a FIRST boot. The chain and the deployment records

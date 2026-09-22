@@ -1,4 +1,10 @@
-import {createPublicClient, createWalletClient, custom, keccak256, encodePacked} from 'viem';
+import {
+	createPublicClient,
+	createWalletClient,
+	custom,
+	keccak256,
+	encodePacked,
+} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
 import type {Account} from 'viem';
 import type {Readable} from 'svelte/store';
