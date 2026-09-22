@@ -6,7 +6,12 @@ import {
 	config,
 	extensions,
 } from 'template-commit-reveal-contracts/rocketh/config.js';
-import {OFFLINE_DEPLOYMENT, stakeForOfflinePlayer} from '$lib/offline';
+import {
+	OFFLINE_DEPLOYMENT,
+	PLAYED_BY_THE_WORLD,
+	stakeForEveryoneInTheWorld,
+	stakeForOfflinePlayer,
+} from '$lib/offline';
 import {resolvePlacementConfig} from '$lib/placement/config';
 
 // No `.svelte.` infix, so this runs in the `server` project: node, no DOM.
@@ -194,6 +199,45 @@ describe('this game\u2019s offline world', () => {
 			args: [BigInt(DEPLOYER_ADDRESS)],
 		})) as bigint;
 		expect(payersReserve).toBe(0n);
+	});
+
+	it('stakes ALL THREE members, because a cycle with one hides nothing', async () => {
+		// WHAT PROVISIONING ACTUALLY HANDS OUT, asserted over the set rather than
+		// over the human. A world that enrols ONE waited-for member is not a
+		// commit-reveal game: unanimity is satisfied by the only person present,
+		// and two of the three conditions `advanceCycle` exists to enforce cannot
+		// be reached at all. So the world plays two more, and what makes them
+		// members is precisely this call - `_addToReserve` starts waiting for
+		// anyone holding a funded reserve.
+		//
+		// The count is read off the contract rather than from the list, because
+		// the list is what a cascade can quietly halve.
+		const human = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
+		world = await buildWorld({
+			provision: async ({env}) => {
+				await stakeForEveryoneInTheWorld({env, player: human});
+			},
+		});
+
+		const read = (
+			world.env as unknown as {
+				read: (deployment: unknown, args: unknown) => Promise<unknown>;
+			}
+		).read;
+		const Game = world.deployments.get().contracts.Game;
+
+		const attendance = (await read(Game, {
+			functionName: 'getAttendance',
+		})) as {waitedFor: bigint};
+		expect(attendance.waitedFor).toBe(3n);
+
+		for (const played of PLAYED_BY_THE_WORLD) {
+			const reserve = (await read(Game, {
+				functionName: 'getReserve',
+				args: [BigInt(played.address)],
+			})) as bigint;
+			expect(reserve, played.address).toBe(config.data.sale.default.amount);
+		}
 	});
 
 	it('does NOT hand out a second stake when the world is restored', async () => {
