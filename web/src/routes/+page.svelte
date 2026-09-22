@@ -74,7 +74,16 @@
 			     guaranteed to disagree about: the framework requires only that
 			     something is lost by not revealing, and each game answers
 			     differently. A sentence naming one answer here would be false
-			     somewhere downstream, which has already happened once. -->
+			     somewhere downstream, which has already happened once.
+
+			     A DESCENDANT INHERITS THIS BUTTON AND NOT THE WORLD BEHIND IT.
+			     `$lib/embedded` is the mechanism and cascades unchanged;
+			     `$lib/offline.ts` names THIS game's contracts, deploy scripts and
+			     stake, so a game that replaces the game replaces it too. Until it
+			     does, this link goes to a route that either does not exist or
+			     cannot finish a cycle - so delete the button in the same commit as
+			     the route, and put it back with the world. A link to a world this
+			     game cannot play is worse than no link. -->
 			<Button
 				href={route('/offline/')}
 				size="lg"
