@@ -80,7 +80,7 @@ export type LobbyState = {
 };
 
 /**
- * WHAT THE WORLD DID FOR THE PLAYER THAT AN ONLINE GAME WOULD HAVE ASKED FOR.
+ * WHAT THE WORLD DOES FOR THE PLAYER THAT AN ONLINE GAME WOULD HAVE ASKED FOR.
  *
  * Said out loud rather than done invisibly, and this is the whole reason the
  * sentence exists. Offline, registering this browser's key is a question with
@@ -90,11 +90,18 @@ export type LobbyState = {
  * a real chain, having never been told it exists, would meet it as an
  * unexplained demand at the worst possible moment - in front of a board they
  * had already decided to play.
+ *
+ * WORDED SO THAT IT IS TRUE IN BOTH PLACES IT IS SHOWN, which took a second
+ * draft. The first said the world HAD registered a key, which is a fact in the
+ * strip above a running world and a falsehood in the lobby, where no world
+ * exists yet - and the lobby is where a player most wants to know what sitting
+ * down is about to do. One sentence describing what an offline world does is
+ * true in both, and is one string rather than two to keep in step.
  */
-export const AUTHORISED_FOR_YOU =
-	'This world registered a play key for you and funded its gas, so your ' +
-	'moves cost no prompts. Online that is one transaction you sign and pay ' +
-	'for, once.';
+export const THE_KEY_THIS_BROWSER_PLAYS_WITH =
+	'Playing needs a key this browser holds, registered to your account and ' +
+	'funded with gas, so your moves cost no prompts. An offline world does ' +
+	'that for you. Online it is one transaction you sign and pay for, once.';
 
 const lobby = writable<LobbyState>(seated('Opening', SEATS_BY_DEFAULT));
 

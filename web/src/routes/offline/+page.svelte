@@ -31,7 +31,7 @@
 	import {offlineWorld} from '$lib/offline';
 	import {SEAT_CHOICES} from '$lib/offline-seats';
 	import {
-		AUTHORISED_FOR_YOU,
+		THE_KEY_THIS_BROWSER_PLAYS_WITH,
 		chooseSeats,
 		enterOfflineLobby,
 		leaveTheTable,
@@ -87,7 +87,9 @@
 					onclick={() => leaveTheTable()}>Leave this table</button
 				>
 			</p>
-			<p class="mt-1 text-xs text-muted-foreground">{AUTHORISED_FOR_YOU}</p>
+			<p class="mt-1 text-xs text-muted-foreground">
+				{THE_KEY_THIS_BROWSER_PLAYS_WITH}
+			</p>
 		</div>
 		<div class="min-h-0 flex-1">
 			<Context context={$offlineWorld.context}>
@@ -138,7 +140,7 @@
 			onclick={() => sitDown($offlineLobby.seats)}>Sit down and play</Button
 		>
 		<p class="mx-auto mt-4 max-w-md text-xs text-muted-foreground">
-			{AUTHORISED_FOR_YOU}
+			{THE_KEY_THIS_BROWSER_PLAYS_WITH}
 		</p>
 	</div>
 {:else if $offlineWorld.step === 'Failed'}
