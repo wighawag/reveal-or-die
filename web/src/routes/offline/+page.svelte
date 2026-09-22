@@ -13,6 +13,14 @@
 	knowing there is more than one. A second copy would prove nothing - and
 	`routes/play/+page.svelte` must stay byte-identical across every branch of
 	this template, so it could not have been edited to know about this anyway.
+
+	THE LOBBY IS THE SAME STORY ONE STEP EARLIER. How many seats are at the
+	table is a decision, and it has to be taken before the world boots, because
+	what enrols a player is being given this game's stake while the world is
+	being built. All of that reasoning is `$lib/offline-lobby`'s and none of it
+	is here: this file renders a number, a set of choices and two presses. It
+	knows nothing about what a seat HOLDS, which is what keeps it one git object
+	across every branch of this template.
 -->
 <script lang="ts">
 	import {onMount} from 'svelte';
@@ -20,12 +28,22 @@
 	import Context from '$lib/context/Context.svelte';
 	import {Spinner} from '$lib/shadcn/ui/spinner';
 	import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
-	import {offlineWorld, startOfflineWorld} from '$lib/offline';
+	import {offlineWorld} from '$lib/offline';
+	import {SEAT_CHOICES} from '$lib/offline-seats';
+	import {
+		AUTHORISED_FOR_YOU,
+		chooseSeats,
+		enterOfflineLobby,
+		leaveTheTable,
+		offlineLobby,
+		sitDown,
+	} from '$lib/offline-lobby';
+	import {Button} from '$lib/shadcn/ui/button';
 	import InWorld from '$lib/context/InWorld.svelte';
 	import Play from '../play/+page.svelte';
 
 	onMount(() => {
-		startOfflineWorld();
+		enterOfflineLobby();
 	});
 </script>
 
@@ -57,6 +75,19 @@
 			Everything below runs against a chain inside this tab, on chain id
 			<code>{$offlineWorld.world.chainId}</code>. Nothing leaves the browser.
 			The navbar above is still describing the remote chain.
+			<p class="mt-1 text-xs text-muted-foreground">
+				<!-- The membership this world was PROVISIONED with, said rather than
+				     assumed: it was fixed when the world booted and the only way to a
+				     different one is a new world. -->
+				{$offlineLobby.seats} seats at this table, and changing that starts a new
+				world.
+				<button
+					class="underline underline-offset-2"
+					data-testid="leave-the-table"
+					onclick={() => leaveTheTable()}>Leave this table</button
+				>
+			</p>
+			<p class="mt-1 text-xs text-muted-foreground">{AUTHORISED_FOR_YOU}</p>
 		</div>
 		<div class="min-h-0 flex-1">
 			<Context context={$offlineWorld.context}>
@@ -69,6 +100,46 @@
 				<InWorld />
 			</Context>
 		</div>
+	</div>
+{:else if $offlineLobby.step === 'Choosing'}
+	<!-- THE CHOICE, AND IT IS THE ONLY ONE. A seat has an occupant, and today an
+	     occupant is you or the world; how many there are is the whole of what a
+	     player decides here. Which is why this renders a count and a table and
+	     asks the lobby for both. -->
+	<div class="container mx-auto max-w-2xl px-4 py-24 text-center">
+		<h1 class="text-lg font-semibold">How many at the table?</h1>
+		<p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+			A chain will be created in this browser and this game's own deploy scripts
+			run against it. Every seat is given a stake, which is what makes the cycle
+			wait for them. Nothing leaves the tab.
+		</p>
+		<div class="mt-6 flex flex-wrap justify-center gap-2">
+			{#each SEAT_CHOICES as choice (choice)}
+				<Button
+					size="sm"
+					variant={choice === $offlineLobby.seats ? 'default' : 'outline'}
+					data-testid={`seats-${choice}`}
+					onclick={() => chooseSeats(choice)}>{choice}</Button
+				>
+			{/each}
+		</div>
+		<ul
+			class="mx-auto mt-4 flex max-w-md flex-wrap justify-center gap-2 text-xs text-muted-foreground"
+		>
+			{#each $offlineLobby.table as seat, index (index)}
+				<li class="rounded-md border border-muted-foreground/30 px-2 py-1">
+					{seat.occupant.kind === 'you' ? 'You' : 'The world'}
+				</li>
+			{/each}
+		</ul>
+		<Button
+			class="mt-6"
+			data-testid="sit-down"
+			onclick={() => sitDown($offlineLobby.seats)}>Sit down and play</Button
+		>
+		<p class="mx-auto mt-4 max-w-md text-xs text-muted-foreground">
+			{AUTHORISED_FOR_YOU}
+		</p>
 	</div>
 {:else if $offlineWorld.step === 'Failed'}
 	<div class="container mx-auto max-w-2xl px-4 py-16">
