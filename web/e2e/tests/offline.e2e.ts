@@ -116,7 +116,9 @@ describe('Playing offline', () => {
 		// and meeting it for the first time there, unexplained, in front of a board
 		// they have already decided to play, is the experience this sentence exists
 		// to prevent.
-		await expect(page.getByText('registered a play key for you')).toBeVisible();
+		await expect(
+			page.getByText('one transaction you sign and pay for'),
+		).toBeVisible();
 
 		// The membership this world was provisioned with, on screen, because it
 		// cannot be changed without starting a new one.
