@@ -32,6 +32,10 @@ import {
 	type SubmissionStorage,
 	type SubmissionStore,
 } from '$lib/game/core/submission';
+import {
+	createCycleAdvance,
+	type CycleAdvanceStore,
+} from '$lib/game/core/advance';
 import {createDerivedSecret} from '$lib/game/core/secret';
 import {
 	createActiveIdentity,
@@ -89,6 +93,10 @@ import {
 } from '$lib/placement/storage';
 import {createPlanning, type PlanningStore} from '$lib/placement/planning';
 import {createCycleReader} from '$lib/placement/cycle';
+import {
+	createAttendanceReader,
+	createCycleAdvancer,
+} from '$lib/placement/advance';
 import {holdResolvingCycle, type HeldBoardState} from '$lib/placement/hold';
 import {holdPlanUntilBoardReleases} from '$lib/placement/display-plan';
 import {SignerOutOfFundsError} from '$lib/placement/errors';
@@ -157,6 +165,16 @@ export type Game = {
 	twoPhase: Readable<TwoPhase>;
 	/** The commit-reveal submission: what is planned, committed, revealed. */
 	submission: SubmissionStore<GameIdentity, Placement>;
+	/**
+	 * Pushing the cycle on, which a policy with no clock needs a transaction for.
+	 *
+	 * Idle on an ordinary TIMED deployment, where the cycle is the clock and the
+	 * contract refuses an advance outright. It is exposed anyway rather than
+	 * hidden behind the policy, because what it is doing - spending the player's
+	 * gas, unprompted, to keep the game moving - is something a HUD should be
+	 * able to say out loud.
+	 */
+	cycleAdvance: CycleAdvanceStore;
 	/** Clicks into planned placements. */
 	planning: PlanningStore;
 	/** The tokens at stake, without which nobody would have to reveal. */
@@ -401,7 +419,11 @@ export function createGameContext(core: CoreServices): GameContext {
 	// prefer. A timed game is pure arithmetic and asks the chain nothing; the
 	// other two policies can be moved by a transaction, so for them the chain is
 	// the authority and `chainTime` only predicts between reads.
-	const {cycleInfo, twoPhase} = createCycleTrackers({
+	const {
+		cycleInfo,
+		twoPhase,
+		refresh: refreshCycle,
+	} = createCycleTrackers({
 		chainTime,
 		config: staticCycleConfig(config.cycle),
 		readCycle: createCycleReader({
@@ -410,6 +432,26 @@ export function createGameContext(core: CoreServices): GameContext {
 		}),
 	});
 	const threePhase = createThreePhase(cycleInfo);
+
+	/**
+	 * WHO PUSHES THE CYCLE, on a deployment where something has to.
+	 *
+	 * Built for every policy and INERT under the timed one: it reads the policy
+	 * off the deployment, and under `timed` it polls nothing and sends nothing,
+	 * so an ordinary deployment's RPC traffic is exactly what it was. Under
+	 * `manual` it is what makes a round completable at all - the reveal phase
+	 * does not open until somebody calls `advanceCycle`, and a reveal sent
+	 * before it is refused with `InCommitmentPhase`.
+	 */
+	const cycleAdvance = createCycleAdvance({
+		cycleInfo,
+		readAttendance: createAttendanceReader({
+			publicClient: core.publicClient,
+			deployments: core.deployments,
+		}),
+		advance: createCycleAdvancer(core),
+		refreshCycle,
+	});
 
 	const {camera, cameraControl} = createCamera(config.camera);
 	const eventEmitter = createCanvasEventEmitter();
@@ -753,6 +795,7 @@ export function createGameContext(core: CoreServices): GameContext {
 
 	function start() {
 		const stopSubmission = submission.start();
+		const stopCycleAdvance = cycleAdvance.start();
 
 		// A click is only a click to the canvas; what it MEANS is decided here, so
 		// the render layer stays free of game rules.
@@ -783,8 +826,20 @@ export function createGameContext(core: CoreServices): GameContext {
 
 		// A submission that ends in Missed locally is very likely blocked on chain
 		// too.
+		//
+		// And a submission that has just LANDED is the moment unanimity may have
+		// been completed by this browser's own transaction: on a manual deployment
+		// the reveal phase becomes pushable the instant the last commitment lands,
+		// and the next cycle the instant the last reveal does. Asking then rather
+		// than on the next poll is the whole difference between a round that feels
+		// instant and one that pauses twice for a poll interval. It costs one read
+		// when a submission changes state, and nothing on a timed deployment, where
+		// the advance is inert.
 		const unsubscribeSubmission = submission.subscribe(($submission) => {
 			if ($submission.step === 'Missed') void missedReveal.check();
+			if ($submission.step === 'Committed' || $submission.step === 'Revealed') {
+				void cycleAdvance.check();
+			}
 		});
 
 		const unsubscribeGas = resumeWhenGasArrives({
@@ -823,6 +878,7 @@ export function createGameContext(core: CoreServices): GameContext {
 
 		return () => {
 			stopSubmission();
+			stopCycleAdvance();
 			eventEmitter.off('clicked', onClicked);
 			unsubscribeIdentity();
 			unsubscribeSubmission();
@@ -845,6 +901,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			phase,
 			twoPhase,
 			submission,
+			cycleAdvance,
 			planning,
 			reserve,
 			acquisition,
