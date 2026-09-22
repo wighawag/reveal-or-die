@@ -19,6 +19,12 @@ import {createIndexedDBPersistence} from 'webevm';
 import {createIndexedDBDeploymentStore} from '@rocketh/web';
 import {createContext} from '$lib/context/index';
 import type {Context} from '$lib/context/types';
+import {
+	createOfflinePlayers,
+	pokeWhenTheHumanActs,
+	type OfflinePlayer,
+} from '$lib/offline-players';
+import {resolvePlacementConfig} from '$lib/placement/config';
 
 /**
  * THIS GAME'S OFFLINE WORLD: the composition, which is the half
@@ -59,6 +65,14 @@ import type {Context} from '$lib/context/types';
  *    custody of an NFT hands over an NFT here instead, and the framework
  *    requires only that SOMETHING is lost by not revealing.
  *
+ * 4. **Who else is in it**, which is the difference between a commit-reveal
+ *    game and a demonstration of one. A cycle with a single waited-for member
+ *    hides nothing and two of `advanceCycle`'s three conditions cannot be
+ *    reached at all, so this world enrols THREE and plays two of them. What
+ *    those two DO is `$lib/offline-players`, which is identical on every branch
+ *    of this template; what is decided here is who they are, because an
+ *    identity is spelled differently per branch and this file differs already.
+ *
  * It lives beside `lib/index.ts` rather than in a route, for the reason the
  * mechanism's README gives: this repo deletes the demo routes it inherits, and
  * anything world-building written inside one is thrown away with them.
@@ -83,6 +97,38 @@ const DEPLOYER_ADDRESS = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' as const;
 const ADMIN =
 	'0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
 const ADMIN_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
+
+/**
+ * THE TWO PLAYERS THE WORLD PLAYS, by the same argument as the keys above:
+ * hardhat's well-known development accounts, public and fixed on purpose.
+ *
+ * THREE PLAYERS AND NOT TWO, and not one. One waited-for member satisfies
+ * unanimity by existing, so the commit phase hides nothing and `advanceCycle`
+ * can never reach `StillWaitingToCommit` or `StillWaitingToReveal`; two is a
+ * duel, where "everyone" and "the other one" are the same statement and a
+ * contested cell is a special case rather than an instance of the rule. At
+ * three the accumulation in `_place` has something to accumulate.
+ *
+ * KEYS AND ADDRESSES ONLY: who these two PLAY AS is a different question and
+ * is answered by {@link playedByTheWorld}, because the answer differs per
+ * branch of this template and one of the two forms is not known until the
+ * chain has been asked.
+ */
+export const PLAYED_BY_THE_WORLD = [
+	{
+		privateKey:
+			'0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
+		address: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
+	},
+	{
+		privateKey:
+			'0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6',
+		address: '0x90F79bf6EB2c4f870365E785982E1f101E93b906',
+	},
+] as const satisfies readonly {
+	privateKey: `0x${string}`;
+	address: `0x${string}`;
+}[];
 
 const CHAIN_ID_STORAGE_KEY = 'offline-world:chain-id';
 const PLAY_MONEY = 10n ** 24n;
@@ -253,7 +299,45 @@ async function buildOfflineWorld(): Promise<OfflineWorldStatus> {
 		console.error('the offline world could not connect its own wallet', err);
 	}
 
-	const ready: OfflineWorldStatus = {step: 'Ready', world, context};
+	/**
+	 * THE OTHER TWO PLAYERS, STARTED WITH THE BOARD AND STOPPED WITH IT.
+	 *
+	 * Wrapped around the context's own `start` rather than started here, so that
+	 * their lifetime is exactly the human's advance client's: both spend the
+	 * world's gas to keep a cycle turning, and neither has any business doing so
+	 * while nothing is on screen. The WORLD still outlives the page (the chain
+	 * is not disposed when a router navigates away); what stops is the playing.
+	 */
+	const players = createOfflinePlayers({
+		provider: world.provider,
+		deployments: world.deployments,
+		config: resolvePlacementConfig(world.deployments.get()),
+		players: await playedByTheWorld({env: world.env}),
+		// A played commit can complete unanimity just as the human's can, and the
+		// advance client would otherwise find out on its own one-second poll.
+		onActed: () => void context.context.game.cycleAdvance.check(),
+	});
+
+	const ready: OfflineWorldStatus = {
+		step: 'Ready',
+		world,
+		context: {
+			context: context.context,
+			start: () => {
+				const stopContext = context.start();
+				const stopPlayers = players.start();
+				const stopPoke = pokeWhenTheHumanActs({
+					players,
+					submission: context.context.game.submission,
+				});
+				return () => {
+					stopPoke();
+					stopPlayers();
+					stopContext();
+				};
+			},
+		},
+	};
 	status.set(ready);
 	return ready;
 }
@@ -369,6 +453,12 @@ let announced: (() => void) | undefined;
  *    and can forward a gas stipend, and using it here means the offline world
  *    exercises the contract path the online one depends on instead of a
  *    private shortcut that could quietly stop matching it.
+ * 4. **SOMEBODY TO PLAY AGAINST**, which is gas and a stake for two more
+ *    players and is the same three things over again. It is not a courtesy:
+ *    the stake is what makes them waited-for members (`_startWaitingFor` fires
+ *    on a funded reserve), and a cycle with one member is a cycle that hides
+ *    nothing. They are given exactly what the human is given and nothing more,
+ *    so what the world can do, the human can do.
  *
  * WHAT IT DELIBERATELY DOES NOT DO IS AUTHORISE THE BROWSER'S KEY. The signer
  * is derived in the tab from a wallet signature AFTER this runs (and after the
@@ -411,13 +501,51 @@ async function provisionOfflinePlayer(params: {
 		} as never);
 	}
 
-	status.set({step: 'Booting', what: 'staking for the player'});
-	await stakeForOfflinePlayer({env, player: wallet.accounts[0]});
+	// GAS FOR THE TWO PLAYERS THE WORLD PLAYS, on the same terms and for the
+	// same reason: it is a number on a chain in a tab, and a player who cannot
+	// pay for a commit freezes the cycle for the human rather than for itself.
+	for (const played of PLAYED_BY_THE_WORLD) {
+		await node.provider.request({
+			method: 'evm_setBalance',
+			params: [played.address, `0x${PLAY_MONEY.toString(16)}`],
+		} as never);
+	}
+
+	status.set({step: 'Booting', what: 'staking for everyone playing'});
+	await stakeForEveryoneInTheWorld({env, player: wallet.accounts[0]});
 
 	// HANDED BACK rather than announced-and-hoped-for. The connection this world
 	// builds will use exactly this wallet, so the player is never asked to
 	// choose one.
 	return {wallets: [wallet.handle]};
+}
+
+/**
+ * GIVE ALL THREE MEMBERS SOMETHING TO LOSE.
+ *
+ * ONE FUNCTION RATHER THAN THREE CALLS AT THE HOOK, because it is the half of
+ * provisioning that can be asserted in node: the wallet and its gas need a
+ * `window` to announce on, and this does not. `test/lib/embedded/world.test.ts`
+ * calls exactly this, so it cannot check the human and miss the two the world
+ * plays - which would be a green suite over a world with one waited-for member
+ * and therefore over a cycle that hides nothing.
+ *
+ * THE OTHER TWO ARE NOT A COURTESY. A stake is what enrols a player as a
+ * waited-for member here (`_addToReserve` starts waiting for anyone with a
+ * funded reserve), so this call is what makes unanimity mean something; and it
+ * is what they lose by going quiet, which is what makes their commitments
+ * worth making. They are given exactly what the human is given and nothing
+ * more, so what the world can do, the human can do.
+ */
+export async function stakeForEveryoneInTheWorld(params: {
+	env: EmbeddedWorld['env'];
+	/** The human. The world's own two are the same on every boot. */
+	player: `0x${string}`;
+}): Promise<void> {
+	await stakeForOfflinePlayer({env: params.env, player: params.player});
+	for (const played of PLAYED_BY_THE_WORLD) {
+		await stakeForOfflinePlayer({env: params.env, player: played.address});
+	}
 }
 
 /**
@@ -492,6 +620,54 @@ export async function stakeForOfflinePlayer(params: {
 		// a value that can drift into `WrongPaymentAmount`.
 		value: config.data.sale.default.price,
 	});
+}
+
+/**
+ * WHO AN ADDRESS PLAYS AS IN THIS WORLD, once it has been provisioned.
+ *
+ * ASYNC, AND IT IS NOT ASYNC HERE, which is the whole reason it is a function
+ * rather than an expression. This branch is an ADDRESS game, so an identity is
+ * the account widened to a `uint256` exactly as `game/identity.ts` widens the
+ * human's own, and nothing has to be asked of anybody. On a branch whose
+ * identity is a TOKEN there is no such arithmetic: the token is minted by
+ * provisioning and its id is whatever the contract assigned, so the only place
+ * the answer exists is the chain. Writing the signature for the harder of the
+ * two costs one `await` here and keeps `offline-players.ts` - which is where
+ * all the behaviour is - byte-identical across the template's branches.
+ *
+ * ONE PLACE PER BRANCH SAYS HOW AN ADDRESS BECOMES A PLAYER, which is the same
+ * rule `game/identity.ts` follows for the human and for the same reason: every
+ * OTHER site that spelled it would be a site this branch has to edit and
+ * therefore conflict on forever.
+ *
+ * Called AFTER provisioning, because on that branch there is nothing to read
+ * until the identity has been handed out.
+ */
+export async function offlineIdentityOf(params: {
+	env: EmbeddedWorld['env'];
+	player: `0x${string}`;
+}): Promise<bigint> {
+	// `env` is named and unused on this branch, because the branch that needs it
+	// needs it in exactly this position. See above.
+	void params.env;
+	return BigInt(params.player);
+}
+
+/** The world's two players, with the identity each of their keys plays as. */
+export async function playedByTheWorld(params: {
+	env: EmbeddedWorld['env'];
+}): Promise<readonly OfflinePlayer[]> {
+	const resolved: OfflinePlayer[] = [];
+	for (const played of PLAYED_BY_THE_WORLD) {
+		resolved.push({
+			privateKey: played.privateKey,
+			identity: await offlineIdentityOf({
+				env: params.env,
+				player: played.address,
+			}),
+		});
+	}
+	return resolved;
 }
 
 /**
