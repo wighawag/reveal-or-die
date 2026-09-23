@@ -316,8 +316,8 @@ importers:
         specifier: ^3.0.0
         version: 3.0.0(svelte@5.56.9)(vitest@4.1.11)
       webevm:
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.6.0
+        version: 0.6.0
 
 packages:
 
@@ -4158,8 +4158,8 @@ packages:
     engines: {node: '>=20.0.0'}
     hasBin: true
 
-  webevm@0.5.0:
-    resolution: {integrity: sha512-vrcXT7rXSjZeH4tmlARciqlLcYniJy6opfCn+mmKNRLu4WhdCSHol1i0R0WQ4RQ2O2tZk05NldzVUEv53BG+jA==}
+  webevm@0.6.0:
+    resolution: {integrity: sha512-iqwUVv4P7NLR7gbg0cpGbeNQR+1dlXp3SrMVO70hXzF8zfBbH5rXV7fM53LrDOPpkO0l+QglXg8xy6rY3mxVNg==}
     peerDependencies:
       comlink: ^4.4.2
     peerDependenciesMeta:
@@ -8337,7 +8337,7 @@ snapshots:
       - debug
       - supports-color
 
-  webevm@0.5.0:
+  webevm@0.6.0:
     dependencies:
       '@ethereumjs/block': 10.1.3
       '@ethereumjs/common': 10.1.3
