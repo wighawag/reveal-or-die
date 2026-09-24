@@ -2,22 +2,30 @@
  * EVERY IMPORT IN THIS REPO NAMES A FILE THAT EXISTS.
  *
  * WHY THIS EXISTS, AND IT IS A MEASUREMENT RATHER THAN A PRECAUTION. Two
- * consecutive cascades into this repo were broken by a hunk that merged
- * CLEANLY, which is the one thing a merge review does not look at:
+ * consecutive cascades out of this template broke `reveal-or-die`, and both
+ * times the thing that broke it was a hunk that merged CLEANLY, which is the
+ * one thing a merge review does not look at:
  *
- *  - 2026-09-09: the template DELETED `game/render/pixi/PixiCanvas.svelte`, the
- *    deletion applied without complaint, and this repo's own
+ *  - 2026-09-09: this template DELETED `game/render/pixi/PixiCanvas.svelte`,
+ *    the deletion applied without complaint, and that repo's own
  *    `world/render/index.ts` went on importing it. Three conflicts were
  *    reported and correctly resolved; the build was broken by the part that had
  *    no conflict.
  *  - 2026-09-23: five files arrived as clean ADDS carrying nine imports of
- *    `$lib/placement`, a directory this repo deleted wholesale years of commits
- *    ago.
+ *    `$lib/placement`, which is THIS repo's game and a directory that one had
+ *    deleted wholesale years of commits ago.
  *
  * Both are the same defect in two directions - a deletion that strands an
  * import, and an import that arrives naming something already deleted - and
  * neither of them is visible in `git status` after a merge, because git has
  * nothing to say about either.
+ *
+ * IT LIVES HERE, AT THE TEMPLATE, BECAUSE THE DEFECT IS THE TREE'S AND NOT ONE
+ * REPO'S. Every game built from this template deletes `web/src/lib/placement`
+ * and writes its own, so every one of them is one clean hunk away from holding
+ * an import of a directory it does not have; and every deletion made here
+ * arrives in all of them at once. A check that only the repo that got burnt
+ * carries is a check the next repo has to get burnt to acquire.
  *
  * WHAT IT ADDS OVER `check` AND `test:unit`, which is a fair question because
  * both of those would have caught all seven files. It is not coverage, it is
@@ -35,17 +43,15 @@
  * the tool path gets it too and there is one implementation rather than two.
  *
  * WHERE IT REALLY BELONGS is `offshoot-fanout`, as a post-merge step: this
- * failure is not specific to this repo or to renderers, and every level
- * boundary that moves a file between branches has it. That is what
- * `work/notes/findings/main-cannot-be-cascaded-into-reveal-or-die-until-the-repoint.md`
- * proposes. It is repo-local here because `offshoot-fanout` on this host is a
- * nix-store binary (0.6.0) with no source checkout to edit, so the generic
- * version is a different change in a different repo - and this repo is the one
- * that has now paid for the lesson twice.
+ * failure is not specific to this tree or to renderers, and every level
+ * boundary that moves a file between branches has it. It is in the repo rather
+ * than in the tool because `offshoot-fanout` on this host is a nix-store binary
+ * (0.6.0) with no source checkout to edit, so the generic version is a
+ * different change in a different repo.
  *
  * IT READS IMPORTS WITH THE TYPESCRIPT PARSER, NOT WITH A REGEX, and that was
  * not the first draft. A regex over `from '...'` reports every string that
- * merely LOOKS like an import, and this repo is full of them on purpose: the
+ * merely LOOKS like an import, and this tree is full of them on purpose: the
  * boundary tests under `web/test` carry import statements as DATA, because
  * asserting about who may import `$app/*` means writing `$app/*` down. The
  * first draft reported nine dangling imports of which seven were those strings
@@ -229,8 +235,8 @@ function exists(target) {
 	for (const suffix of CANDIDATES) {
 		const candidate = target + suffix;
 		if (!existsSync(candidate)) continue;
-		// A directory alone is not a module: `$lib/world` with no `index.ts` is
-		// exactly the shape a deleted barrel leaves behind.
+		// A directory alone is not a module: `$lib/placement` with no `index.ts`
+		// is exactly the shape a deleted barrel leaves behind.
 		if (suffix === '' && statSync(candidate).isDirectory()) continue;
 		return true;
 	}

@@ -1,16 +1,13 @@
-import {
-	createPublicClient,
-	createWalletClient,
-	custom,
-	keccak256,
-	encodePacked,
-	zeroAddress,
-} from 'viem';
-import {privateKeyToAccount} from 'viem/accounts';
-import type {Account} from 'viem';
-import type {Readable} from 'svelte/store';
+import {keccak256, encodePacked, zeroAddress} from 'viem';
 import type {DeploymentsStore} from '$lib/deployments-store';
 import type {EIP1193ProviderLike} from '$lib/embedded';
+import {
+	createPlayedKeys,
+	createSerialisedLoop,
+	type SerialisedLoop,
+} from '$lib/game/core/played';
+import {playedSeatSecret} from '$lib/game/core/secret';
+import {createCycleReader} from '$lib/world/advance';
 import type {WorldConfig} from '$lib/world/config';
 import {
 	ActionType,
@@ -37,10 +34,21 @@ import {
  * quiet game - they make a FROZEN one, for the human as well. Either the world
  * plays them or it must not enrol them.
  *
- * WHAT THIS IS NOT. It is not the framework's, it is not a mode, and it is not
- * NPCs: there is no intelligence here, no difficulty and no interface for
- * either. It is the smallest thing that makes the cycle have somebody to wait
- * for, written in the app beside the world that wants it.
+ * WHAT THIS IS NOT. It is not a mode, and it is not NPCs: there is no
+ * intelligence here, no difficulty and no interface for either. It is the
+ * smallest thing that makes the cycle have somebody to wait for, written in the
+ * app beside the world that wants it.
+ *
+ * WHAT IS NO LONGER HERE IS THE MACHINERY. The keyring that sends a call and
+ * waits for inclusion, the loop that serialises passes and queues a poke that
+ * arrives during one, and the subscription that pokes when the human acts are
+ * `$lib/game/core/played`'s; the secret is `$lib/game/core/secret`'s. They moved
+ * because this file and the template's agreed on them to the character, which is
+ * what earns a framework half in this tree. WHAT IS LEFT is everything the two
+ * disagreed about, and the three sections below are exactly it: how a turn is
+ * derived (here it reads chain state, upstream it does not), whether a reveal is
+ * one call or a chain of chunks (here one), and what settling a missed reveal
+ * COSTS (here nothing at all).
  *
  * ## They hold nothing in memory, and here that is HARDER than upstream
  *
@@ -76,7 +84,7 @@ import {
  * throwing the whole store away, building a fresh one and revealing.
  *
  * **AND BECAUSE IT IS DERIVED, THE DERIVATION IS A WIRE.** A build that changes
- * {@link turnFor} or {@link secretFor} can no longer open a commitment an
+ * {@link turnFor} or `playedSeatSecret` can no longer open a commitment an
  * earlier build left on chain, which under the manual policy is not a lost turn
  * but a frozen world. {@link createOfflinePlayers} closes that from the only
  * side it can be closed from - it re-commits, in the commit phase, whenever the
@@ -110,19 +118,6 @@ export type OfflinePlayer = {
 	identity: bigint;
 };
 
-export type OfflinePlayersStore = {
-	/**
-	 * One pass: look at the chain, and act for anyone who owes something.
-	 *
-	 * Exposed so a test can drive the world without timers, and so a caller can
-	 * poke it at a moment it knows is interesting - see
-	 * {@link pokeWhenTheHumanActs}.
-	 */
-	tick(): Promise<void>;
-	/** Begin watching. Returns the teardown. */
-	start(): () => void;
-};
-
 /** What `getCommitment` hands back. `epoch` is the ABI's own component name. */
 type Commitment = {hash: `0x${string}`; epoch: bigint};
 
@@ -134,16 +129,6 @@ type PublicAvatar = {
 	lastEpoch: bigint;
 	life: number;
 };
-
-/**
- * How often a played player looks at the chain, in milliseconds.
- *
- * THE SAME INTERVAL AS THE CLIENT THAT PUSHES THE CYCLE, because it is the same
- * job: both spend the world's gas, unprompted, to keep a cycle that has no
- * clock turning. It is a BACKSTOP rather than the thing that makes a round
- * quick - {@link pokeWhenTheHumanActs} is.
- */
-const DEFAULT_POLL_INTERVAL = 1000;
 
 /**
  * How far from the origin a played player enters, in cells, on each axis.
@@ -292,51 +277,12 @@ function entryCellFor(params: {
 	return undefined;
 }
 
-/**
- * The secret one of these players commits with.
- *
- * DERIVED AND NOT RANDOM, and domain-separated by chain, contract and identity
- * exactly as `game/core/secret.ts` is. What that buys here is RECONSTRUCTION
- * rather than secrecy, and it is worth being plain about the difference: a
- * played turn is a function of public inputs and public chain state, so anybody
- * reading this file can work out what these players are about to do. They are
- * not hiding from the human, they are giving the cycle somebody to wait for.
- * The domain separation is still load-bearing for a different reason - two
- * players deriving one secret would be two commitments either of them could
- * open, which is a way for a played player to settle another's turn by
- * accident.
- *
- * It is NOT a signature, which is the one difference from the human's. A
- * signature buys recovery from a key the player still holds; these keys ARE the
- * world's, so a hash is the same guarantee with nothing to prompt and nothing
- * to await.
- */
-export function secretFor(params: {
-	chainId: number;
-	game: `0x${string}`;
-	identity: bigint;
-	cycleNumber: number;
-}): `0x${string}` {
-	return keccak256(
-		encodePacked(
-			['string', 'uint256', 'address', 'uint256', 'uint64'],
-			[
-				'Offline:secret',
-				BigInt(params.chainId),
-				params.game,
-				params.identity,
-				BigInt(params.cycleNumber),
-			],
-		),
-	);
-}
-
 export function createOfflinePlayers(params: {
 	provider: EIP1193ProviderLike;
 	deployments: DeploymentsStore;
 	config: WorldConfig;
 	players: readonly OfflinePlayer[];
-	/** How often to look. Defaults to {@link DEFAULT_POLL_INTERVAL}. */
+	/** How often to look. The framework's loop owns the default. */
 	pollInterval?: number;
 	/**
 	 * Called after a pass in which a player actually SENT something.
@@ -346,10 +292,8 @@ export function createOfflinePlayers(params: {
 	 * advance client only finds out on its own one-second poll.
 	 */
 	onActed?: () => void;
-}): OfflinePlayersStore {
+}): SerialisedLoop {
 	const {provider, deployments, config, players} = params;
-	const pollInterval = params.pollInterval ?? DEFAULT_POLL_INTERVAL;
-	const onActed = params.onActed;
 
 	const records = deployments.get();
 	const game = {
@@ -367,64 +311,27 @@ export function createOfflinePlayers(params: {
 		rpcUrls: {default: {http: [] as string[]}},
 	};
 
-	const publicClient = createPublicClient({
-		chain,
-		transport: custom(provider as never),
-	});
+	// THE KEYRING AND THE WAITING ARE THE FRAMEWORK'S, and what is left here is
+	// which calls to make. `publicClient` comes back out of it so that the reads
+	// below go through the same client the sends wait on, rather than a second one
+	// against the same provider.
+	const keys = createPlayedKeys({provider, chain, contract: game});
+	const publicClient = keys.publicClient;
 
-	// One viem account and one wallet client per player, built once: deriving an
-	// account from a key is elliptic-curve work, and a pass that rebuilt three of
-	// them once a second would be the most expensive thing in this file.
-	const wallets = new Map<
-		`0x${string}`,
-		{account: Account; client: ReturnType<typeof createWalletClient>}
-	>();
-	function walletFor(player: OfflinePlayer) {
-		let wallet = wallets.get(player.privateKey);
-		if (!wallet) {
-			const account = privateKeyToAccount(player.privateKey);
-			wallet = {
-				account,
-				client: createWalletClient({
-					account,
-					chain,
-					transport: custom(provider as never),
-				}),
-			};
-			wallets.set(player.privateKey, wallet);
-		}
-		return wallet;
-	}
+	// THE SEAM SITTING BESIDE THIS FILE, rather than a second copy of the same
+	// read. This is the one line where this file and the template's differed -
+	// `getEpoch` against `getCycle` - and both repos already ship a reader that
+	// answers it in the framework's own shape for the trackers. Note it reads
+	// `getEpoch` because that is what THIS game's contract is still called; the
+	// framework sees `CycleReading` either way, which is the whole point of the
+	// seam.
+	const readCycle = createCycleReader({publicClient, deployments});
 
-	let acted = false;
-
-	/**
-	 * SENT AND WAITED FOR, one at a time, like every other write in this game.
-	 *
-	 * `writeContract` resolves on BROADCAST, so without the receipt a reverted
-	 * commitment would look like a made one and this loop would go on to reveal
-	 * against nothing. It matters more here than in the app: nobody is watching
-	 * these players, so a failure they do not notice is a cycle that never
-	 * closes.
-	 */
-	async function send(
+	function send(
 		player: OfflinePlayer,
 		request: Record<string, unknown>,
 	): Promise<void> {
-		const wallet = walletFor(player);
-		const hash = await wallet.client.writeContract({
-			...game,
-			chain: null,
-			account: wallet.account,
-			...request,
-		} as never);
-		acted = true;
-		const receipt = await publicClient.waitForTransactionReceipt({hash});
-		if (receipt.status === 'reverted') {
-			throw new Error(
-				`an offline player's ${String(request.functionName)} was rejected by the contract`,
-			);
-		}
+		return keys.send(player.privateKey, request);
 	}
 
 	async function commitmentOf(player: OfflinePlayer): Promise<Commitment> {
@@ -479,9 +386,9 @@ export function createOfflinePlayers(params: {
 		onChain: Commitment,
 		avatar: PublicAvatar,
 	): Promise<void> {
-		const secret = secretFor({
+		const secret = playedSeatSecret({
 			chainId: records.chain.id,
-			game: game.address,
+			contract: game.address,
 			identity: player.identity,
 			cycleNumber,
 		});
@@ -516,9 +423,9 @@ export function createOfflinePlayers(params: {
 		// after the commit phase closed, or has already been settled.
 		if (Number(onChain.epoch) !== cycleNumber) return;
 
-		const secret = secretFor({
+		const secret = playedSeatSecret({
 			chainId: records.chain.id,
-			game: game.address,
+			contract: game.address,
 			identity: player.identity,
 			cycleNumber,
 		});
@@ -606,13 +513,21 @@ export function createOfflinePlayers(params: {
 		else await reveal(player, cycle.cycleNumber, onChain, avatar);
 	}
 
-	async function pass(): Promise<void> {
+	/**
+	 * One pass over the table, and whether it sent anything.
+	 *
+	 * THE LOOP AROUND THIS IS THE FRAMEWORK'S and this is what it calls. The
+	 * boolean is how `onActed` fires, read off the keyring's own counter either
+	 * side of the work rather than a flag this file would have to reset.
+	 */
+	async function pass(): Promise<boolean> {
+		const before = keys.sends();
 		try {
-			const [epoch, commiting] = (await publicClient.readContract({
-				...game,
-				functionName: 'getEpoch',
-			})) as readonly [bigint, boolean];
-			const at = {cycleNumber: Number(epoch), commiting};
+			const cycle = await readCycle();
+			const at = {
+				cycleNumber: cycle.cycleNumber,
+				commiting: cycle.isCommitPhase,
+			};
 			// IN SEQUENCE, NOT IN PARALLEL. Each of these players is a separate
 			// account so their nonces do not collide, but they share one chain in
 			// one worker, and a burst of three commits is three blocks nothing is
@@ -626,78 +541,19 @@ export function createOfflinePlayers(params: {
 			// nowhere to report it: these players have no UI. The next pass sees
 			// the same chain and tries again, which is the right behaviour for
 			// every transient cause (a commit that lost a race with somebody
-			// else's advance, most of all).
+			// else's advance, most of all). Swallowed HERE rather than in the loop,
+			// which is what lets the loop insist a pass resolves.
 			console.warn('an offline player could not act this pass', err);
 		}
+		// A send that reverted still happened, and the poke is worth doing anyway:
+		// whatever refused it is a change in the world the advance client has not
+		// seen yet.
+		return keys.sends() > before;
 	}
 
-	let running = false;
-	let wanted = false;
-
-	/**
-	 * ONE PASS AT A TIME, AND A SECOND ONE IF SOMETHING ASKED WHILE IT RAN.
-	 *
-	 * Serialising is obvious: two passes in flight would send two commitments
-	 * for one player at one nonce. QUEUEING the second is the half that is not,
-	 * and it is what makes a poke reliable. A pass takes as long as the
-	 * transactions in it, so a poke arriving mid-pass is exactly the likely case
-	 * - the human's commit lands while these players are still looking at the
-	 * phase it just changed - and a poke that was DROPPED would fall back to the
-	 * poll, which is the second of latency this exists to remove. It cannot
-	 * spin: a pass that finds nothing to do sends nothing and the flag is only
-	 * set by a caller.
-	 */
-	async function tick(): Promise<void> {
-		if (running) {
-			wanted = true;
-			return;
-		}
-		running = true;
-		try {
-			do {
-				wanted = false;
-				acted = false;
-				await pass();
-				if (acted) onActed?.();
-			} while (wanted);
-		} finally {
-			running = false;
-		}
-	}
-
-	function start(): () => void {
-		// Off-browser nothing polls: a server render must not perform IO or leave
-		// a timer behind. See ADR-0002.
-		if (typeof window === 'undefined') return () => {};
-		void tick();
-		const timer = setInterval(() => void tick(), pollInterval);
-		return () => clearInterval(timer);
-	}
-
-	return {tick, start};
-}
-
-/**
- * Look at the chain the moment the HUMAN's own turn lands.
- *
- * WHY IT IS WORTH A SUBSCRIPTION RATHER THAN A SHORTER POLL. Under the manual
- * policy a round is three commits, an advance, three reveals and an advance,
- * and every one of those steps is somebody noticing that the previous one
- * happened. Two pollers in series - these players on their interval, the
- * advance client on its second - is most of what a round costs, and the
- * cheapest term to remove is the one the browser already knows about: its own
- * submission reaching `Committed` or `Revealed`.
- *
- * Kept HERE rather than at the call site so that it stays beside the loop it
- * pokes.
- */
-export function pokeWhenTheHumanActs(params: {
-	players: Pick<OfflinePlayersStore, 'tick'>;
-	submission: Readable<{step: string}>;
-}): () => void {
-	return params.submission.subscribe(($submission) => {
-		if ($submission.step === 'Committed' || $submission.step === 'Revealed') {
-			void params.players.tick();
-		}
+	return createSerialisedLoop({
+		pass,
+		onActed: params.onActed,
+		pollInterval: params.pollInterval,
 	});
 }

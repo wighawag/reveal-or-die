@@ -10,10 +10,10 @@
 #   bash scripts/apply-omissions.sh && git commit
 #
 # It ALSO runs the dangling-import check before it lets you commit, because the
-# omissions are only half of what a cascade into this repo gets wrong. Twice
-# now the thing that broke the build merged CLEANLY and reported no conflict at
-# all: see scripts/dangling-imports.mjs. This is the moment that check is worth
-# a second, so it happens here rather than being remembered.
+# omissions are only half of what a cascade gets wrong. Twice now the thing that
+# broke a repo in this tree merged CLEANLY and reported no conflict at all: see
+# scripts/dangling-imports.mjs. This is the moment that check is worth a second,
+# so it happens here rather than being remembered.
 #
 # Idempotent, and safe to run when there is no merge in progress: a path that is
 # already absent is left alone and reported as such. It only ever removes paths
@@ -65,11 +65,11 @@ else
     echo -e "${GREEN}✓ Dropped ${removed} path(s); ${absent} were already absent.${NC}"
 fi
 
-# THE OTHER HALF, and the one that has actually broken the build. A deletion
-# this repo re-applies is the conflict everybody sees; an import left pointing
-# at nothing is the hunk nobody does. Non-zero here means the merge is not
-# resolved yet, which is why it gates the "now commit" below rather than
-# printing after it.
+# THE OTHER HALF, and the one that has actually broken a build. A deletion a
+# repo re-applies is the conflict everybody sees; an import left pointing at
+# nothing is the hunk nobody does. Non-zero here means the merge is not resolved
+# yet, which is why it gates the "now commit" below rather than printing after
+# it.
 echo
 if ! node "$SCRIPT_DIR/check-dangling-imports.mjs"; then
     echo -e "${RED}✗ Resolve those before committing the merge.${NC}"

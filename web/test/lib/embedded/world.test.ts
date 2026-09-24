@@ -9,7 +9,7 @@ import {
 	stakeForEveryoneInTheWorld,
 	stakeForOfflinePlayer,
 } from '$lib/offline';
-import {SEATS_BY_DEFAULT, tableOf} from '$lib/offline-seats';
+import {SEATS_BY_DEFAULT, tableOf} from '$lib/game/lobby/seats';
 import {resolveWorldConfig} from '$lib/world/config';
 
 // No `.svelte.` infix, so this runs in the `server` project: node, no DOM.

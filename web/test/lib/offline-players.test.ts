@@ -9,8 +9,12 @@ import {
 	playedByTheWorld,
 	stakeForOfflinePlayer,
 } from '$lib/offline';
-import {seatsPlayedByTheWorld, tableOf} from '$lib/offline-seats';
-import {createOfflinePlayers, secretFor, turnFor} from '$lib/offline-players';
+import {seatsPlayedByTheWorld, tableOf} from '$lib/game/lobby/seats';
+import {createOfflinePlayers, turnFor} from '$lib/offline-players';
+// The secret is the FRAMEWORK's now, and asserting against it here is the point
+// rather than an import detail: what a reload has to reproduce is what this
+// world actually committed with.
+import {playedSeatSecret} from '$lib/game/core/secret';
 import {createAttendanceReader, forgetWaitedFor} from '$lib/world/advance';
 import {advancePermitted} from '$lib/game/core/advance';
 import {resolveWorldConfig} from '$lib/world/config';
@@ -351,23 +355,38 @@ describe('a derived turn', () => {
 	});
 });
 
-describe('the secret a played player commits with', () => {
+describe('the secret a played seat commits with', () => {
+	// KEPT HERE THOUGH THE FUNCTION MOVED, because what this world depends on is
+	// the property rather than the location: a derivation that stopped being
+	// reproducible would strand a commitment and freeze this game, and a
+	// derivation that stopped being separated would let one played seat open
+	// another's. The framework has its own copy of these two assertions; this one
+	// is the game saying which of them it is relying on.
 	const GAME = '0x1111111111111111111111111111111111111111' as const;
-	const base = {chainId: 1, game: GAME, identity: 1n, cycleNumber: 2};
+	const base = {chainId: 1, contract: GAME, identity: 1n, cycleNumber: 2};
 
 	it('is reproducible, which is the only reason a reload can reveal', () => {
-		expect(secretFor(base)).toBe(secretFor(base));
+		expect(playedSeatSecret(base)).toBe(playedSeatSecret(base));
 	});
 
 	it('is separated by chain, game, identity and cycle', () => {
-		// Two players deriving ONE secret would be two commitments either of them
-		// could open, which is a way for a played player to settle another's turn
-		// by accident.
-		expect(secretFor({...base, chainId: 2})).not.toBe(secretFor(base));
-		expect(secretFor({...base, identity: 2n})).not.toBe(secretFor(base));
-		expect(secretFor({...base, cycleNumber: 3})).not.toBe(secretFor(base));
+		// Two seats deriving ONE secret would be two commitments either of them
+		// could open, which is a way for a played seat to settle another's turn by
+		// accident.
+		expect(playedSeatSecret({...base, chainId: 2})).not.toBe(
+			playedSeatSecret(base),
+		);
+		expect(playedSeatSecret({...base, identity: 2n})).not.toBe(
+			playedSeatSecret(base),
+		);
+		expect(playedSeatSecret({...base, cycleNumber: 3})).not.toBe(
+			playedSeatSecret(base),
+		);
 		expect(
-			secretFor({...base, game: '0x2222222222222222222222222222222222222222'}),
-		).not.toBe(secretFor(base));
+			playedSeatSecret({
+				...base,
+				contract: '0x2222222222222222222222222222222222222222',
+			}),
+		).not.toBe(playedSeatSecret(base));
 	});
 });

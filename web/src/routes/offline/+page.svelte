@@ -17,8 +17,8 @@
 	THE LOBBY IS THE SAME STORY ONE STEP EARLIER. How many seats are at the
 	table is a decision, and it has to be taken before the world boots, because
 	what enrols a player is being given this game's stake while the world is
-	being built. All of that reasoning is `$lib/offline-lobby`'s and none of it
-	is here: this file renders a number, a set of choices and two presses. It
+	being built. All of that reasoning is `$lib/game/lobby`'s, wired to this world
+	by `$lib/offline-lobby`, and none of it is here: this file renders a number, a set of choices and two presses. It
 	knows nothing about what a seat HOLDS, which is what keeps it one git object
 	across every branch of this template.
 -->
@@ -29,21 +29,17 @@
 	import {Spinner} from '$lib/shadcn/ui/spinner';
 	import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
 	import {offlineWorld} from '$lib/offline';
-	import {SEAT_CHOICES} from '$lib/offline-seats';
+	import {SEAT_CHOICES} from '$lib/game/lobby/seats';
 	import {
 		THE_KEY_THIS_BROWSER_PLAYS_WITH,
-		chooseSeats,
-		enterOfflineLobby,
-		leaveTheTable,
 		offlineLobby,
-		sitDown,
 	} from '$lib/offline-lobby';
 	import {Button} from '$lib/shadcn/ui/button';
 	import InWorld from '$lib/context/InWorld.svelte';
 	import Play from '../play/+page.svelte';
 
 	onMount(() => {
-		enterOfflineLobby();
+		offlineLobby.enter();
 	});
 </script>
 
@@ -84,7 +80,7 @@
 				<button
 					class="underline underline-offset-2"
 					data-testid="leave-the-table"
-					onclick={() => leaveTheTable()}>Leave this table</button
+					onclick={() => offlineLobby.leaveTheTable()}>Leave this table</button
 				>
 			</p>
 			<p class="mt-1 text-xs text-muted-foreground">
@@ -121,7 +117,7 @@
 					size="sm"
 					variant={choice === $offlineLobby.seats ? 'default' : 'outline'}
 					data-testid={`seats-${choice}`}
-					onclick={() => chooseSeats(choice)}>{choice}</Button
+					onclick={() => offlineLobby.chooseSeats(choice)}>{choice}</Button
 				>
 			{/each}
 		</div>
@@ -137,7 +133,8 @@
 		<Button
 			class="mt-6"
 			data-testid="sit-down"
-			onclick={() => sitDown($offlineLobby.seats)}>Sit down and play</Button
+			onclick={() => offlineLobby.sitDown($offlineLobby.seats)}
+			>Sit down and play</Button
 		>
 		<p class="mx-auto mt-4 max-w-md text-xs text-muted-foreground">
 			{THE_KEY_THIS_BROWSER_PLAYS_WITH}

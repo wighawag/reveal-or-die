@@ -1,7 +1,7 @@
 import {avatarIDFor} from 'reveal-or-die-contracts';
 import {test, expect, describe} from '../fixtures/test';
 import {boardState, skipTutorial} from '../fixtures/board';
-import {seatsPlayedByTheWorld, tableOf} from '../../src/lib/offline-seats';
+import {seatsPlayedByTheWorld, tableOf} from '../../src/lib/game/lobby/seats';
 
 /**
  * A WHOLE ROUND AGAINST A CHAIN IN THIS TAB.

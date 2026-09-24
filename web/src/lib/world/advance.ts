@@ -146,7 +146,20 @@ export function forgetWaitedFor(chainId?: number): void {
 }
 
 type ReadDeps = {
-	publicClient: Context['publicClient'];
+	/**
+	 * Anything that can make a call.
+	 *
+	 * THE CONTEXT'S CLIENT IS ONE, AND NOT THE ONLY ONE, which is why this is the
+	 * narrow shape rather than `Context['publicClient']`. The played seats build
+	 * their own client (they are different keys acting for different identities,
+	 * so they cannot use the app's), and that client is a viem client from a
+	 * different copy of viem than the app's typed one - pnpm installs two here,
+	 * same version, different zod peer. The reader calls `readContract` and
+	 * nothing else, so asking for exactly that is both true and enough.
+	 */
+	publicClient: {
+		readContract: Context['publicClient']['readContract'];
+	};
 	deployments: Context['deployments'];
 };
 

@@ -20,13 +20,10 @@ import {createIndexedDBPersistence} from 'webevm';
 import {createIndexedDBDeploymentStore} from '@rocketh/web';
 import {createContext} from '$lib/context/index';
 import type {Context} from '$lib/context/types';
-import {
-	createOfflinePlayers,
-	pokeWhenTheHumanActs,
-	type OfflinePlayer,
-} from '$lib/offline-players';
-import {seatsPlayedByTheWorld, type Table} from '$lib/offline-seats';
-import {authoriseTheBrowsersKey} from '$lib/offline-authorise';
+import {createOfflinePlayers, type OfflinePlayer} from '$lib/offline-players';
+import {pokeWhenTheHumanActs} from '$lib/game/core/played';
+import {seatsPlayedByTheWorld, type Table} from '$lib/game/lobby/seats';
+import {authoriseTheBrowsersKey} from '$lib/game/acquire';
 import {resolveWorldConfig} from '$lib/world/config';
 import {declareWaitedFor} from '$lib/world/advance';
 
@@ -88,7 +85,11 @@ import {declareWaitedFor} from '$lib/world/advance';
  *    game and a demonstration of one. A cycle with a single waited-for member
  *    hides nothing, so a world enrols at least THREE and plays all but one of
  *    them. HOW MANY is the player's, chosen at the lobby before the world boots
- *    (`$lib/offline-lobby`), and it arrives here as a TABLE of seats.
+ *    (`$lib/game/lobby`, wired to this world by `$lib/offline-lobby`), and it
+ *    arrives here as a TABLE of seats; who is in each seat is
+ *    `$lib/game/lobby/seats`, which is framework and shared, and what those
+ *    seats DO is `$lib/offline-players`. What is decided here is what each of
+ *    them is GIVEN and how this game spells who they are.
  *
  *    AND HERE THE WORLD HAS TO SAY WHO THEY ARE, which is the one structural
  *    difference from the template's version of this file. That game's contract
@@ -395,7 +396,7 @@ async function buildOfflineWorld(table: Table): Promise<OfflineWorldStatus> {
 				const stopContext = context.start();
 				const stopPlayers = players.start();
 				const stopPoke = pokeWhenTheHumanActs({
-					players,
+					loop: players,
 					submission: context.context.game.submission,
 				});
 				return () => {
