@@ -21,7 +21,7 @@
  * still has the plan". See `games-on-this-foundation.md` D9 on the template's
  * `work` branch.
  */
-import {keccak256} from 'viem';
+import {encodePacked, keccak256} from 'viem';
 import type {PlayerIdentity} from './seams.js';
 
 /**
@@ -89,6 +89,59 @@ export function createDerivedSecret<TIdentity extends PlayerIdentity>(params: {
 		// signature over anything if it ever leaks.
 		return keccak256(await sign(message));
 	};
+}
+
+/**
+ * The secret a PLAYED SEAT commits with, which is the same idea with a
+ * different key situation.
+ *
+ * A HASH RATHER THAN A SIGNATURE, and that is the one difference from the
+ * player's own above. A signature buys recovery from a key the player still
+ * holds; the keys a played seat uses belong to whoever set the game up, so a
+ * hash is the same guarantee with nothing to prompt and nothing to await.
+ *
+ * WHAT IT BUYS IS RECONSTRUCTION, NOT SECRECY, and it is worth being plain
+ * about the difference. A played turn is a function of public inputs, so anybody
+ * reading the game's own derivation can work out what these seats are about to
+ * do. They are not hiding from the human, they are giving the cycle somebody to
+ * wait for. What the derivation must never be is FORGOTTEN: a seat that commits
+ * and then cannot reveal freezes a manual cycle for everybody, because no
+ * advance closes a cycle holding an unopened commitment and a missed reveal from
+ * the CURRENT cycle cannot be settled either.
+ *
+ * THE DOMAIN SEPARATION IS STILL LOAD-BEARING, for a different reason from the
+ * one above: two seats deriving one secret would be two commitments either of
+ * them could open, which is a way for one played seat to settle another's turn
+ * by accident.
+ *
+ * AND THE WHOLE INPUT LIST IS A WIRE. Change any part of it and a commitment an
+ * earlier build left on chain can no longer be opened - see the paragraph above
+ * for what that costs under a manual cycle. Treat it the way `AGENTS.md` treats a
+ * persisted storage key.
+ *
+ * The identity is a `bigint` because that is the one spelling both shapes reach:
+ * an address widened, or a token id. A game with an address identity widens it
+ * at the call site rather than making this function ask.
+ */
+export function playedSeatSecret(params: {
+	chainId: number;
+	/** The game contract. For a routed game, the address the seat calls. */
+	contract: `0x${string}`;
+	identity: bigint;
+	cycleNumber: number;
+}): `0x${string}` {
+	return keccak256(
+		encodePacked(
+			['string', 'uint256', 'address', 'uint256', 'uint64'],
+			[
+				'PlayedSeat:secret',
+				BigInt(params.chainId),
+				params.contract,
+				params.identity,
+				BigInt(params.cycleNumber),
+			],
+		),
+	);
 }
 
 /**

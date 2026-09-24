@@ -7,7 +7,7 @@ import {
 	clampSeats,
 	seatsPlayedByTheWorld,
 	tableOf,
-} from '$lib/offline-seats';
+} from '$lib/game/lobby/seats';
 
 /**
  * THE SEAT MODEL, which is the part of the lobby that has to outlive the
@@ -19,7 +19,7 @@ import {
  * `test/lib/embedded/world.test.ts`, which reads the count back off
  * `getAttendance` rather than off a table this code built.
  */
-describe('the seats at an offline table', () => {
+describe('the seats at a table', () => {
 	it('seats YOU first and gives the world the rest', () => {
 		const table = tableOf(4);
 		expect(table.map((seat) => seat.occupant.kind)).toEqual([

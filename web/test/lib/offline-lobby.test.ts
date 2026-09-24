@@ -2,17 +2,20 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {get} from 'svelte/store';
 
 /**
- * THE LOBBY, WITHOUT BOOTING A WORLD.
+ * THE WIRING BETWEEN THE FRAMEWORK'S LOBBY AND THIS WORLD.
  *
- * `$lib/offline` is mocked, and that is the point rather than a convenience:
- * what is worth asserting here is which world the lobby asks for and when it
- * asks at all, and a real boot would take a chain, a deploy and a browser to
- * say the same thing. The world's own half is asserted for real in
- * `test/lib/embedded/world.test.ts`, against a chain.
+ * WHAT IS LEFT TO ASSERT HERE IS THE TWO ENDS, and that is the whole file. How a
+ * lobby behaves - when it asks, when it must not ask again, what it remembers
+ * before a boot - is `$lib/game/lobby/lobby`'s and is asserted against fake
+ * deps in `test/lib/game/lobby/lobby.test.ts`, with nothing mocked. What is
+ * THIS world's is which world gets started and which key says one is already
+ * here, and both of those are things a mock can get wrong while every test
+ * passes, which is why the last one below reads the real module.
  *
- * The storage key the mock declares has to be the one the real module
- * declares, or these tests pass while the lobby forgets a key nothing else
- * uses - so the last test below asserts exactly that, against the real module.
+ * `$lib/offline` is mocked, and that is the point rather than a convenience: a
+ * real boot would take a chain, a deploy and a browser to say the same thing.
+ * The world's own half is asserted for real in `test/lib/embedded/world.test.ts`,
+ * against a chain.
  */
 const started: {table: {occupant: {kind: string}}[]}[] = [];
 
@@ -45,51 +48,15 @@ afterEach(() => {
 });
 
 async function lobby() {
-	return import('$lib/offline-lobby');
+	return (await import('$lib/offline-lobby')).offlineLobby;
 }
 
-describe('the offline lobby', () => {
-	it('offers nothing until the browser has looked', async () => {
-		// PRERENDER. Whether there is a world here is a question only this
-		// browser's storage can answer, so the server cannot know which state is
-		// right - and a chooser in prerendered HTML is a control on screen before
-		// any handler is attached. Measured, not feared: a run that pressed eight
-		// seats got three, silently, because the press landed before hydration and
-		// the mount then reset the state.
-		const {offlineLobby} = await lobby();
-		expect(get(offlineLobby).step).toBe('Opening');
-	});
+describe('the offline world\u2019s lobby', () => {
+	it('starts THIS world, with the table the player took', async () => {
+		const offlineLobby = await lobby();
+		offlineLobby.chooseSeats(5);
+		offlineLobby.sitDown(get(offlineLobby).seats);
 
-	it('asks how many seats when there is no world yet', async () => {
-		const {enterOfflineLobby, offlineLobby} = await lobby();
-		enterOfflineLobby();
-
-		expect(get(offlineLobby).step).toBe('Choosing');
-		// NOTHING IS BOOTED BY ASKING. A lobby that started a world while the
-		// player was still choosing would have provisioned the membership before
-		// the choice, which is the one thing this whole design exists to prevent.
-		expect(started).toHaveLength(0);
-	});
-
-	it('does not reset a choice when the route mounts again', async () => {
-		// The lobby is app-scoped, like the world it starts, so navigating away
-		// and back mounts the route a second time. A pass that reset the state
-		// would throw away a choice the player was in the middle of making.
-		const {enterOfflineLobby, chooseSeats, offlineLobby} = await lobby();
-		enterOfflineLobby();
-		chooseSeats(5);
-		enterOfflineLobby();
-
-		expect(get(offlineLobby)).toMatchObject({step: 'Choosing', seats: 5});
-		expect(started).toHaveLength(0);
-	});
-
-	it('boots the table it was told to, once the player sits down', async () => {
-		const {chooseSeats, sitDown, offlineLobby} = await lobby();
-		chooseSeats(5);
-		sitDown(get(offlineLobby).seats);
-
-		expect(get(offlineLobby)).toMatchObject({step: 'Sat', seats: 5});
 		expect(started).toHaveLength(1);
 		expect(started[0].table).toHaveLength(5);
 		expect(started[0].table.map((seat) => seat.occupant.kind)).toEqual([
@@ -101,38 +68,18 @@ describe('the offline lobby', () => {
 		]);
 	});
 
-	it('goes straight back into a world that is already here, at ITS count', async () => {
-		// A booted world keeps the membership it was provisioned with. Offering
-		// the chooser again would be offering a choice that cannot be honoured,
-		// and honouring it silently would mean a table of three on a chain that
-		// is waiting for four.
+	it('reads the chain id to know a world is already here, and its seats beside it', async () => {
+		// BOTH KEYS ARE THIS FILE'S, in one namespace, and this is what the lobby
+		// is handed instead of knowing: the chain id because the world writes it,
+		// the seat count because the world cannot be counted before it boots.
 		store.set('offline-world:chain-id', '9007199254740123');
 		store.set('offline-world:seats', '4');
 
-		const {enterOfflineLobby, offlineLobby} = await lobby();
-		enterOfflineLobby();
+		const offlineLobby = await lobby();
+		offlineLobby.enter();
 
 		expect(get(offlineLobby)).toMatchObject({step: 'Sat', seats: 4});
 		expect(started[0].table).toHaveLength(4);
-	});
-
-	it('ignores a remembered count with no world behind it', async () => {
-		// Both or neither: a seat record alone is not a world to carry on with,
-		// and acting on it would boot a brand new world at a count nobody was
-		// asked about on this visit.
-		store.set('offline-world:seats', '4');
-
-		const {enterOfflineLobby, offlineLobby} = await lobby();
-		enterOfflineLobby();
-
-		expect(get(offlineLobby).step).toBe('Choosing');
-		expect(started).toHaveLength(0);
-	});
-
-	it('remembers the table BEFORE the boot, so an interrupted one still counts', async () => {
-		const {sitDown} = await lobby();
-		sitDown(4);
-		expect(store.get('offline-world:seats')).toBe('4');
 	});
 
 	it('forgets the chain id when the player leaves, which is what makes it a NEW world', async () => {
@@ -143,8 +90,8 @@ describe('the offline lobby', () => {
 		store.set('offline-world:chain-id', '9007199254740123');
 		store.set('offline-world:seats', '4');
 
-		const {leaveTheTable} = await lobby();
-		leaveTheTable();
+		const offlineLobby = await lobby();
+		offlineLobby.leaveTheTable();
 
 		expect(store.has('offline-world:chain-id')).toBe(false);
 		expect(store.has('offline-world:seats')).toBe(false);
@@ -154,8 +101,8 @@ describe('the offline lobby', () => {
 	it('forgets the key the world actually writes', async () => {
 		// Guards the guard. Every assertion above is written against the mock's
 		// copy of the key, so a rename in `$lib/offline` would leave them green
-		// while the lobby cleared a key nothing uses - and "leave this table"
-		// would quietly go back into the same world.
+		// while this file cleared a key nothing uses - and "leave this table" would
+		// quietly go back into the same world.
 		vi.doUnmock('$lib/offline');
 		vi.resetModules();
 		const real = await import('$lib/offline');
