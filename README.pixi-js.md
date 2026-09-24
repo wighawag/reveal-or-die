@@ -116,11 +116,20 @@ still builds and plays.
 `conquest-v1/web/vite-assetpack.ts` (117) - which is what earned this node: two
 people wrote it twice and reached the same two workarounds.
 
-**Neither descendant's copy is deleted yet, and that is tracked rather than
-forgotten.** Deleting them is only safe once they INHERIT this branch, and
-neither does: reveal-or-die stems from `main` until its `stemBranch` moves to
-`with/all`, and conquest stems from jolly-roger directly. The exact deletion
-list and the trigger are in
+**reveal-or-die's copy is GONE; conquest's remains, and that is tracked rather
+than forgotten.** Deleting a descendant's copy is only safe once it INHERITS
+this branch. reveal-or-die now does: its `stemBranch` was re-pointed at
+`with/all` on 2026-09-11 and its own 139-line `web/vite.assetpack.ts` was
+deleted in the same change, replaced by this branch's 225-line reconciliation
+(verified 2026-09-23: same blob in both repos, so it is inheriting rather than
+holding a copy that merely resembles it). What it gained in the swap is
+conquest's `fixManifest` and the self-disable.
+
+conquest still stems from jolly-roger directly and keeps its own
+`web/vite-assetpack.ts`, so that half of the move is still pending. The exact
+deletion list and what the diff actually decided - including the one item the
+list got wrong, `ui/loading/`, which is a game's BRAND rather than a second
+copy of the framework's gate and was correctly kept - are in
 `work:work/notes/observations/the-asset-pipeline-move-cannot-complete-until-the-repoint.md`.
 
 ## Cascade ritual
