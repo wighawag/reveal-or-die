@@ -85,16 +85,19 @@
 			     the route, and put it back with the world. A link to a world this
 			     game cannot play is worse than no link.
 
-			     WHICH IS WHY THE BUTTON IS NOT HERE, and the paragraph above is
-			     the instruction being followed rather than ignored. This game
-			     keeps the mechanism and writes its own world; the cascade that
-			     brought this button down brought the template's `offline.ts` with
-			     it, which plays the template's game against the template's
-			     contracts, and neither exists here. The framework half it needs
-			     landed with it: `$lib/world/advance.ts`, a cycle that can be read
-			     and pushed, and a contract with a commit phase under the manual
-			     policy, which this game did not have. Put the button back in the
-			     same commit as `routes/offline/`. -->
+			     AND IT IS BACK, in the same commit as `routes/offline/` and this
+			     game's own `$lib/offline.ts`, which is what the paragraph above
+			     asks for. It was held out of the cascade that brought it down,
+			     because what arrived with it was the TEMPLATE's world: its
+			     contracts, its deploy scripts and a bonded ERC20 for a stake.
+			     This game stakes the avatar. -->
+			<Button
+				href={route('/offline/')}
+				size="lg"
+				variant="outline"
+				class="min-w-40 font-semibold shadow-lg transition-all duration-300 hover:shadow-xl"
+				>Play Offline</Button
+			>
 		</div>
 	</div>
 </div>

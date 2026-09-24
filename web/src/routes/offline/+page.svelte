@@ -1,0 +1,175 @@
+<!--
+	PLAY OFFLINE: the same game, against a chain inside this tab.
+
+	THE ROUTE IS THE CHOOSING AND NOTHING ELSE. Booting a chain, running this
+	game's own deploy scripts on it, declaring the manual cycle policy and
+	handing the player their stake all live in `$lib/offline`, which is in turn
+	composition over `$lib/embedded`. Nothing world-building belongs in a route:
+	a descendant of this template deletes the routes it inherits, and would throw
+	it away.
+
+	THE GAME COMPONENT IS IMPORTED RATHER THAN COPIED, and that is the whole
+	claim a world makes: the same page, against a different chain, without
+	knowing there is more than one. A second copy would prove nothing - and
+	`routes/play/+page.svelte` must stay byte-identical across every branch of
+	this template, so it could not have been edited to know about this anyway.
+
+	THE LOBBY IS THE SAME STORY ONE STEP EARLIER. How many seats are at the
+	table is a decision, and it has to be taken before the world boots, because
+	what enrols a player is being given this game's stake while the world is
+	being built. All of that reasoning is `$lib/offline-lobby`'s and none of it
+	is here: this file renders a number, a set of choices and two presses. It
+	knows nothing about what a seat HOLDS, which is what keeps it one git object
+	across every branch of this template.
+-->
+<script lang="ts">
+	import {onMount} from 'svelte';
+	import DefaultHead from '../../lib/metadata/DefaultHead.svelte';
+	import Context from '$lib/context/Context.svelte';
+	import {Spinner} from '$lib/shadcn/ui/spinner';
+	import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
+	import {offlineWorld} from '$lib/offline';
+	import {SEAT_CHOICES} from '$lib/offline-seats';
+	import {
+		THE_KEY_THIS_BROWSER_PLAYS_WITH,
+		chooseSeats,
+		enterOfflineLobby,
+		leaveTheTable,
+		offlineLobby,
+		sitDown,
+	} from '$lib/offline-lobby';
+	import {Button} from '$lib/shadcn/ui/button';
+	import InWorld from '$lib/context/InWorld.svelte';
+	import Play from '../play/+page.svelte';
+
+	onMount(() => {
+		enterOfflineLobby();
+	});
+</script>
+
+<DefaultHead title={'Play Offline - a chain in this tab'} />
+
+{#if $offlineWorld.step === 'Ready'}
+	<!-- A NESTED PROVIDER, which is the whole mechanism in one element.
+	     `setAppContext` is svelte's `setContext`, so this shadows the app's
+	     context for THIS SUBTREE only: the game below runs against the chain in
+	     the tab while the navbar above still describes the remote one.
+
+	     THAT IS ALSO A KNOWN GAP, and it is honest to say so here rather than
+	     leave it to be discovered: the chrome lives in `+layout.svelte`, outside
+	     every route subtree, so the account, the balance and the RPC banner up
+	     there are still the other world's. Fixing it is upstream work in
+	     `lib/core`, which every repo in this tree inherits.
+
+	     NO CONNECTION FLOW, AND THAT IS THE POINT RATHER THAN AN OMISSION. A
+	     flow exists to relay a wallet's questions - which wallet, which account,
+	     approve this - and a wallet this world GENERATED has none: one wallet,
+	     one account, and it signs without asking. Mounting one produces modals
+	     that flash past describing decisions nobody is making. The rule the two
+	     states give between them: a nested world using the PLAYER's wallet needs
+	     its own flow, and one that brings its own must not have it. -->
+	<div class="flex h-full flex-col">
+		<div
+			class="shrink-0 border-b border-dashed border-muted-foreground/40 bg-muted/40 px-4 py-2 text-center text-sm"
+		>
+			Everything below runs against a chain inside this tab, on chain id
+			<code>{$offlineWorld.world.chainId}</code>. Nothing leaves the browser.
+			The navbar above is still describing the remote chain.
+			<p class="mt-1 text-xs text-muted-foreground">
+				<!-- The membership this world was PROVISIONED with, said rather than
+				     assumed: it was fixed when the world booted and the only way to a
+				     different one is a new world. -->
+				{$offlineLobby.seats} seats at this table, and changing that starts a new
+				world.
+				<button
+					class="underline underline-offset-2"
+					data-testid="leave-the-table"
+					onclick={() => leaveTheTable()}>Leave this table</button
+				>
+			</p>
+			<p class="mt-1 text-xs text-muted-foreground">
+				{THE_KEY_THIS_BROWSER_PLAYS_WITH}
+			</p>
+		</div>
+		<div class="min-h-0 flex-1">
+			<Context context={$offlineWorld.context}>
+				<Play />
+				<!-- The app's own overlays, bound to THIS world. Without them the
+				     flows this game opens (authorising the browser's key, topping it
+				     up) drive stores nothing on screen is reading, and the button
+				     appears to do nothing. See the file for what is deliberately not
+				     in it. -->
+				<InWorld />
+			</Context>
+		</div>
+	</div>
+{:else if $offlineLobby.step === 'Choosing'}
+	<!-- THE CHOICE, AND IT IS THE ONLY ONE. A seat has an occupant, and today an
+	     occupant is you or the world; how many there are is the whole of what a
+	     player decides here. Which is why this renders a count and a table and
+	     asks the lobby for both. -->
+	<div class="container mx-auto max-w-2xl px-4 py-24 text-center">
+		<h1 class="text-lg font-semibold">How many at the table?</h1>
+		<p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+			A chain will be created in this browser and this game's own deploy scripts
+			run against it. Every seat is given a stake, which is what makes the cycle
+			wait for them. Nothing leaves the tab.
+		</p>
+		<div class="mt-6 flex flex-wrap justify-center gap-2">
+			{#each SEAT_CHOICES as choice (choice)}
+				<Button
+					size="sm"
+					variant={choice === $offlineLobby.seats ? 'default' : 'outline'}
+					data-testid={`seats-${choice}`}
+					onclick={() => chooseSeats(choice)}>{choice}</Button
+				>
+			{/each}
+		</div>
+		<ul
+			class="mx-auto mt-4 flex max-w-md flex-wrap justify-center gap-2 text-xs text-muted-foreground"
+		>
+			{#each $offlineLobby.table as seat, index (index)}
+				<li class="rounded-md border border-muted-foreground/30 px-2 py-1">
+					{seat.occupant.kind === 'you' ? 'You' : 'The world'}
+				</li>
+			{/each}
+		</ul>
+		<Button
+			class="mt-6"
+			data-testid="sit-down"
+			onclick={() => sitDown($offlineLobby.seats)}>Sit down and play</Button
+		>
+		<p class="mx-auto mt-4 max-w-md text-xs text-muted-foreground">
+			{THE_KEY_THIS_BROWSER_PLAYS_WITH}
+		</p>
+	</div>
+{:else if $offlineWorld.step === 'Failed'}
+	<div class="container mx-auto max-w-2xl px-4 py-16">
+		<div
+			class="flex items-start gap-3 rounded-lg border border-destructive/50 p-4"
+		>
+			<AlertCircleIcon class="mt-0.5 size-5 shrink-0 text-destructive" />
+			<div>
+				<p class="font-semibold">The offline world did not start.</p>
+				<p class="mt-1 text-sm text-muted-foreground">
+					{$offlineWorld.error}
+				</p>
+			</div>
+		</div>
+	</div>
+{:else}
+	<div
+		class="container mx-auto flex max-w-2xl flex-col items-center gap-3 px-4 py-24 text-center"
+	>
+		<Spinner class="size-6" />
+		<p class="text-sm text-muted-foreground">
+			{$offlineWorld.step === 'Booting'
+				? $offlineWorld.what
+				: 'starting a chain in this tab'}&hellip;
+		</p>
+		<p class="max-w-md text-xs text-muted-foreground">
+			A chain is being created in this browser and this game's own deploy
+			scripts are being run against it. Nothing leaves the tab.
+		</p>
+	</div>
+{/if}
