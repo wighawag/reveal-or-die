@@ -10,24 +10,39 @@ import {topUpCeiling} from '$lib/ui/credits';
 import type {Context} from '$lib/context/types';
 
 /**
- * THE WORLD AUTHORISES THE KEY THIS BROWSER PLAYS WITH, instead of asking.
+ * AUTHORISE THE KEY THIS BROWSER PLAYS WITH, INSTEAD OF ASKING.
  *
- * WHAT IS BEING REMOVED, precisely, because it is not what it looks like. The
- * stake and the gas are already given: provisioning buys every seat at the
+ * THE REST OF THIS RAIL PUTS A DIALOG IN FRONT OF THE SAME TWO CALLS, and it is
+ * right to: `acquire.ts` asks who is paying and what it costs, because the
+ * player is about to spend their own money. This is the same step for a caller
+ * where that question has exactly one possible answer, and a question with one
+ * possible answer is not consent, it is a gate.
+ *
+ * THE CALLER THAT HAS ONE TODAY IS AN OFFLINE WORLD, and it is worth spelling
+ * out what is and is not removed there, because it is not what it looks like.
+ * The stake and the gas are already given: the world buys every seat at the
  * table its stake through the real sale and sets its balance by cheat call, so
- * the setup gate's `stake` step never fires offline and there is no purchase
- * anywhere to delete. What was left was the `authorise` step - registering
- * this browser's signer as a delegate of the account, and funding it - and
- * offline that step is a dialog with one honest answer: the payer and the
- * payee are the same wallet, on a chain in this tab, holding money the world
- * invented. A question with one possible answer is not consent, it is a gate.
+ * the setup gate's `stake` step never fires and there is no purchase anywhere to
+ * delete. What was left was the `authorise` step - registering this browser's
+ * signer as a delegate of the account, and funding it - and there the payer and
+ * the payee are the same wallet, on a chain in the tab, holding money the world
+ * invented.
  *
- * WHY IT CAN HAPPEN AT ALL, given that `provisionOfflinePlayer` says in
- * capitals that it cannot. Because it is not provisioning. The signer is
- * derived in the tab from the wallet SIGNATURE the world asks for at sign-in,
- * which happens after the world, after the context, and after provisioning has
- * returned - so this runs in the step that already has the signature, and that
- * is the first moment there is an address to register.
+ * WHY IT CAN HAPPEN AT ALL, given that a world's own provisioning says in
+ * capitals that it cannot. Because it is not provisioning. The signer is derived
+ * in the tab from the wallet SIGNATURE sign-in asks for, which happens after the
+ * game, after the context, and after provisioning has returned - so this runs in
+ * the step that already has the signature, and that is the first moment there is
+ * an address to register.
+ *
+ * WHY THIS IS IN THE FRAMEWORK EVEN THOUGH IT IMPORTS `$lib/ui/*`, which looks
+ * like a layering violation and is not. `acquire.ts` beside it imports exactly
+ * the same set (`ui/delegation/registration`, `ui/delegation/register-delegate`,
+ * `onchain/delegation`, `context/types`) for exactly the same delegation dance,
+ * so this is established precedent rather than a new hole: the delegation flow's
+ * entry points live in `ui/` and the rail is what drives them. What would be a
+ * violation is a module in here naming a game, a contract or a stake, and this
+ * one names none.
  *
  * THE SAME TWO FUNCTIONS THE BUTTON WOULD HAVE USED, deliberately.
  * `registrationRequest` decides the entry point and `submitRegistration` sends
@@ -45,12 +60,13 @@ import type {Context} from '$lib/context/types';
  * case); it is not consulted only because there is nothing here to choose
  * between.
  *
- * AND THE WORLD SAYS IT HAPPENED. This function does the work; telling the
- * player is `$lib/offline-lobby`'s, which holds the sentence the route
- * renders. The split is deliberate, and the sentence is not decoration: an
- * offline world is the last place a player meets what playing online costs, so
- * a step taken FOR them has to be one they were told about, or they meet it
- * for the first time on a real chain with no idea what it is.
+ * AND THE CALLER SAYS IT HAPPENED. This function does the work; telling the
+ * player is the caller's, and the offline world keeps that sentence in
+ * `$lib/offline-lobby` where its route renders it. The split is deliberate, and
+ * the sentence is not decoration: an offline world is the last place a player
+ * meets what playing online costs, so a step taken FOR them has to be one they
+ * were told about, or they meet it for the first time on a real chain with no
+ * idea what it is.
  */
 export type AuthorisationOutcome =
 	/** The chain already said this browser may play. Nothing was sent. */

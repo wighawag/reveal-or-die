@@ -39,6 +39,12 @@ The WORDS. What the thing is called, what the button says, what the player is to
 
 The one exception is `AcquireModal.svelte`, which is shared because payer choice and consent are neither brand nor game rule. It takes the store and one sentence of explanation as props, rather than reaching into the app context for a member whose name is the game's own business.
 
+## When the dialog is the gate rather than the consent
+
+`authorise.ts` is the same registration step with nothing in front of it, for a caller where choosing a payer is a question with exactly one possible answer: an offline world, whose payer and payee are the same generated wallet on a chain in the tab. It sends through the same two functions the button does (`registrationRequest`, then `submitRegistration`), so nothing about the contract path differs, and it returns an outcome rather than throwing, because the remedy already exists - the setup gate comes back with the button on it.
+
+It does NOT skip the telling. A step taken for a player has to be one they were told about, or they meet it for the first time on a real chain with no idea what it is, so the caller owns that sentence. The offline world's is in `$lib/offline-lobby`.
+
 ## Why the recovery is not a flag
 
 `findPendingAcquisition` reads the operations ledger. A store dies with the tab: reload while the transaction is in flight and the setup gate goes back to offering the thing to someone whose money is already spent, and depending on the game the second attempt buys another one and charges again. Writing a "buying" flag into local storage would be a second copy of a record the app already keeps durably, with its own staleness, its own cleanup and its own way of disagreeing with the chain.
