@@ -62,28 +62,39 @@
 				class="min-w-40 bg-linear-to-r from-pink-600 via-pink-500 to-rose-500 font-semibold text-white shadow-lg transition-all duration-300 hover:from-pink-700 hover:via-pink-600 hover:to-rose-600 hover:shadow-xl"
 				>Play</Button
 			>
-			<!-- NO "Play Offline" BUTTON HERE YET, and its absence is deliberate
-			     rather than pending. The stem's home page has one, pointing at the
-			     `/offline-demo` route that plays ITS demo against a chain in the
-			     tab; this repo deletes the demo routes it inherits, so that button
-			     arrived here by a clean merge with nothing left to link to.
+			<!-- OFFLINE IS A WORLD, NOT A DEMO, which is why this links to a route
+			     of this app's own rather than to the `/offline-demo` the stem's home
+			     page points at: this repo deletes the demo routes it inherits, and
+			     the mechanism it keeps (`$lib/embedded`) has no opinion about what a
+			     game does with it.
 
-			     The MECHANISM did come down and is kept: `$lib/embedded` boots a
-			     chain, runs deploy scripts on it and hands back a world. What is
-			     missing is this game's own composition of it - the manual cycle
-			     policy declared by an in-tab deploy, a provisioning hook that gives
-			     the offline player whatever THIS game puts at stake, and a client
-			     that calls `advanceCycle`, which nothing in `web/src` does yet.
+			     WHAT THE BUTTON PROMISES IS A CHAIN IN THE TAB, and nothing about
+			     what is at stake in it. This file is byte-identical in every repo
+			     that inherits it, and what a game risks is the one thing they are
+			     guaranteed to disagree about: the framework requires only that
+			     something is lost by not revealing, and each game answers
+			     differently. A sentence naming one answer here would be false
+			     somewhere downstream, which has already happened once.
 
-			     The stake is deliberately not named here, and this file is the
-			     reason: it is byte-identical in every repo that inherits it, and
-			     what is at stake is the one thing they are guaranteed to disagree
-			     about - a bonded ERC20 in the reference game, custody of an NFT in
-			     reveal-or-die, a docked level elsewhere. The framework requires
-			     only that something is lost by not revealing.
+			     A DESCENDANT INHERITS THIS BUTTON AND NOT THE WORLD BEHIND IT.
+			     `$lib/embedded` is the mechanism and cascades unchanged;
+			     `$lib/offline.ts` names THIS game's contracts, deploy scripts and
+			     stake, so a game that replaces the game replaces it too. Until it
+			     does, this link goes to a route that either does not exist or
+			     cannot finish a cycle - so delete the button in the same commit as
+			     the route, and put it back with the world. A link to a world this
+			     game cannot play is worse than no link.
 
-			     Add the button with that, not before: a link to a world this game
-			     cannot finish a cycle in is worse than no link. -->
+			     WHICH IS WHY THE BUTTON IS NOT HERE, and the paragraph above is
+			     the instruction being followed rather than ignored. This game
+			     keeps the mechanism and writes its own world; the cascade that
+			     brought this button down brought the template's `offline.ts` with
+			     it, which plays the template's game against the template's
+			     contracts, and neither exists here. The framework half it needs
+			     landed with it: `$lib/world/advance.ts`, a cycle that can be read
+			     and pushed, and a contract with a commit phase under the manual
+			     policy, which this game did not have. Put the button back in the
+			     same commit as `routes/offline/`. -->
 		</div>
 	</div>
 </div>

@@ -37,7 +37,7 @@ gives one.
 **The plan predicted TWO** (`game/identity.ts`, and one line in
 `context/game.ts`). The prediction was right about identity and counted only
 identity; D2 lists three differences, and the other two have designated files
-of their own. The list is **eighteen**, and it splits into five groups that are
+of their own. The list is **twenty**, and it splits into six groups that are
 worth reading separately, because they are not the same kind of cost.
 
 ### The seams: files that exist in order to differ (5)
@@ -129,6 +129,28 @@ even here.
 | --- | --- |
 | `web/test/lib/placement/reserve.test.ts` | custody, and the loading state that upstream does not have |
 
+### The offline world, which hands the player that stake (2)
+
+| file | what the branch changes | lines |
+| --- | --- | --- |
+| `web/src/lib/offline.ts` | a fourth deploy script, and provisioning mints an avatar | ~60 |
+| `web/test/lib/embedded/world.test.ts` | asserts custody rather than a reserve | ~50 |
+
+**THE THIRD ENTRY IN D2'S TABLE, arriving in the only place it had not yet.**
+`what is at stake` differs on this branch, and an offline world is the one
+thing in the app that has to HAND a player their stake before they start:
+upstream it buys a bonded ERC20 through `StakeSale`, and here it mints an
+avatar into the game through `GameAvatarSale`. The mechanism it sits on
+(`$lib/embedded`) is byte-identical on all four branches and stays that way,
+which is what the provisioning HOOK was for - the cost of the difference is
+two of this game's own files rather than an edit to the framework.
+
+The deploy script list is the half that is easy to lose in a cascade: this
+branch has four scripts and `main` has three, and a world missing
+`005_deploy_avatars` deploys a game with no identity to play as. The failure
+arrives at the first click rather than at the deploy, which is why the omission
+is called out at the line.
+
 ### The e2e, where the board is different (2)
 
 | file | what the branch changes | lines |
@@ -141,8 +163,22 @@ assertion against it would be trivially true of a board nothing had reached.
 The claim count is the right quantity here for a reason that does not hold
 upstream, which is why this is a swap rather than a fix: the e2e chain is
 shared and reused, and upstream the same burner ACCOUNT plays every run, so its
-second placement on a cell adds stake without adding a claimant. Here every run
-buys an avatar, so the identity is new and a claim is always a new claim.
+second placement on a cell adds stake without adding a claimant.
+
+**THE REASON THIS PARAGRAPH USED TO GIVE WAS THE WRONG ONE, and the right one
+is a defect.** It said "every run buys an avatar, so the identity is new and a
+claim is always a new claim", which is true and is not what makes the swap
+work. `_place` counts a claimant when the player's stake on the cell was zero -
+and at a placement cost of zero it is still zero afterwards, so EVERY placement
+counts again, by the same identity, on the same cell, for ever. Measured in a
+browser on the offline world: nine claimants for three rounds of three players
+here against seven upstream, for the same nine placements. So `numClaimants` is
+a placement count on this branch and `Cell.numClaimants` ("how many distinct
+players have placed here") is false here. The e2e assertion is a change and a
+floor, so it is unaffected, and nothing else reads the number today. It is not
+fixed here because the fix is a new storage slot in a contract file that is
+byte-identical across all four branches; see the finding of that name on the
+`work` branch.
 
 **Everything else in the suite is inherited unchanged**, including the setup
 gate, the missed reveal and the round recovery. Two of those were made to work
@@ -207,7 +243,7 @@ pnpm --filter ./web check
 pnpm --filter ./web run test:unit
 BASE=main FEATURES=with/nft-identity EXT="ts svelte" \
   WATCH="web/src web/test web/e2e" \
-  ALLOWED="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts web/src/lib/placement/config.ts web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts web/test/lib/placement/config.test.ts web/test/lib/placement/reserve.test.ts web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts" \
+  ALLOWED="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts web/src/lib/context/game.ts web/src/lib/placement/config.ts web/src/lib/offline.ts web/test/lib/embedded/world.test.ts web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts web/test/lib/placement/acquisition.test.ts web/test/lib/placement/config.test.ts web/test/lib/placement/reserve.test.ts web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts" \
   bash <(git show tooling:check-shared-divergence.sh)
 ```
 

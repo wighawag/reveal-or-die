@@ -77,3 +77,23 @@ web/e2e/fixtures/game.ts
 # it never was here.
 #
 # The old code, if it is ever wanted, is in e0b7885.
+
+web/test/lib/placement/advance.test.ts
+# THE TEMPLATE'S GAME AGAIN, this time as a unit test, and it arrived on
+# 2026-09-24 as a CLEAN ADD into a directory this repo does not otherwise have.
+# It tests `$lib/placement/advance.ts` - `getAttendance` read and `advanceCycle`
+# sent against the template's contracts. This game's half of the same job is
+# `web/src/lib/world/advance.ts`, against `getEpoch` and `moveToNextPhase`, and
+# it has tests of its own beside it.
+#
+# LISTED AS THE WHOLE CLASS, not just this file, because it is the fourth of its
+# kind and there will be a fifth. `web/src/lib/placement/` is the template's
+# game and this repo's is `web/src/lib/world/`; every test the template writes
+# under `web/test/lib/placement/` is therefore a test of code that does not
+# exist here, and it arrives with no conflict because git has nothing to
+# conflict it against. Add the next one here rather than working out afresh
+# whether it belongs.
+#
+# `node scripts/check-dangling-imports.mjs` is what finds them, and it is
+# already wired into scripts/apply-omissions.sh, so resolving a cascade the
+# documented way reports them before the commit rather than after the build.

@@ -1,16 +1,27 @@
 # `with/all`
 
 This repo's single integration branch: `with/pixi-js` and `with/nft-identity`,
-merged. It is D11's node, and it is where every real game built on this template
-stems from, because a game needs a renderer AND an identity and the fan holds
-one axis each.
+merged. It is D11's node, and it is where a game that needs BOTH axes stems
+from: a renderer and a token identity, the fan holding one axis each.
+
+**It is not "the games branch", and reading it that way is how a two-axis fan
+turns into the lattice Decision 4 exists to prevent.** A game takes the node
+that supplies what it actually needs. `with/pixi-js` is one host of three, so a
+game using pixi with an ADDRESS identity stems from THERE and never sees the
+identity axis; a twgl game brings its own host and stems from `main`. What earns
+a node is install weight rather than architecture (D11's deciding number is 79M,
+for `pixi.js`), so a capability that is only code needs no branch at all.
 
 ```
 template-commit-reveal@main          the seam, and the host that needs no install
+├─ stratagems                        twgl, own host, ERC20 reserve: needs neither axis
 ├─ with/pixi-js                      pixi + assetpack + one sprite
+│  └─ (a pixi game with an address identity stems HERE, not below)
 ├─ with/nft-identity                 identity is a token; acquisition proven
 └─ with/all                          ← here: both, and nothing else
-   └─ reveal-or-die                  stemBranch points here
+   ├─ reveal-or-die                  stemBranch points here
+   ├─ catacombs                      for the IDENTITY axis; it is twgl and brings its own host
+   └─ conquest-v1
 ```
 
 ## It carries no code of its own, and that is the acceptance criterion
@@ -26,17 +37,23 @@ Measured rather than asserted, on creation (2026-09-11), with
 
 | run | what it proves | result |
 | --- | --- | --- |
-| `BASE=with/pixi-js` | everything the identity axis changes arrived | exactly `with/nft-identity`'s **13** |
+| `BASE=with/pixi-js` | everything the identity axis changes arrived | exactly `with/nft-identity`'s **15** |
 | `BASE=with/nft-identity` | everything the renderer axis changes arrived | exactly `with/pixi-js`'s **1** |
-| `BASE=main` | nothing else changed at all | exactly the **14**, which is the union |
+| `BASE=main` | nothing else changed at all | exactly the **16**, which is the union |
+
+(13, 1 and 14 on creation. The identity axis gained two when the offline world
+landed: what a world HANDS a player before they start is what is at stake, and
+that is the axis's whole subject.)
 
 All three with `ALLOWED=` empty, which is the run that proves the other 541 of
 555 shared files are clean because they are IDENTICAL rather than because the
 script matched nothing.
 
-**The identity axis was twelve when this branch was made and is thirteen now**,
-because the chunked reveal gave `placement/config.ts` a test and a test of a
-file on the list is on the list. The argument is in
+**The identity axis was twelve when this branch was made and is fifteen now.**
+The chunked reveal gave `placement/config.ts` a test, and a test of a file on
+the list is on the list; the offline world then added `lib/offline.ts` and its
+world test, because what a world hands a player before they start is what is at
+stake, which is this axis's subject. The argument is in
 `README.nft-identity.md`; it is not re-litigated here, which is what the next
 section says about all fourteen.
 
@@ -62,7 +79,7 @@ table exists so the `ALLOWED` list below has a home.
 | from | count | files |
 | --- | --- | --- |
 | `with/pixi-js` | 1 | `placement/render/index.ts` |
-| `with/nft-identity` | 13 | `game/identity.ts`, `placement/{stake,reserve,acquisition,config}.ts`, `context/game.ts`, five `test/lib/placement/*.test.ts`, two `e2e/` files |
+| `with/nft-identity` | 15 | `game/identity.ts`, `placement/{stake,reserve,acquisition,config}.ts`, `context/game.ts`, `offline.ts`, five `test/lib/placement/*.test.ts`, `test/lib/embedded/world.test.ts`, two `e2e/` files |
 
 The dependency files (`web/package.json`, `pnpm-lock.yaml`) are not counted, on
 both parents' own reasoning: they are what any branch adding a dependency must
@@ -92,6 +109,7 @@ PIXI="web/src/lib/placement/render/index.ts"
 NFT="web/src/lib/game/identity.ts web/src/lib/placement/stake.ts \
 web/src/lib/placement/reserve.ts web/src/lib/placement/acquisition.ts \
 web/src/lib/context/game.ts web/src/lib/placement/config.ts \
+web/src/lib/offline.ts web/test/lib/embedded/world.test.ts \
 web/test/lib/placement/commit-reveal.test.ts web/test/lib/placement/missed-reveal.test.ts \
 web/test/lib/placement/acquisition.test.ts web/test/lib/placement/config.test.ts \
 web/test/lib/placement/reserve.test.ts \
@@ -100,7 +118,7 @@ web/e2e/fixtures/game.ts web/e2e/tests/game.e2e.ts"
 check() { BASE="$1" FEATURES=with/all EXT="ts svelte" WATCH="web/src web/test web/e2e" \
   ALLOWED="$2" bash <(git show tooling:check-shared-divergence.sh); }
 
-check main             "$PIXI $NFT"   # the union: fourteen, and nothing else
+check main             "$PIXI $NFT"   # the union: sixteen, and nothing else
 check with/pixi-js     "$NFT"         # exactly what the identity axis contributes
 check with/nft-identity "$PIXI"       # exactly what the renderer axis contributes
 ```
@@ -116,7 +134,7 @@ the second run failed on exactly that entry.
 
 That is the check earning its keep rather than an inconvenience. Green on run two
 now means "`with/all` differs from `with/pixi-js` in exactly the identity axis's
-thirteen files, ALL of them" - which is the claim this README makes - where
+fifteen files, ALL of them" - which is the claim this README makes - where
 before it only meant "nothing unexpected differs".
 
 Run the `BASE=main` one once more with `ALLOWED=` empty. That is the run that

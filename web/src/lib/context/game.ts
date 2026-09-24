@@ -16,7 +16,7 @@ import type {CoreServices} from './core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
 import {
-	createTimedCycleTrackers,
+	createCycleTrackers,
 	createThreePhase,
 	staticCycleConfig,
 	type CycleInfoStore,
@@ -28,6 +28,10 @@ import {
 	type SubmissionStorage,
 	type SubmissionStore,
 } from '$lib/game/core/submission';
+import {
+	createCycleAdvance,
+	type CycleAdvanceStore,
+} from '$lib/game/core/advance';
 import {createDerivedSecret} from '$lib/game/core/secret';
 import {holdBoardUntilCycleEnds} from '$lib/game/core/handover';
 // The framework's, not this app's. Both used to be COPIED into this file - the
@@ -85,6 +89,12 @@ import {
 import {createPlanning, type PlanningStore} from '$lib/world/planning';
 import {createControls, type Controls} from '$lib/world/controls';
 import {holdResolvingCycle} from '$lib/world/hold';
+import {
+	createAttendanceReader,
+	createCycleAdvancer,
+	createCycleReader,
+	waitedForOnChain,
+} from '$lib/world/advance';
 import {
 	recoverByEnumeration,
 	type AutoRecoveryState,
@@ -162,6 +172,16 @@ export type Game = {
 	twoPhase: Readable<TwoPhase>;
 	/** The commit-reveal submission: what is planned, committed, revealed. */
 	submission: SubmissionStore<GameIdentity, Action>;
+	/**
+	 * Pushing the cycle on, which a policy with no clock needs a transaction for.
+	 *
+	 * Idle on an ordinary TIMED deployment, where the cycle is the clock and the
+	 * contract refuses to be pushed outright. It is exposed anyway rather than
+	 * hidden behind the policy, because what it is doing - spending the player's
+	 * gas, unprompted, to keep the game moving - is something a HUD should be
+	 * able to say out loud.
+	 */
+	cycleAdvance: CycleAdvanceStore;
 	/** Clicks into a planned entry or a planned path. */
 	planning: PlanningStore;
 	/**
@@ -528,22 +548,66 @@ export function createGameContext(core: CoreServices): GameContext {
 		publicClient: core.publicClient,
 		minPollingInterval: 100,
 	});
-	// THE TIMED TRACKER, DELIBERATELY, AND NOT THE POLICY DISPATCHER THE
-	// TEMPLATE WIRES. Contracts are not inherited in this tree, and this game's
-	// have not adopted the cycle policy: there is no `advanceCycle` and no
-	// `getCycle` to ask, so the cycle here IS what the clock says and asking
-	// would be calling a function that does not exist. The framework half is
-	// inherited and ready; switching to `createCycleTrackers` belongs in the
-	// same change as the contract that gives it something to read.
-	const {cycleInfo, twoPhase} = createTimedCycleTrackers({
+	// WHICH CLOCK THE DEPLOYMENT IS RUNNING, rather than the one this app would
+	// prefer. A timed game is pure arithmetic and asks the chain nothing; the
+	// other two policies can be moved by a transaction, so for them the chain is
+	// the authority and `chainTime` only predicts between reads.
+	//
+	// THE DISPATCHER RATHER THAN THE TIMED TRACKER, and the comment that used to
+	// stand here said this repo could not use it because its contracts have "no
+	// `getCycle` to ask". That was wrong about the NAME and right about
+	// everything else, which is a combination worth recording: the read exists
+	// and is called `getEpoch`, and it answers under both policies, because
+	// `_epoch()` returns the manual cycle when there is no clock. What was
+	// genuinely missing was the other half - a commit phase under the manual
+	// policy, which this game's contract collapsed into `SKIP_COMMIT` - and that
+	// is fixed in the same change as this line. See `$lib/world/advance`.
+	const {
+		cycleInfo,
+		twoPhase,
+		refresh: refreshCycle,
+	} = createCycleTrackers({
 		chainTime,
 		config: staticCycleConfig(config.cycle),
+		readCycle: createCycleReader({
+			publicClient: core.publicClient,
+			deployments: core.deployments,
+		}),
 	});
 	const threePhase = createThreePhase(cycleInfo);
 	const currentCycleNumber = derived(
 		cycleInfo,
 		($cycle) => $cycle.currentCycleNumber,
 	);
+
+	/**
+	 * WHO PUSHES THE CYCLE, on a deployment where something has to.
+	 *
+	 * Built for every policy and INERT under the timed one: it reads the policy
+	 * off the deployment, and under `timed` it polls nothing and sends nothing,
+	 * so an ordinary deployment's RPC traffic is exactly what it was. Under
+	 * `manual` it is what makes a round completable at all - the reveal phase
+	 * does not open until somebody calls `advanceCycle`, and a reveal sent
+	 * before it is refused with `InCommitmentPhase`.
+	 */
+	const cycleAdvance = createCycleAdvance({
+		cycleInfo,
+		readAttendance: createAttendanceReader({
+			publicClient: core.publicClient,
+			deployments: core.deployments,
+			cycleNumber: () => get(currentCycleNumber),
+			// WHO THE CYCLE WAITS FOR IS NOT ON CHAIN HERE, which is the one place
+			// this game's contract is behind the framework and the reason this
+			// argument exists at all. The template reads `getAttendance` and needs
+			// to be told nothing; this game has no membership set, so a world that
+			// wants unanimity has to say who is in it. An ordinary deployment says
+			// nobody, which reads as `NoOneToWaitFor` and pushes nothing - the same
+			// answer the contract would give. See `$lib/world/advance`.
+			waitedFor: () => waitedForOnChain(deployments.chain.id),
+		}),
+		advance: createCycleAdvancer(core),
+		refreshCycle,
+	});
 
 	const {camera, cameraControl} = createCamera(config.camera);
 	const eventEmitter = createCanvasEventEmitter();
@@ -1000,6 +1064,7 @@ export function createGameContext(core: CoreServices): GameContext {
 
 	function start() {
 		const stopSubmission = submission.start();
+		const stopCycleAdvance = cycleAdvance.start();
 
 		// A click is only a click to the canvas; what it MEANS is decided here, so
 		// the render layer stays free of game rules.
@@ -1048,8 +1113,20 @@ export function createGameContext(core: CoreServices): GameContext {
 
 		// A submission that ends in Missed locally is very likely blocked on chain
 		// too.
+		//
+		// And a submission that has just LANDED is the moment unanimity may have
+		// been completed by this browser's own transaction: on a manual deployment
+		// the reveal phase becomes pushable the instant the last commitment lands,
+		// and the next cycle the instant the last reveal does. Asking then rather
+		// than on the next poll is the whole difference between a round that feels
+		// instant and one that pauses twice for a poll interval. It costs one read
+		// when a submission changes state, and nothing on a timed deployment, where
+		// the advance is inert.
 		const unsubscribeSubmission = submission.subscribe(($submission) => {
 			if ($submission.step === 'Missed') void missedReveal.check();
+			if ($submission.step === 'Committed' || $submission.step === 'Revealed') {
+				void cycleAdvance.check();
+			}
 		});
 
 		const unsubscribeGas = resumeWhenGasArrives({
@@ -1114,6 +1191,7 @@ export function createGameContext(core: CoreServices): GameContext {
 
 		return () => {
 			stopSubmission();
+			stopCycleAdvance();
 			eventEmitter.off('clicked', onClicked);
 			unsubscribeAccount();
 			unsubscribeAvatar();
@@ -1142,6 +1220,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			threePhase,
 			twoPhase,
 			submission,
+			cycleAdvance,
 			planning,
 			revealOutcome,
 			controls,
