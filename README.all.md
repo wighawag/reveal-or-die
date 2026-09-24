@@ -1,16 +1,27 @@
 # `with/all`
 
 This repo's single integration branch: `with/pixi-js` and `with/nft-identity`,
-merged. It is D11's node, and it is where every real game built on this template
-stems from, because a game needs a renderer AND an identity and the fan holds
-one axis each.
+merged. It is D11's node, and it is where a game that needs BOTH axes stems
+from: a renderer and a token identity, the fan holding one axis each.
+
+**It is not "the games branch", and reading it that way is how a two-axis fan
+turns into the lattice Decision 4 exists to prevent.** A game takes the node
+that supplies what it actually needs. `with/pixi-js` is one host of three, so a
+game using pixi with an ADDRESS identity stems from THERE and never sees the
+identity axis; a twgl game brings its own host and stems from `main`. What earns
+a node is install weight rather than architecture (D11's deciding number is 79M,
+for `pixi.js`), so a capability that is only code needs no branch at all.
 
 ```
 template-commit-reveal@main          the seam, and the host that needs no install
+├─ stratagems                        twgl, own host, ERC20 reserve: needs neither axis
 ├─ with/pixi-js                      pixi + assetpack + one sprite
+│  └─ (a pixi game with an address identity stems HERE, not below)
 ├─ with/nft-identity                 identity is a token; acquisition proven
 └─ with/all                          ← here: both, and nothing else
-   └─ reveal-or-die                  stemBranch points here
+   ├─ reveal-or-die                  stemBranch points here
+   ├─ catacombs                      for the IDENTITY axis; it is twgl and brings its own host
+   └─ conquest-v1
 ```
 
 ## It carries no code of its own, and that is the acceptance criterion
