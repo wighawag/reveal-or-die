@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {keccak256} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
-import {createDerivedSecret} from '$lib/game/core/secret';
+import {createDerivedSecret, playedSeatSecret} from '$lib/game/core/secret';
 
 const CONTRACT = '0x1234567890AbcdEF1234567890aBcdef12345678' as const;
 
@@ -155,6 +155,63 @@ describe('a derived commit secret', () => {
 
 		expect(await onePlace({cycleNumber: 9, identity: 1n})).toBe(
 			await another({cycleNumber: 9, identity: 1n}),
+		);
+	});
+});
+
+describe('the secret a played seat commits with', () => {
+	const base = {chainId: 1, contract: CONTRACT, identity: 1n, cycleNumber: 2};
+
+	it('is reproducible, which is the only reason a reload can reveal', () => {
+		// THE LOAD-BEARING PROPERTY, and the only one. A seat that commits and
+		// then cannot reproduce its secret freezes a manual cycle for everybody:
+		// no advance closes a cycle holding an unopened commitment, and a missed
+		// reveal from the CURRENT cycle cannot be settled either, so the two
+		// refusals become each other's premise.
+		expect(playedSeatSecret(base)).toBe(playedSeatSecret(base));
+	});
+
+	it('is separated by chain, contract, identity and cycle', () => {
+		// Two seats deriving ONE secret would be two commitments either of them
+		// could open, which is a way for one played seat to settle another's turn
+		// by accident. The other three axes are the ordinary ones: the same cycle
+		// of the same game on another chain, or another deployment on the same
+		// chain, is a different cycle.
+		expect(playedSeatSecret({...base, chainId: 2})).not.toBe(
+			playedSeatSecret(base),
+		);
+		expect(playedSeatSecret({...base, identity: 2n})).not.toBe(
+			playedSeatSecret(base),
+		);
+		expect(playedSeatSecret({...base, cycleNumber: 3})).not.toBe(
+			playedSeatSecret(base),
+		);
+		expect(
+			playedSeatSecret({
+				...base,
+				contract: '0x2222222222222222222222222222222222222222',
+			}),
+		).not.toBe(playedSeatSecret(base));
+	});
+
+	it('is 32 bytes, which is what a commitment takes', async () => {
+		// The same width as the player's own secret above, and as the framework's
+		// random default. A derivation that produced anything else would be caught
+		// by the contract rather than here, one phase after the commit.
+		const played = playedSeatSecret(base);
+		expect(played).toMatch(/^0x[0-9a-f]{64}$/);
+
+		const own = createDerivedSecret({
+			sign: (m) =>
+				privateKeyToAccount(`0x${'22'.repeat(32)}`).signMessage({message: m}),
+			chainId: base.chainId,
+			contract: base.contract,
+		});
+		// AND IT IS NOT THE PLAYER'S OWN SECRET FOR THE SAME CYCLE. Nothing would
+		// break if they collided - the two identities differ - but a reader is
+		// entitled to know the two derivations are separate things.
+		expect(played).not.toBe(
+			await own({cycleNumber: base.cycleNumber, identity: base.identity}),
 		);
 	});
 });
