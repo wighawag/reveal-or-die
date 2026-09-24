@@ -25,7 +25,11 @@ import {
 } from '$lib/game/lobby/seats';
 import {costOfPlacements, resolvePlacementConfig} from '$lib/placement/config';
 import {buildPlacementChain} from '$lib/placement/commit-reveal';
-import {createOfflinePlayers, secretFor, turnFor} from '$lib/offline-players';
+import {createOfflinePlayers, turnFor} from '$lib/offline-players';
+// The secret is the FRAMEWORK's now, and asserting against it here is the point
+// rather than an import detail: what a reload has to reproduce is what this
+// world actually committed with.
+import {playedSeatSecret} from '$lib/game/core/secret';
 import {positionOf} from '$lib/placement/cells';
 
 /**
@@ -356,9 +360,9 @@ describe('the other players in the offline world', () => {
 				identity: first.identity,
 				cycleNumber: 2,
 			}),
-			secret: secretFor({
+			secret: playedSeatSecret({
 				chainId: records.chain.id,
-				game: records.contracts.Game.address,
+				contract: records.contracts.Game.address,
 				identity: first.identity,
 				cycleNumber: 2,
 			}),

@@ -19,11 +19,8 @@ import {createIndexedDBPersistence} from 'webevm';
 import {createIndexedDBDeploymentStore} from '@rocketh/web';
 import {createContext} from '$lib/context/index';
 import type {Context} from '$lib/context/types';
-import {
-	createOfflinePlayers,
-	pokeWhenTheHumanActs,
-	type OfflinePlayer,
-} from '$lib/offline-players';
+import {createOfflinePlayers, type OfflinePlayer} from '$lib/offline-players';
+import {pokeWhenTheHumanActs} from '$lib/game/core/played';
 import {seatsPlayedByTheWorld, type Table} from '$lib/game/lobby/seats';
 import {authoriseTheBrowsersKey} from '$lib/game/acquire';
 import {resolvePlacementConfig} from '$lib/placement/config';
@@ -341,7 +338,7 @@ async function buildOfflineWorld(table: Table): Promise<OfflineWorldStatus> {
 				const stopContext = context.start();
 				const stopPlayers = players.start();
 				const stopPoke = pokeWhenTheHumanActs({
-					players,
+					loop: players,
 					submission: context.context.game.submission,
 				});
 				return () => {

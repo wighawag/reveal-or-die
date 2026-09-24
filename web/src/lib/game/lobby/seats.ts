@@ -139,7 +139,8 @@ export const SEATS_BY_DEFAULT = 3;
  * be a staircase in whole poll intervals: four and five seats paid 1.33 s for
  * their first round and six and eight paid 3.8-4.4 s for every round, because
  * the `advanceCycle` that opens the reveal phase SUCCEEDED on chain, emitted
- * `CycleAdvanced`, and left `getCycle` reporting the commit phase. The cause
+ * `CycleAdvanced`, and left the chain still reporting the commit phase when
+ * asked. The cause
  * was not the seats and not the transactions: `webevm` ran everything that
  * executes - transactions AND `eth_call` - on one state manager with one
  * checkpoint stack, and nothing serialised them, so whichever of two
