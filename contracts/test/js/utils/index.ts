@@ -1,8 +1,88 @@
 import {Abi_Avatars} from '../../../generated/abis/Avatars.js';
 import {Abi_AvatarsSale} from '../../../generated/abis/AvatarsSale.js';
 import {Abi_IGame} from '../../../generated/abis/IGame.js';
-import {loadAndExecuteDeploymentsFromFiles} from '../../../rocketh/environment.js';
+import {
+	artifacts,
+	loadAndExecuteDeploymentsFromFiles,
+} from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
+import {zeroAddress} from 'viem';
+
+/**
+ * How the cycle advances, as {UsingGameTypes-CyclePolicy} numbers them.
+ *
+ * RE-EXPORTED FROM THE DEPLOY CONFIG rather than written out again. These
+ * numbers already cross three boundaries unchecked - the Solidity enum, the
+ * deploy config, and the client's own `['timed', 'manual', 'hybrid']` - and a
+ * suite with a fourth copy would be a suite that can agree with itself while
+ * disagreeing with the chain.
+ */
+export {CYCLE_POLICY} from '../../../rocketh/config.js';
+
+/**
+ * Deploy a game of this suite's own, with a configuration it chooses.
+ *
+ * WHY A SECOND DEPLOY EXISTS AT ALL, since every other test here plays the
+ * SHIPPED one. Because the shipped one is timed, on every environment, and
+ * always has been - so the manual branch of `_epoch()`, `_moveToNextPhase` and
+ * `_moveToNextEpoch` was reachable by nothing in this repo and was wrong for as
+ * long as it had existed. A suite that can only deploy one configuration can
+ * only ever test one.
+ *
+ * THE SAME ROUTES AND THE SAME PROXY as `deploy/010_deploy_game.ts`, because a
+ * game assembled differently from the real one is a game whose test says
+ * nothing about the real one. Notably `Deposit` and `Delegation` have to be
+ * here: an avatar is deposited through the first and authority to play it comes
+ * from the second, and both write storage the commit path reads through the
+ * proxy.
+ */
+export async function deployGameWith(
+	env: Awaited<ReturnType<typeof loadAndExecuteDeploymentsFromFiles>>,
+	name: string,
+	config: {
+		avatars: `0x${string}`;
+		cyclePolicy: number;
+		commitPhaseDuration?: bigint;
+		revealPhaseDuration?: bigint;
+		numMoves?: bigint;
+		numMissesAllowed?: bigint;
+	},
+) {
+	const {deployer, admin} = env.namedAccounts;
+	// A manual cycle has no clock, so both durations must be zero and the
+	// constructor refuses anything else. Defaulting from the policy keeps every
+	// caller that is not testing the guard itself from having to restate it.
+	const manual = config.cyclePolicy === 1;
+	const full = {
+		startTime: 0n,
+		commitPhaseDuration: config.commitPhaseDuration ?? (manual ? 0n : 30n),
+		revealPhaseDuration: config.revealPhaseDuration ?? (manual ? 0n : 10n),
+		time: zeroAddress,
+		avatars: config.avatars,
+		numMoves: config.numMoves ?? 10n,
+		cyclePolicy: config.cyclePolicy,
+		numMissesAllowed: config.numMissesAllowed ?? 3n,
+	};
+
+	const routes = [
+		{name: 'Getters', artifact: artifacts.GameGetters, args: [full]},
+		{name: 'Deposit', artifact: artifacts.GameDeposit, args: [full]},
+		{name: 'Commit', artifact: artifacts.GameCommit, args: [full]},
+		{name: 'Reveal', artifact: artifacts.GameReveal, args: [full]},
+		{name: 'Delegation', artifact: artifacts.GameDelegation, args: []},
+	];
+
+	return env.deployViaProxy<Abi_IGame>(
+		name,
+		{
+			account: deployer,
+			artifact: (artifactName: string, params: never) =>
+				env.deployViaRouter<Abi_IGame>(artifactName, params, routes),
+			args: [full],
+		},
+		{owner: admin, linkedData: full},
+	);
+}
 
 export function setupFixtures(provider: EthereumProvider) {
 	return {

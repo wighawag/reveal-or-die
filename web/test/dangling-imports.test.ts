@@ -51,7 +51,10 @@ describe('every import names a path that exists', () => {
 		const root = mkdtempSync(join(tmpdir(), 'dangling-imports-'));
 		try {
 			mkdirSync(join(root, 'web/src/world'), {recursive: true});
-			writeFileSync(join(root, 'web/src/world/here.ts'), 'export const a = 1;\n');
+			writeFileSync(
+				join(root, 'web/src/world/here.ts'),
+				'export const a = 1;\n',
+			);
 			// The 2026-09-23 shape: a file ARRIVES naming the template's game.
 			writeFileSync(
 				join(root, 'web/src/arrived.ts'),

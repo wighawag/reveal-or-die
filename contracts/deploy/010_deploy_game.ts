@@ -16,6 +16,12 @@ export default deployScript(
 			time: zeroAddress,
 			avatars: Avatars.address,
 			numMoves: data.Game.numMoves,
+			// DECLARED, so the cycle cannot be inferred from the durations any
+			// more. It travels on to the client in `linkedData` below, where
+			// `resolveCycleConfig` reads it; a deployment record that predates
+			// the parameter is read the old way, which is what that deployment
+			// actually ran. See `UsingGameTypes.CyclePolicy`.
+			cyclePolicy: data.Game.cyclePolicy,
 			numMissesAllowed: data.Game.numMissesAllowed,
 		};
 

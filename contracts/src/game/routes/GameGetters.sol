@@ -57,6 +57,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
                 avatars: AVATARS,
                 time: TIME,
                 numMoves: MAX_MOVES,
+                cyclePolicy: CYCLE_POLICY,
                 numMissesAllowed: NUM_MISSES_ALLOWED
             });
     }

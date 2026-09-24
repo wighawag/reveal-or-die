@@ -16,8 +16,8 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     IERC721 internal immutable AVATARS;
     /// @notice the max number of actions per turn
     uint256 internal immutable MAX_MOVES;
-    /// @notice whether to skip commit phase and let player make their move in the reveal phase (trusted setup)
-    bool internal immutable SKIP_COMMIT;
+    /// @notice how the cycle advances: on the clock, or only when pushed
+    CyclePolicy internal immutable CYCLE_POLICY;
     /// @notice how many rounds an avatar may go without revealing before it dies
     uint256 internal immutable NUM_MISSES_ALLOWED;
 
@@ -45,7 +45,28 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
         REVEAL_PHASE_DURATION = config.revealPhaseDuration;
         AVATARS = config.avatars;
         NUM_MISSES_ALLOWED = config.numMissesAllowed;
-        // TODO allow to specify it separately
-        SKIP_COMMIT = COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0;
+        // DECLARED, NOT DERIVED, and `SKIP_COMMIT` is GONE rather than split
+        // out beside it. The pair used to be one expression
+        // (`COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0`, with
+        // `TODO allow to specify it separately` beside it), so asking for a
+        // manual cycle silently asked for a game with no commit phase. Giving
+        // it a flag of its own is the obvious fix and the wrong one: it had no
+        // consumer. See {UsingGameTypes-CyclePolicy}.
+        CYCLE_POLICY = config.cyclePolicy;
+
+        // AND THE DECLARATION CAN NEVER DRIFT FROM THE TIMINGS. A manual cycle
+        // has no clock, so durations would be read by nothing and would sit in
+        // the deployment's linked data describing a schedule the chain does not
+        // run; a timed cycle with no durations divides by a zero cycle length.
+        // Both are configurations that used to be accepted and then behaved as
+        // something else, which is exactly what made this look like a mode
+        // rather than a policy.
+        bool noClock =
+            config.commitPhaseDuration == 0 && config.revealPhaseDuration == 0;
+        if ((config.cyclePolicy == CyclePolicy.Manual) != noClock) {
+            revert UsingGameErrors.CycleConfigurationMismatch(
+                config.cyclePolicy
+            );
+        }
     }
 }

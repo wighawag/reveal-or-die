@@ -204,33 +204,54 @@ abstract contract UsingGameInternal is
     function _getManualEpoch() internal view returns (ManualEpoch memory) {
         if (_manualEpoch.epoch == 0) {
             // we start at 2 like the automatic epoch to make the hypothetical previous epoch be 1
-            return ManualEpoch({epoch: 2, commiting: !SKIP_COMMIT});
+            // AND IN THE COMMIT PHASE, unconditionally. This was `!SKIP_COMMIT`,
+            // which was derived from the same two zero durations that selected
+            // this branch in the first place - so it was always false here, and
+            // a manual cycle opened in a reveal phase it could never have
+            // committed into.
+            return ManualEpoch({epoch: 2, commiting: true});
         }
         return _manualEpoch;
     }
 
+    /// @notice Abandon this cycle and open the next one's commit phase.
+    /// @dev NOT WHAT AN ADVANCE IS, and the difference costs stakes. Called
+    ///  during a commit phase this skips the reveal phase entirely, so every
+    ///  commitment made in the cycle it leaves can never be opened:
+    ///  `_reveal` refuses with `InvalidEpoch`, and `_makeCommitment` then
+    ///  refuses everything afterwards with `PreviousCommitmentNotRevealed`
+    ///  until each one is acknowledged. The client uses `moveToNextPhase` and
+    ///  says so at `web/src/lib/world/advance.ts`.
     function _moveToNextEpoch() internal returns (ManualEpoch memory) {
         // TODO add posibility to skip epoch even if turn are timed
         // TODO add logic to present moving to next epoch if not all player who already in the game has done so
-        if (!(COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0)) {
+        if (CYCLE_POLICY != CyclePolicy.Manual) {
             revert NextPhaseNotAllowed();
         }
 
         ManualEpoch memory currentManualEpoch = _getManualEpoch();
         _manualEpoch.epoch = currentManualEpoch.epoch + 1;
-        _manualEpoch.commiting = !SKIP_COMMIT;
+        _manualEpoch.commiting = true;
 
         return _manualEpoch;
     }
 
     function _moveToNextPhase() internal returns (ManualEpoch memory) {
-        if (SKIP_COMMIT) {
-            revert CommitPhaseIsSkipped();
-        }
-
         // TODO add posibility to skip epoch even if turn are timed
-        // TODO add logic to present moving to next epoch if not all player who already in the game has done so
-        if (!(COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0)) {
+        // THE UNANIMITY GUARD IS STILL MISSING, and it is the one TODO in this
+        // file with a stake behind it. Nothing here checks that everyone the
+        // cycle is waiting for has acted, so a caller who pushes early opens
+        // the reveal phase on a player who had not committed, or closes a
+        // cycle on one who had not revealed - and in this game the penalty for
+        // missed reveals is the avatar. The framework's client mirrors the
+        // conditions the template's contract enforces
+        // (`web/src/lib/game/core/advance.ts`), which makes the client's copy
+        // the ONLY guard here rather than a prediction, and that is written
+        // down at `web/src/lib/world/advance.ts`. It is bounded today because
+        // the only manual deployment of this game is an offline one, where the
+        // one tab holds every key at the table. It stops being bounded the
+        // moment a manual deployment has a player this client does not control.
+        if (CYCLE_POLICY != CyclePolicy.Manual) {
             revert NextPhaseNotAllowed();
         }
 
@@ -474,7 +495,7 @@ abstract contract UsingGameInternal is
         virtual
         returns (uint64 epoch, bool commiting)
     {
-        if (COMMIT_PHASE_DURATION == 0 && REVEAL_PHASE_DURATION == 0) {
+        if (CYCLE_POLICY == CyclePolicy.Manual) {
             ManualEpoch memory currentManualEpoch = _getManualEpoch();
             epoch = currentManualEpoch.epoch;
             commiting = currentManualEpoch.commiting;

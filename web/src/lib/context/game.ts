@@ -560,8 +560,8 @@ export function createGameContext(core: CoreServices): GameContext {
 	// and is called `getEpoch`, and it answers under both policies, because
 	// `_epoch()` returns the manual cycle when there is no clock. What was
 	// genuinely missing was the other half - a commit phase under the manual
-	// policy, which this game's contract collapsed into `SKIP_COMMIT` - and that
-	// is fixed in the same change as this line. See `$lib/world/advance`.
+	// policy, which this game's contract derived away into `SKIP_COMMIT` - and
+	// that is fixed in the same change as this line. See `$lib/world/advance`.
 	const {
 		cycleInfo,
 		twoPhase,

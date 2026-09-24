@@ -80,6 +80,13 @@ interface UsingGameErrors is UsingGameTypes {
     /// @notice happen when attempting to move to next phase/epoch when not configured to be able to do it.
     error NextPhaseNotAllowed();
 
-    /// @notice happen when attempting to move to next phase when skip commit is enabled
-    error CommitPhaseIsSkipped();
+    /// @notice The declared cycle policy and the phase durations disagree.
+    /// @dev Refused at CONSTRUCTION, so a game can never run a schedule it did
+    ///  not declare. `Manual` requires both durations to be zero (there is no
+    ///  clock, so a duration would describe a schedule nothing reads) and
+    ///  `Timed` requires at least one to be non-zero (a timed cycle of length
+    ///  zero divides by it). The two used to be one derivation, which is how a
+    ///  manual deployment quietly became a game with no commit phase.
+    /// @param cyclePolicy the policy that was declared
+    error CycleConfigurationMismatch(CyclePolicy cyclePolicy);
 }

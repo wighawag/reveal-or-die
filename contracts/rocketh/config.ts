@@ -12,6 +12,30 @@ import {privateKey} from '@rocketh/signer';
 
 import {parseEther} from 'viem';
 
+/**
+ * How the cycle advances, as the contract's enum numbers them.
+ *
+ * A SHARED CONSTANT rather than a literal at each entry, because these numbers
+ * cross three boundaries and are checked at none of them: the Solidity enum
+ * ({UsingGameTypes-CyclePolicy}), this config, and the client's own
+ * `['timed', 'manual', 'hybrid']` in `web/src/lib/game/core/cycle.ts`, which
+ * indexes whatever the deployment's linked data declares. A `1n` typed here
+ * would be a fourth place to get the order wrong.
+ *
+ * `TimedWithEarlyAdvance` is the framework's index 2 and this game's contract
+ * does not implement it, so it is not offered here either. See the enum.
+ *
+ * WHY IT IS DECLARED AT ALL, since until now it was inferred from the two
+ * durations: that inference stood for two unrelated things, and asking for a
+ * cycle pushed by hand silently also asked for a game with no commit phase.
+ * The contract now refuses a configuration whose durations disagree with its
+ * declared policy, so the two cannot drift apart again.
+ */
+export const CYCLE_POLICY = {
+	Timed: 0,
+	Manual: 1,
+} as const;
+
 // we define our config and export it as "config"
 export const config = {
 	// Chain properties are exported with the deployments and read by the web app
@@ -151,6 +175,7 @@ export const config = {
 			localhost: {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
+				cyclePolicy: CYCLE_POLICY.Timed,
 				numMoves: 10n,
 				numMissesAllowed: 3n,
 			},
@@ -171,12 +196,14 @@ export const config = {
 			'rise-testnet': {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
+				cyclePolicy: CYCLE_POLICY.Timed,
 				numMoves: 10n,
 				numMissesAllowed: 3n,
 			},
 			default: {
 				commitPhaseDuration: 30n,
 				revealPhaseDuration: 10n,
+				cyclePolicy: CYCLE_POLICY.Timed,
 				numMoves: 10n,
 				numMissesAllowed: 3n,
 			},
