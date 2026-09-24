@@ -17,7 +17,7 @@ import {
 	SEATS_BY_DEFAULT,
 	seatsPlayedByTheWorld,
 	tableOf,
-} from '$lib/offline-seats';
+} from '$lib/game/lobby/seats';
 import {resolvePlacementConfig} from '$lib/placement/config';
 
 // No `.svelte.` infix, so this runs in the `server` project: node, no DOM.

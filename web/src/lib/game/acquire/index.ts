@@ -22,3 +22,8 @@ export {
 	type AcquisitionStore,
 } from './acquire';
 export {findPendingAcquisition, type PendingAcquisition} from './pending';
+export {
+	authoriseTheBrowsersKey,
+	type AuthorisationDeps,
+	type AuthorisationOutcome,
+} from './authorise';

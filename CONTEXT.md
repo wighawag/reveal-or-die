@@ -102,6 +102,16 @@ browser, a person at the same keyboard, something the machine plays - and
 nothing else about a seat changes when it changes.
 _Avoid_: participant, agent, bot, NPC
 
+**Played seat**:
+A seat the machine ACTS FOR, because its occupant is the machine. It is not a
+kind of player and the word deliberately describes the seat rather than
+inventing one: what makes it necessary is the clock, not the game. A cycle waits
+for every member, so a member that never acts does not make a quiet game, it
+makes a frozen one - which means whoever sets a game up either plays these seats
+or does not enrol them. The smallest thing that gives a cycle somebody to wait
+for: no intelligence, no difficulty, no interface.
+_Avoid_: bot, NPC, AI, opponent, computer player, played player
+
 ### Who is who
 
 **Identity**:
