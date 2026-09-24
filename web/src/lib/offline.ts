@@ -24,8 +24,8 @@ import {
 	pokeWhenTheHumanActs,
 	type OfflinePlayer,
 } from '$lib/offline-players';
-import {seatsPlayedByTheWorld, type Table} from '$lib/offline-seats';
-import {authoriseTheBrowsersKey} from '$lib/offline-authorise';
+import {seatsPlayedByTheWorld, type Table} from '$lib/game/lobby/seats';
+import {authoriseTheBrowsersKey} from '$lib/game/acquire';
 import {resolvePlacementConfig} from '$lib/placement/config';
 
 /**
@@ -72,12 +72,12 @@ import {resolvePlacementConfig} from '$lib/placement/config';
  *    hides nothing and two of `advanceCycle`'s three conditions cannot be
  *    reached at all, so a world enrols at least THREE and plays all but one of
  *    them. HOW MANY is the player's, chosen at the lobby before the world
- *    boots (`$lib/offline-lobby`), and it arrives here as a TABLE of seats.
- *    What those players DO is `$lib/offline-players` and who is in each seat is
- *    `$lib/offline-seats`, both identical on every branch of this template;
- *    what is decided here is what each of them is GIVEN and how this game
- *    spells who they are, because that is what differs per branch and this file
- *    differs already.
+ *    boots (`$lib/game/lobby`, wired to this world by `$lib/offline-lobby`), and
+ *    it arrives here as a TABLE of seats. What those players DO is
+ *    `$lib/offline-players`; who is in each seat is `$lib/game/lobby/seats`,
+ *    which is framework and shared. What is decided here is what each of them is
+ *    GIVEN and how this game spells who they are, because that is what differs
+ *    per branch and this file differs already.
  *
  * It lives beside `lib/index.ts` rather than in a route, for the reason the
  * mechanism's README gives: this repo deletes the demo routes it inherits, and

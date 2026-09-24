@@ -14,25 +14,29 @@ import {mnemonicToAccount} from 'viem/accounts';
  * provisioning still walks the table asking each occupant for an address, and
  * the lobby still chooses how many there are.
  *
- * WHAT A SEAT IS NOT is a setting on a live world. What ENROLS a player is
- * holding this game's stake, which happens once, during provisioning: the
- * contract starts waiting for anyone with a funded reserve (on the identity
- * branches, for anyone whose avatar it has custody of). So the number of seats
- * is baked into a world at the moment it boots, and changing it means a NEW
- * world rather than a setting - see `$lib/offline-lobby`, which is where that
- * is enforced, and `$lib/embedded/chain-id`, which is what makes a new world
- * cheap.
+ * WHAT A SEAT IS NOT is a setting on a live game. What ENROLS a player is being
+ * given whatever this game puts at stake, which happens once, while the game is
+ * being set up: the contract starts waiting for whoever holds it. So the number
+ * of seats is baked in at the moment the game boots, and changing it means a
+ * NEW game rather than a setting - see `./lobby`, which is where that is
+ * enforced.
  *
  * NOTHING HERE KNOWS WHAT A SEAT HOLDS. A lobby chooses how many people are at
- * the table; what each of them is given, and how this game spells who they
- * are, is `$lib/offline`'s, which is the one file per branch of this template
- * that is allowed to know. That is why this file is byte-identical on every
- * branch and why it should stay that way.
+ * the table; what each of them is given, and how this game spells who they are,
+ * belongs to the game's own world builder, which is the one file that is
+ * allowed to know.
+ *
+ * WHICH IS WHY THIS IS FRAMEWORK RATHER THAN A FILE THAT ASKS TO BE COPIED. It
+ * used to live in the app namespace and assert in prose that it was
+ * byte-identical in every game that had one, which is a claim a reader has to
+ * verify by grepping two repos. Two games have now been measured against it and
+ * it held; moving it here makes the claim structural, and the one thing it
+ * imports is `viem`.
  */
 
 /**
  * The keys the world plays with, and they are PUBLIC AND FIXED on purpose -
- * the same argument `$lib/offline` already makes for the deployer and the
+ * the same argument a world builder already makes for its deployer and its
  * admin.
  *
  * These are hardhat's well-known development accounts, derived from the
@@ -53,8 +57,9 @@ import {mnemonicToAccount} from 'viem/accounts';
  * a build that derived different ones would restore that world and find its
  * members unreachable - the cycle would wait forever for players nobody holds
  * a key for, and under the manual policy waiting forever is what it does. So
- * this derivation is not an implementation detail to tidy: `test/lib/offline-seats.test.ts`
- * pins the first addresses against the ones the world has been playing as.
+ * this derivation is not an implementation detail to tidy:
+ * `test/lib/game/lobby/seats.test.ts` pins the first addresses against the ones
+ * the world has been playing as.
  */
 const WELL_KNOWN_MNEMONIC =
 	'test test test test test test test test test test test junk';
@@ -62,10 +67,11 @@ const WELL_KNOWN_MNEMONIC =
 /**
  * Where the world's own players start in that list.
  *
- * Two, because `$lib/offline` signs the deploy with #0 and administers with
- * #1. An overlap would make the deployer a member of the game it deployed,
- * which is not wrong so much as impossible to reason about the first time a
- * balance looks strange.
+ * Two, because a world builder that deploys with these same well-known accounts
+ * signs with #0 and administers with #1, which both worlds in this tree do. An
+ * overlap would make the deployer a member of the game it deployed, which is
+ * not wrong so much as impossible to reason about the first time a balance
+ * looks strange.
  */
 const FIRST_PLAYED_ACCOUNT = 2;
 
@@ -81,7 +87,7 @@ export type Occupant =
 	/**
 	 * The world itself, playing a key it holds.
 	 *
-	 * What it DOES with that key is `$lib/offline-players`, and it is
+	 * What it DOES with that key is the loop that plays it, and that loop is
 	 * deliberately the smallest thing that gives a cycle somebody to wait for:
 	 * no intelligence, no difficulty, no interface. The NPCs the plan's Phase 6
 	 * wants are a different job.
@@ -99,12 +105,11 @@ export type Table = readonly Seat[];
  * made to demonstrate.
  *
  * One waited-for member satisfies unanimity by existing: the commit phase
- * hides nothing, and two of the three conditions `advanceCycle` exists to
- * enforce (`StillWaitingToCommit`, `StillWaitingToReveal`) cannot be reached
- * at all. Two is a duel, where "everyone" and "the other one" are the same
- * statement and a contested cell is a special case rather than an instance of
- * the rule. At three the accumulation in `_place` has something to accumulate
- * and the order-independence property has something to say.
+ * hides nothing, and an advance never has to refuse anybody, so two of the
+ * three things it exists to enforce cannot be reached at all. Two is a duel,
+ * where "everyone" and "the other one" are the same statement, and whatever
+ * two players contest is a special case rather than an instance of the rule. At
+ * three the order-independence property has something to say.
  *
  * So a table of three is the smallest thing that is a commit-reveal game
  * rather than a demonstration of one, and it is also the default: what the
@@ -124,7 +129,7 @@ export const SEATS_BY_DEFAULT = 3;
  * anybody would have predicted.
  *
  * THE ARITHMETIC SAYS IT SHOULD BE FREE. The world acts for its players one at
- * a time (`offline-players.ts` says why: they share one chain in one worker,
+ * a time (the loop that plays them says why: they share one chain in one worker,
  * and a burst of commits is a burst of blocks nobody is waiting for), so a
  * table of N costs 2(N-1) transactions in series per round plus two advances -
  * and a transaction on a chain in a tab is 15 to 20 ms. Eighteen of them is a

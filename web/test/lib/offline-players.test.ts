@@ -22,7 +22,7 @@ import {
 	SEATS_BY_DEFAULT,
 	seatsPlayedByTheWorld,
 	tableOf,
-} from '$lib/offline-seats';
+} from '$lib/game/lobby/seats';
 import {costOfPlacements, resolvePlacementConfig} from '$lib/placement/config';
 import {buildPlacementChain} from '$lib/placement/commit-reveal';
 import {createOfflinePlayers, secretFor, turnFor} from '$lib/offline-players';
