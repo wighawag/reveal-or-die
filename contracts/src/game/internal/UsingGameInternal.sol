@@ -247,7 +247,14 @@ abstract contract UsingGameInternal is
         // conditions the template's contract enforces
         // (`web/src/lib/game/core/advance.ts`), which makes the client's copy
         // the ONLY guard here rather than a prediction, and that is written
-        // down at `web/src/lib/world/advance.ts`. It is bounded today because
+        // down at `web/src/lib/world/advance.ts`, which since 2026-09-24 says so
+        // in code as well as in prose: `THIS_CONTRACT_JUDGES_AN_ADVANCE` is
+        // `false` there, and the framework's advance client takes that answer as
+        // a required parameter, checks a hand press instead of sending it blind,
+        // and re-reads the phase before spending. None of that makes this
+        // function safe - anyone may call it and most callers are not that
+        // client - it only stops the one client this repo ships from being the
+        // thing that fires early. It is bounded today because
         // the only manual deployment of this game is an offline one, where the
         // one tab holds every key at the table. It stops being bounded the
         // moment a manual deployment has a player this client does not control.

@@ -94,6 +94,7 @@ import {
 	createCycleAdvancer,
 	createCycleReader,
 	waitedForOnChain,
+	THIS_CONTRACT_JUDGES_AN_ADVANCE,
 } from '$lib/world/advance';
 import {
 	recoverByEnumeration,
@@ -607,14 +608,12 @@ export function createGameContext(core: CoreServices): GameContext {
 		}),
 		advance: createCycleAdvancer(core),
 		refreshCycle,
-		// YES, AND IT IS THIS GAME'S CONTRACT THAT SAYS SO, not the framework.
-		// `UsingGameInternal._advanceCycle` re-checks the policy, `waitedFor > 0`,
-		// `committed >= waitedFor` in the commit phase and `revealed >= committed`
-		// in the reveal phase, and reverts with a named error for each - so the
-		// client's mirrored guard here is an optimisation and nothing is riding on
-		// it. A game that answers this without reading its own advance has given
-		// itself the reassurance rather than earned it; see `game/core/advance.ts`.
-		contractIsTheJudge: true,
+		// NO, AND THE ANSWER IS THIS GAME'S TO GIVE, which is why it is a named
+		// constant in `world/advance.ts` beside the evidence rather than a literal
+		// here. This line arrived from the template saying `true`, merged cleanly,
+		// and was false the moment it landed: that contract re-checks four
+		// conditions and this one re-checks the policy alone.
+		contractIsTheJudge: THIS_CONTRACT_JUDGES_AN_ADVANCE,
 	});
 
 	const {camera, cameraControl} = createCamera(config.camera);

@@ -120,6 +120,39 @@ export type AdvanceDeps = Pick<
 const waitedFor = new Map<number, readonly bigint[]>();
 
 /**
+ * NO: THIS GAME'S CONTRACT DOES NOT JUDGE AN ADVANCE, so the client's mirrored
+ * guard is the only one there is.
+ *
+ * THE EVIDENCE, and it is one function. `UsingGameInternal._moveToNextPhase`
+ * checks `CYCLE_POLICY != CyclePolicy.Manual` and nothing else: no `waitedFor`,
+ * no `committed`, no `revealed`. Its own source carries the TODO
+ * ("add posibility to skip epoch even if turn are timed", and the unanimity
+ * guard beneath it), annotated at the line. The template's contract re-checks
+ * all four conditions and reverts with a named error for each, which is what
+ * `game/core/advance.ts` asks about and what it must NOT be told here.
+ *
+ * WHAT IT COSTS TO GET WRONG, in this game specifically: an advance pushed
+ * early opens the reveal phase on a player who has not committed, or closes a
+ * cycle on one who has not revealed. `lastEpoch` falls behind, `numMisses`
+ * counts it, and at `numMissesAllowed` the avatar is dead. The game is called
+ * reveal-or-die and that is the whole of why this constant is not `true`.
+ *
+ * IT LIVES HERE, BESIDE THIS GAME'S OWN ADVANCE, and that placement is the
+ * point rather than tidiness. The template's `context/game.ts` answers this
+ * question inline with `true` and a comment citing its own contract's four
+ * guards - and that line merged into this repo CLEANLY on 2026-09-24, leaving
+ * every suite green and the type checker satisfied while the repo claimed a
+ * property it does not have. A named constant in the game's own module is a
+ * line that reads as this repo's answer and is looked at by whoever ports the
+ * contract, which is the person who will change it.
+ *
+ * FLIP IT WHEN THE CONTRACT EARNS IT: add the unanimity guard to
+ * `_moveToNextPhase`, then set this to `true` in the same commit, and the hand
+ * press goes back to letting the chain answer.
+ */
+export const THIS_CONTRACT_JUDGES_AN_ADVANCE = false;
+
+/**
  * Say who the cycle in a world must wait for, as avatar ids.
  *
  * Called ONCE, by whoever provisioned the world, before anything plays. There
