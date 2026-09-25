@@ -18,7 +18,9 @@
 # Give every entry a reason: the next person's question is never "which file",
 # it is "why", and an unexplained list is how a deletion outlives the reason for
 # it and becomes cargo cult. A DIRECTORY entry covers everything under it, which
-# is usually what you want: a whole replaced directory rather than forty files.
+# is usually what you want - a whole replaced directory rather than forty files -
+# but name one only when the whole directory is what you replaced, because the
+# entry also asserts that nothing under it exists.
 #
 # AND IT IS CHECKED NOW, which is the only reason to trust it. Three guards, all
 # pointing different ways:
@@ -28,20 +30,30 @@
 #   scripts/apply-omissions.sh            re-drop them all, and run both checks
 #
 # ENTRIES ARE STEM-RELATIVE, which is the one thing to understand before editing.
-# What belongs here is what THIS repo drops from ITS stem (jolly-roger
-# `integration`). jolly-roger's own list names three paths it drops from
-# template-svelte-shadcn; those are absent from its `integration` too, so they are
-# not in this repo's stem, so they are not omissions HERE and are deliberately not
-# copied down. `check-omissions.mjs` is what makes that unambiguous: it only ever
-# reports a path that is present in the stem and absent here.
-#
-# ENTRIES ARE STEM-RELATIVE, which is the one thing to understand before editing.
 # What belongs here is what THIS repo drops from ITS stem, `template-commit-reveal`
 # `with/all`. Upstream's list names paths IT drops from jolly-roger (a greetings
 # demo, a context file, some suites) and those are already absent from `with/all`,
 # so they are not in our stem, cannot be omissions here, and are deliberately not
 # copied down. `scripts/check-omissions.mjs` is what makes that unarguable: it only
 # ever reports a path that is present in the stem and absent here.
+#
+# ---------------------------------------------------------------------------
+# THE MACHINERY LIVES AT `template-svelte`, THE ROOT OF THIS TREE, and cascades
+# down from there, so a change to it belongs there and not here. It was written
+# twice before that, once on each branch of the tree, and the two copies had
+# diverged into two variants of `check-omissions.mjs` within the week -
+# identical in behaviour, nineteen lines apart in what they claimed. An ancestor
+# is the distribution point for shared machinery even when it has nothing of its
+# own to guard.
+#
+# `scripts/apply-omissions.sh` IS THE ONE EXCEPTION, AND IT BELONGS TO THIS
+# BRANCH OF THE TREE: `template-commit-reveal` and `reveal-or-die` carry a
+# version that also runs `scripts/check-dangling-imports.mjs` and gates "now
+# commit the merge" behind it, because two cascades out of that template broke
+# `reveal-or-die` through hunks that merged CLEANLY. That difference conflicts
+# with the root's copy on every cascade that touches the file, for ever, and the
+# resolution is always to keep BOTH halves. The script says so at the top of
+# itself, on both sides.
 #
 # THIS LINE USED TO SAY "this template omits nothing - it is where the files come
 # from", AND IN THIS REPO IT WAS FALSE TWICE OVER: this is a GAME, not a template,
