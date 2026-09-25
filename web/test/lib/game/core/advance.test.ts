@@ -76,6 +76,13 @@ function harness(params: {
 	isCommitPhase?: boolean;
 	fails?: boolean;
 	now?: () => number;
+	/**
+	 * Defaults to the reference contract's answer, because that is what most of
+	 * these cases are about. The cases that are about the OTHER answer say so.
+	 */
+	contractIsTheJudge?: boolean;
+	/** Moves the cycle on during the refresh, to age a reading mid-decision. */
+	onRefresh?: (cycles: ReturnType<typeof fakeCycles>) => void;
 }) {
 	const cycles = fakeCycles({
 		policy: params.policy,
@@ -99,7 +106,9 @@ function harness(params: {
 		},
 		refreshCycle: async () => {
 			refreshed.push(refreshed.length);
+			params.onRefresh?.(cycles);
 		},
+		contractIsTheJudge: params.contractIsTheJudge ?? true,
 		...(params.auto ? {auto: params.auto} : {}),
 		...(params.now ? {now: params.now} : {}),
 	});
@@ -359,6 +368,7 @@ describe('createCycleAdvance', () => {
 				sent.push(sent.length);
 				return new Promise<void>((resolve) => (release = resolve));
 			},
+			contractIsTheJudge: true,
 		});
 
 		const first = store.check();
@@ -385,6 +395,7 @@ describe('createCycleAdvance', () => {
 			advance: async () => {
 				sent.push(sent.length);
 			},
+			contractIsTheJudge: true,
 		});
 
 		await store.check();
@@ -402,5 +413,85 @@ describe('createCycleAdvance', () => {
 		const stop = h.store.start();
 		stop();
 		expect(h.reads).toBe(0);
+	});
+});
+
+describe('when the contract is NOT the judge', () => {
+	/**
+	 * THE CASE A SECOND GAME IN THIS TREE IS IN TODAY. Its advance checks the
+	 * policy and nothing else - the unanimity guard is a TODO in its own source -
+	 * so this client's mirrored copy is the only thing that refuses. Being wrong
+	 * in the lax direction there is not a reverted transaction, it is a reveal
+	 * phase opened on somebody who never committed, and that game's stake is the
+	 * avatar.
+	 */
+	const waiting: Attendance = {waitedFor: 3, committed: 2, revealed: 0};
+
+	it('refuses a hand press instead of letting the chain answer', async () => {
+		const h = harness({
+			policy: 'manual',
+			attendance: waiting,
+			contractIsTheJudge: false,
+		});
+
+		await h.store.advance();
+
+		expect(h.sent).toHaveLength(0);
+		expect(h.store.value).toEqual({
+			step: 'Refused',
+			cycleNumber: 2,
+			because: 'still-waiting-to-commit',
+		});
+	});
+
+	it('still sends a hand press where the contract IS the judge', async () => {
+		// The other half of the same behaviour, and the reason this is a
+		// declaration rather than a rule: where the chain refuses, deferring to it
+		// is better than deferring to this file's copy of its rules, and the press
+		// costs one reverted transaction at worst.
+		const h = harness({
+			policy: 'manual',
+			attendance: waiting,
+			contractIsTheJudge: true,
+		});
+
+		await h.store.advance();
+
+		expect(h.sent).toHaveLength(1);
+	});
+
+	it('re-reads the cycle before spending, and drops a verdict that has aged', async () => {
+		// THE WINDOW THAT COSTS A STAKE. The verdict was computed from the phase
+		// this browser last saw; if the cycle moved on while the attendance read
+		// was in flight, "everyone has committed, open the reveal phase" becomes a
+		// push against a cycle that is already in its reveal phase - which, with
+		// nothing on chain to refuse it, closes that cycle on players who have not
+		// revealed.
+		const h = harness({
+			policy: 'manual',
+			attendance: {waitedFor: 2, committed: 2, revealed: 0},
+			contractIsTheJudge: false,
+			onRefresh: (cycles) => cycles.move({cycleNumber: 3, isCommitPhase: true}),
+		});
+
+		await h.store.check();
+
+		expect(h.refreshed.length).toBeGreaterThan(0);
+		expect(h.sent).toHaveLength(0);
+	});
+
+	it('pushes when the fresh reading agrees with the stale one', async () => {
+		// The refresh is not a refusal: nothing changed, so the push happens. A
+		// guard that refused whenever it re-read would freeze a manual cycle,
+		// which is the failure on the other side of this one.
+		const h = harness({
+			policy: 'manual',
+			attendance: {waitedFor: 2, committed: 2, revealed: 0},
+			contractIsTheJudge: false,
+		});
+
+		await h.store.check();
+
+		expect(h.sent).toHaveLength(1);
 	});
 });
