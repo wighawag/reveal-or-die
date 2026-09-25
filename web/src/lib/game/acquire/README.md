@@ -16,7 +16,9 @@ One value, `Acquisition`: where the call goes, what it costs, what it forwards, 
 
 ```ts
 const acquisition: Acquisition = {
-	address: deployments.contracts.StakeSale.address,
+	// Whatever YOUR game sells entry with: one call that takes a value and
+	// forwards a stipend. The rail never learns its name.
+	address: deployments.contracts.Sale.address,
 	functionName: 'purchase',
 	price, // read off the deployment that CHARGES it
 	stipend, // sized in turns of gas, not as a round number
