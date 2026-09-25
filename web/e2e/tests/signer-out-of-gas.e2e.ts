@@ -69,6 +69,26 @@ describe('A move that runs out of gas', () => {
 		// and then ran dry, not on one that was never funded at all.
 		await stakeAnAvatar(page);
 
+		// THE PREMISE, ASSERTED RATHER THAN ASSUMED: a signer that was funded
+		// properly and then ran dry. `stakeAnAvatar` guarantees it now, and this says
+		// out loud that this test depends on the guarantee, because the failure when
+		// it is missing points somewhere else entirely.
+		//
+		// What it is about: the purchase above also leaves this browser's key to
+		// register ITSELF, out of the stipend that purchase gave it. Drain the gas
+		// inside that window and the registration can never land, so the app - quite
+		// correctly - goes on refusing to let anyone plan a turn they could not
+		// commit. The board then ignores every click and this test dies 30 seconds
+		// later on "clicking the board should plan something", with a canvas on screen
+		// and nothing visibly wrong. It failed three full runs in four that way and
+		// passed every single time it was run alone, which is exactly what contention
+		// looks like and is not what it was.
+		expect(
+			(await boardState(page)).setup,
+			'the player must be fully set up before the gas is taken away, or this ' +
+				'test measures a browser that was never allowed to play',
+		).toBeUndefined();
+
 		// Now take the gas away. Everything up to here was setup; this is the
 		// condition under test.
 		await drainSignerGas(page);

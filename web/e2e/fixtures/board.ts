@@ -47,6 +47,16 @@ export type BoardState = {
 	deposited?: number;
 	/** Whether a turn could be taken right now. */
 	readyToPlay: boolean;
+	/**
+	 * What the app says is still MISSING before a turn can be taken, or undefined
+	 * when nothing is: `sign-in`, `deposit` or `authorise`.
+	 *
+	 * Read because `readyToPlay` cannot answer the question a setup helper needs.
+	 * That one folds in the PHASE - it is false during every reveal - so waiting
+	 * for it would mean waiting for a play window, which is a different thing and
+	 * is `planOnCanvas`'s job. This says only whether the player is set up.
+	 */
+	setup?: string;
 };
 
 /**
@@ -77,8 +87,48 @@ export async function boardState(page: Page): Promise<BoardState> {
 			deposited:
 				deposited.step === 'Loaded' ? deposited.avatars.length : undefined,
 			readyToPlay: read(context.game.readyToPlay) === true,
+			setup: read(context.game.setup) ? read(context.game.setup).step : undefined,
 		};
 	})()`) as Promise<BoardState>;
+}
+
+/**
+ * Wait until the app agrees the player is SET UP, which is not the same as
+ * having an avatar.
+ *
+ * WHY THIS EXISTS, because it closes a race that cost a whole investigation.
+ * Buying an avatar is one transaction that does THREE things (see the gate's own
+ * copy): it puts the avatar in the game's custody, it funds the key this browser
+ * plays with, and it lets that key be authorised - and the third one is a SECOND
+ * transaction, sent by the signer itself out of the stipend it was just given.
+ * So custody landing does not mean the setup is finished, and for a while
+ * afterwards `setup` is still `authorise` with the chain answering
+ * `allowed: false`.
+ *
+ * Nothing usually notices, because the registration lands a moment later and any
+ * helper that retries simply rides it out. What DID notice was
+ * `signer-out-of-gas.e2e.ts`, which takes the signer's gas away straight after
+ * staking: drain it inside that window and the registration can never land,
+ * because the money it needed to send itself has gone. `readyToPlay` then stays
+ * false forever, clicks on the board are ignored by design ("letting someone plan
+ * a whole turn they cannot commit is worse than not letting them start"), and the
+ * failure lands 30 seconds later on "clicking the board should plan something" -
+ * with a canvas present and a page that looks fine. Measured: it failed three
+ * full runs out of four and passed every time it was run alone, which is the
+ * signature of a race and reads exactly like contention.
+ *
+ * Polls the app's own `setup`, not a button: the gate's button is absent both
+ * while the app is deciding and once there is nothing to ask for, so waiting on
+ * the DOM cannot tell "not yet" from "done".
+ */
+export async function waitUntilSetUpToPlay(page: Page): Promise<void> {
+	await expect
+		.poll(async () => (await boardState(page)).setup ?? 'nothing-missing', {
+			message:
+				'the app should have nothing left to ask for before the player acts',
+			timeout: 120_000,
+		})
+		.toBe('nothing-missing');
 }
 
 /** Where the cycle clock currently is. */
@@ -180,6 +230,18 @@ export async function stakeAnAvatar(page: Page): Promise<void> {
 			timeout: 120_000,
 		})
 		.toBeGreaterThan(0);
+
+	// AND THE OTHER TWO THINGS THE SAME TRANSACTION DID, because custody is only
+	// the first of them. The purchase also funded this browser's key and left it to
+	// register ITSELF, which is a second transaction that has not necessarily landed
+	// yet - so returning here on custody alone hands the caller a browser the app
+	// will not let play. See `waitUntilSetUpToPlay` for the race that cost.
+	//
+	// ONLY ON THIS PATH, not in the early return above. There, the account already
+	// held an avatar and this browser may legitimately still need authorising - a
+	// second browser, or one whose permission was revoked - which is `authoriseToPlay`'s
+	// job and a question with a button, not a wait. Waiting here would hang on it.
+	await waitUntilSetUpToPlay(page);
 }
 
 /**
