@@ -19,7 +19,25 @@
 # it is "why", and an unexplained list is how a deletion outlives the reason for
 # it and becomes cargo cult.
 #
-# This template omits nothing - it is where the files come from.
+# THIS LINE USED TO SAY "this template omits nothing - it is where the files come
+# from", AND IN THIS REPO IT WAS FALSE TWICE OVER: this is a GAME, not a template,
+# and the four entries directly below it are things it omits. It arrived by
+# inheritance from template-commit-reveal, where it was also false, and sat here
+# above the list contradicting it - which is the defect
+# `an-inherited-paragraph-cannot-say-this-repo` names, in the file whose whole job
+# is to be read during a merge. Upstream has its own corrected version now,
+# naming ITS stem; this is ours, naming ours.
+#
+# Files here come from `template-commit-reveal`, and what this repo omits is
+# THE TEMPLATE'S GAME: its e2e suites, its fixture, and every unit test it writes
+# for `$lib/placement`. Each is listed below with what replaced it.
+#
+# UPSTREAM'S OWN TWO ENTRIES ARE DELIBERATELY NOT TAKEN. It lists
+# `web/src/routes/demo` and `web/src/routes/offline-demo`, which are jolly-roger's
+# app demo - and our stem does not have them either, so they can never arrive from
+# it. An entry for a path the stem does not carry is an assertion that passes
+# forever while meaning nothing, which is the state this list must not drift into.
+# Take an entry from upstream only when the path exists in OUR stem.
 
 web/e2e/tests/game.e2e.ts
 # The PARENT TEMPLATE'S GAME, not this one. It plans a placement on a CELL,
