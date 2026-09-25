@@ -65,6 +65,37 @@ else
     echo -e "${GREEN}✓ Dropped ${removed} path(s); ${absent} were already absent.${NC}"
 fi
 
+# AND THE OTHER DIRECTION, which is the one this script cannot do by itself.
+#
+# Everything above trusts the list. `check-omissions.mjs` asks whether the list is
+# still TRUE - whether this repo drops anything nobody wrote down - and it needs
+# the stem to answer, because "deliberately absent" and "never existed here" are
+# indistinguishable from inside one repo. A merge in progress is exactly when the
+# stem is available for free: MERGE_HEAD *is* the stem commit.
+#
+# HERE RATHER THAN IN `verify`, for the same reason the dangling-import check is
+# here: this is the moment the mistake is made. It is also the only moment the
+# comparison is free, so a run outside a merge simply says so and is skipped
+# rather than failing the script.
+#
+# `git rev-parse -q --verify MERGE_HEAD`, never `test -f .git/MERGE_HEAD`: in a
+# WORKTREE `.git` is a FILE, so that test is silently false and every `&&` after
+# it quietly does nothing.
+if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    echo
+    if ! node "$REPO_DIR/scripts/check-omissions.mjs"; then
+        echo -e "${RED}  Resolve that before committing the merge: either list the"
+        echo -e "  path with its reason, or keep the file.${NC}"
+        exit 1
+    fi
+else
+    echo
+    echo -e "${YELLOW}  Not in a merge, so the list was not checked AGAINST THE STEM.${NC}"
+    echo -e "${YELLOW}  That check is what catches a path nobody listed:${NC}"
+    echo -e "${YELLOW}    git fetch stem <branch> && node scripts/check-omissions.mjs FETCH_HEAD${NC}"
+fi
+
+
 # THE OTHER HALF, and the one that has actually broken a build. A deletion a
 # repo re-applies is the conflict everybody sees; an import left pointing at
 # nothing is the hunk nobody does. Non-zero here means the merge is not resolved

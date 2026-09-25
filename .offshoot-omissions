@@ -17,7 +17,23 @@
 # FORMAT. One path per line, relative to the repo root. `#` starts a comment.
 # Give every entry a reason: the next person's question is never "which file",
 # it is "why", and an unexplained list is how a deletion outlives the reason for
-# it and becomes cargo cult.
+# it and becomes cargo cult. A DIRECTORY entry covers everything under it, which
+# is usually what you want: a whole replaced directory rather than forty files.
+#
+# AND IT IS CHECKED NOW, which is the only reason to trust it. Three guards, all
+# pointing different ways:
+#
+#   web/test/offshoot-omissions.test.ts   every LISTED path is still absent
+#   scripts/check-omissions.mjs           every ABSENT path is listed (needs the stem)
+#   scripts/apply-omissions.sh            re-drop them all, and run both checks
+#
+# ENTRIES ARE STEM-RELATIVE, which is the one thing to understand before editing.
+# What belongs here is what THIS repo drops from ITS stem (jolly-roger
+# `integration`). jolly-roger's own list names three paths it drops from
+# template-svelte-shadcn; those are absent from its `integration` too, so they are
+# not in this repo's stem, so they are not omissions HERE and are deliberately not
+# copied down. `check-omissions.mjs` is what makes that unambiguous: it only ever
+# reports a path that is present in the stem and absent here.
 #
 # THIS FILE USED TO SAY "this template omits nothing - it is where the files come
 # from", AND THAT WAS FALSE FROM THE DAY THE GAME LANDED. Files come from
@@ -26,8 +42,13 @@
 # its place. The cost of the wrong sentence was paid exactly as the header above
 # predicts: a cascade stopped on `offline-demo/+page.svelte`, the list said there
 # was nothing to look up, and the intent had to be excavated from a merge that
-# recorded the deletion in no diff at all. Recorded as a finding on the `work`
-# branch, 2026-09-25.
+# recorded the deletion in no diff at all.
+#
+# It was then measured properly, and the sentence was the smaller half of the
+# problem: this list held 2 of the 17 paths this repo actually drops, and every
+# other list in the tree was incomplete too (jolly-roger 0 of 3, reveal-or-die 4
+# of 52, bleeps 1 of 21, mandalas 2 of 24). The missing fifteen are below. See the
+# findings of 2026-09-25 on the `work` branch.
 
 # The app's own greeting demo. This repo replaces it with a game: `routes/play`
 # is what a player is here for, and `/demo` would be a second, unrelated thing to
@@ -44,3 +65,58 @@ web/src/routes/demo
 # because a world that owns the page makes the app's claims false (ADR-0004 on
 # the `work` branch, and jolly-roger's ADR-0009).
 web/src/routes/offline-demo
+
+# ---------------------------------------------------------------------------
+# THE APP DEMO'S CONTRACT, and everything that deploys, scripts or tests it.
+#
+# `GreetingsRegistry` is jolly-roger's demo contract: one string per account,
+# which is what its `/demo` route posts. CONTRACTS ARE NOT INHERITED in this tree
+# (see AGENTS.md) - each game carries its own - and this repo's are
+# `contracts/src/game/**` plus the two tokens that gate entry, so the registry has
+# nothing to be the contract FOR once the demo route is gone.
+#
+# Listed as five entries rather than one because they are five different kinds of
+# file in four directories, and a reader hitting a conflict in any one of them
+# should find it by its own path.
+contracts/src/GreetingsRegistry
+contracts/deploy/001_deploy_greetings_registry.ts
+contracts/scripts/setMessage.ts
+contracts/test/js/GreetingsRegistry.test.ts
+contracts/test/solidity/GreetingsRegistry/GreetingsRegistry.t.sol
+
+# ---------------------------------------------------------------------------
+# THE HALF OF `createContext` A FORK IS MEANT TO REPLACE, and it says so itself.
+#
+# The stem's file opens with "WHAT THIS APP'S BROWSER KEY IS FOR, in this app's
+# own words. The demo posts greetings, so that is what it says. It lives HERE, in
+# the half a fork replaces". This repo's replacement is `context/game.ts`, wired
+# to the game instead, and `context/core.ts` (which stays, byte-identical) is the
+# other half. So this is the invitation being accepted rather than a file being
+# thrown away.
+web/src/lib/context/app.ts
+
+# ---------------------------------------------------------------------------
+# THE DEMO'S OWN SUITES. Each one reaches its subject through the greetings
+# registry, so each one needs the contract and the route above; the subjects
+# themselves are all still covered here, by this game's equivalents.
+#
+# `demo.e2e.ts` drives the route. `delegation.e2e.ts` is subtler and worth a
+# sentence, because its SUBJECT is very much this repo's: "greetings belong to the
+# ACCOUNT, not to the key that signs them". That property holds here too and is
+# asserted here too - on the chain, by "Game delegation behind the router" in
+# `contracts/test/js/Game.test.ts`, and in a browser by every game suite, which
+# cannot commit at all unless the signer is a registered delegate. What could not
+# survive is the way in: it posted a greeting and read back whose it was.
+web/e2e/tests/demo.e2e.ts
+web/e2e/tests/delegation.e2e.ts
+
+# The demo route's unit tests, which went with the route.
+web/test/routes/demo
+
+# The template's own reads and merge, tested against `GreetingsRegistry` and the
+# `Message` shape it returns. Both seams survive and are this game's now:
+# `onchain/state.ts` reads the board (tested by `onchain/refresh-policy.test.ts`)
+# and the view merge is the game's (tested by `view/operation.test.ts`, which is
+# inherited and kept because pending OPERATIONS are the app's, not the demo's).
+web/test/lib/onchain/state.test.ts
+web/test/lib/view/pending-operations.test.ts
