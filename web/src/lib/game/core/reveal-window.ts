@@ -20,7 +20,8 @@
  *
  * WHY IT EXISTS AT ALL: going over it costs the stake. A submission whose
  * chunks do not all land before the phase shuts is a MISSED REVEAL, settled by
- * `acknowledgeMissedReveal` forfeiting what was at stake - which, in a game
+ * whatever call this game forfeits with, taking what was at stake - which, in a
+ * game
  * whose stake is indivisible (custody of an avatar, say), is the whole of it
  * however far the chain got. Nothing on chain prevents committing to a turn
  * that cannot be opened, and nothing can: at commit time the contract is
