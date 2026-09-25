@@ -24,7 +24,7 @@ type GameRenderer<TSurface> = {
 
 If you are unsure, the answer is reactive until it is slow, then immediate. Stateful is the right answer when the library you want is retained-mode, which pixi and three.js are.
 
-Only the last two are `GameRenderer`s, and only they are swapped by editing `$lib/placement/render/index.ts`. Reactive is a different shape: no surface, no frame loop, nothing to hand to `onAppStarted`. It is listed here as a peer because it is a real choice, not because it is the same kind of change.
+Only the last two are `GameRenderer`s, and only they are swapped by editing one file in your own game's `render/` directory (see "Switching renderer"). Reactive is a different shape: no surface, no frame loop, nothing to hand to `onAppStarted`. It is listed here as a peer because it is a real choice, not because it is the same kind of change.
 
 ### Which host is on which branch
 
@@ -46,7 +46,7 @@ The view state is a Svelte store, so a component subscribes to it like any other
 {/each}
 ```
 
-Delete `$lib/placement/render` and drop `gameRenderer` from the context; there is no renderer to point anywhere.
+Delete your game's own `render/` directory and drop `gameRenderer` from the context; there is no renderer to point anywhere.
 
 **The camera is not free, and getting this wrong is silent.** The poller is camera-scoped and refuses to fetch while the camera reports no size (`onchain/state.ts`). A component that only subscribes to `viewState` never calls `cameraControl.resize`, so the board stays empty forever with no failed request and no warning: it looks like a game with nothing in it yet. Pick one deliberately:
 
@@ -73,7 +73,7 @@ createImmediateRenderer<CanvasRenderingContext2D, BoardView>({
 
 `draw` is called for the `Unloaded` state too, rather than being skipped until the state loads. An immediate renderer normally clears its surface every frame anyway, and skipping the call would leave the last loaded frame burnt into the canvas.
 
-See `$lib/placement/render/board-immediate.ts` for a working one.
+For a working one, read whichever module your game's `render/index.ts` names as its renderer factory; the game that ships with this template draws its board that way.
 
 ### Stateful
 
@@ -150,7 +150,7 @@ What was dropped, because no game on this template ever called it: deceleration 
 
 ## Switching renderer
 
-`$lib/placement/render/index.ts` is the only file to edit. It names the surface type, the renderer factory and the canvas component.
+Your game's own `render/index.ts` is the only file to edit. It names the surface type, the renderer factory and the canvas component.
 
 That it is only one file is a property with a price, and it is worth knowing what pays for it. `PixiCanvas.svelte` and `Canvas2DCanvas.svelte` take **identical props**, so `routes/play/+page.svelte` does not change when you switch - including `cellSize` and `gridCells`, which only a scene-graph host has any use for and which the canvas-2d host accepts and ignores. Those two look like dead props and are not: removing them would move the swap's cost into a route file that both branches keep developing. `web/test/render-host-boundary.test.ts` fails if the page passes a prop the selected host does not declare.
 
@@ -169,4 +169,4 @@ Only step 4 is renderer-specific.
 
 `frame.devicePixelRatio` is what the host ACTUALLY configured its buffer to, which is not always `window.devicePixelRatio`. The canvas-2d host sizes its backing store at the device ratio and reports that. The pixi host on `with/pixi-js` pins pixi's `resolution` to 1, because the art is pixelated and upscaling it defeats the point, so it reports 1 and a renderer sizing a hairline off it is right to draw one CSS pixel. Report what you configured, or renderers that trust the number will draw at the wrong size.
 
-The canvas-2d host is covered two ways, and the split is deliberate because one of them cannot see the other's subject. `test/lib/game/render/canvas2d.svelte.test.ts` mounts it on a real canvas and reads PIXELS back, which is the only way to catch a coordinate or alpha drift between `beginFrame`, `applyCamera` and the renderer. `test/lib/placement/board-immediate.test.ts` drives the board renderer against a context that RECORDS calls, because culling changes no picture at all - canvas discards an out-of-range `fillRect` silently - so a pixel test cannot see the one piece of logic in that file that is not a drawing call.
+The canvas-2d host is covered two ways, and the split is deliberate because one of them cannot see the other's subject. `test/lib/game/render/canvas2d.svelte.test.ts` mounts it on a real canvas and reads PIXELS back, which is the only way to catch a coordinate or alpha drift between `beginFrame`, `applyCamera` and the renderer. The other half is the game's own: this template's reference game drives its board renderer against a context that RECORDS calls, because culling changes no picture at all - canvas discards an out-of-range `fillRect` silently - so a pixel test cannot see the one piece of logic in that file that is not a drawing call.
