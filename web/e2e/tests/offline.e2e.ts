@@ -33,6 +33,16 @@ import {test, expect, describe} from '../fixtures/test';
  * it and the suite failed for the collision it was explaining it could not
  * have. Describe them, do not spell them.
  *
+ * IT NOW ALSO SAYS WHOSE CHROME IS ABOVE THE BOARD, and that is a browser
+ * question too. This surface declares a chrome of its own (`routes/offline/+page.ts`
+ * and `$lib/offline-chrome`), so the app's account, its connection state and its
+ * credits must be ABSENT here - a world generated the wallet, so showing that
+ * address where the app shows the player's own says "your account changed" to
+ * anyone who played online first. `check` sees a declaration and cannot see what
+ * reached the screen; only a rendered page can say that the app's navbar is not
+ * there AND that exactly one navbar is, which is what keeps the board below the
+ * chrome rather than under it.
+ *
  * WHAT IT DELIBERATELY DOES NOT ASSERT is timing. The measurements are in the
  * plan on the `work` branch; a test that pinned them would fail on a busy
  * machine and say nothing about the game. The timeouts below are unchanged from
@@ -71,11 +81,45 @@ describe('Playing offline', () => {
 		});
 		await page.getByTestId('sit-down').click();
 
-		// The world is up: this strip is rendered by the route only once the
-		// chain, the deploy and the connection have all happened.
+		// The world is up: this strip is rendered only once the chain, the deploy
+		// and the connection have all happened. It is now this surface's own CHROME
+		// rather than the route's first element, which changes where it comes from
+		// and not what it means.
 		await expect(
 			page.getByText('Everything below runs against a chain inside this tab'),
 		).toBeVisible({timeout: 120_000});
+
+		// THE APP'S CHROME IS NOT HERE, AND THAT IS THE POINT OF THE SURFACE.
+		//
+		// This world generated its own wallet, so the account the app's navbar shows
+		// is not the player's; there is nothing to connect to, so a connection state
+		// has one possible value; and the world invented the money, so credits are a
+		// number about nothing. A player who played online first would read the same
+		// position on screen as "my account changed".
+		//
+		// ASSERTED AS ABSENCE, because that is the rule rather than a shortcut: a
+		// control whose only truthful value here is "not applicable" is ABSENT, not
+		// disabled and not showing a placeholder (ADR-0004 on the `work` branch, and
+		// jolly-roger's ADR-0009 for the mechanism).
+		//
+		// EACH ONE NAMES A DIFFERENT SOURCE, deliberately, because they can fail
+		// separately. `wallet-status` is the navbar's account block, `[data-connected]`
+		// is the connection predicate the whole e2e suite reads, and `signer-credits`
+		// is the credits indicator. A chrome that dropped one and kept another would
+		// be the half-done version, which is the state worth failing on.
+		await expect(page.getByTestId('wallet-status')).toHaveCount(0);
+		await expect(page.locator('[data-connected]')).toHaveCount(0);
+		await expect(page.getByTestId('signer-credits')).toHaveCount(0);
+		await expect(page.getByRole('button', {name: /^connect$/i})).toHaveCount(0);
+
+		// AND THERE IS STILL EXACTLY ONE NAVBAR, which is the other half of the same
+		// assertion and the one that keeps the geometry honest. A replacement navbar
+		// is still a navbar: the shell reserves `var(--navbar-height)` for whatever
+		// is in that slot, so zero of them leaves a blank strip where the chrome
+		// should be, and two would put the app's account back on screen beside the
+		// world's. `layout-shell.e2e.ts` measures this attribute for the same reason.
+		await expect(page.locator('[data-app-navbar]')).toHaveCount(1);
+		await expect(page.getByTestId('offline-world-navbar')).toBeVisible();
 
 		// AND THE BOARD IS NOT GATED ON ANYTHING. There is nothing left to ask
 		// for: the world gave every seat a stake and gas during provisioning, and
@@ -121,8 +165,10 @@ describe('Playing offline', () => {
 		).toBeVisible();
 
 		// The membership this world was provisioned with, on screen, because it
-		// cannot be changed without starting a new one.
+		// cannot be changed without starting a new one. In this world's own navbar
+		// now, next to the way out, which is the press that changes it.
 		await expect(page.getByText('3 seats at this table')).toBeVisible();
+		await expect(page.getByTestId('leave-the-table')).toBeVisible();
 
 		// A manual cycle starts at 2 and moves for no reason except a transaction.
 		await expect(page.getByText('cycle 2')).toBeVisible({timeout: 30_000});

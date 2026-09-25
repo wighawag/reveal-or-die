@@ -21,6 +21,17 @@
 	by `$lib/offline-lobby`, and none of it is here: this file renders a number, a set of choices and two presses. It
 	knows nothing about what a seat HOLDS, which is what keeps it one git object
 	across every branch of this template.
+
+	AND SO IS THE CHROME, which is what `+page.ts` beside this file declares. The
+	strip that used to be the first element below carried this world's facts and an
+	apology for the navbar above it; both are now the CHROME of this surface
+	(`$lib/offline-chrome`), rendered by the layout in the slots the app's navbar
+	and bars occupy everywhere else. Two things follow, and the second is the point.
+	The apology is gone because it is no longer true: what is above this page is
+	this world's own bar, not the app's. And the board below is now the whole
+	content region, because a bar is chrome and the shell shrinks the region by
+	exactly its height - where a strip inside the region was a second thing
+	computing the same pixels.
 -->
 <script lang="ts">
 	import {onMount} from 'svelte';
@@ -47,15 +58,19 @@
 
 {#if $offlineWorld.step === 'Ready'}
 	<!-- A NESTED PROVIDER, which is the whole mechanism in one element.
-	     `setAppContext` is svelte's `setContext`, so this shadows the app's
-	     context for THIS SUBTREE only: the game below runs against the chain in
-	     the tab while the navbar above still describes the remote one.
+	     `setAppContext` is svelte's `setContext`, so this shadows the app's context
+	     for THIS SUBTREE only: the game below runs against the chain in the tab,
+	     while the app's own context goes on describing the remote chain everywhere
+	     else.
 
-	     THAT IS ALSO A KNOWN GAP, and it is honest to say so here rather than
-	     leave it to be discovered: the chrome lives in `+layout.svelte`, outside
-	     every route subtree, so the account, the balance and the RPC banner up
-	     there are still the other world's. Fixing it is upstream work in
-	     `lib/core`, which every repo in this tree inherits.
+	     THE CHROME USED TO BE A KNOWN GAP AND IS NOW A DECLARED CHOICE. It is
+	     rendered by `+layout.svelte`, outside every route subtree, so it cannot see
+	     the context provided here - which is why this surface supplies its own
+	     instead of asking the app's to describe a world it cannot reach. What goes
+	     up there, and why an account, a connection state and a credits figure are
+	     ABSENT rather than blank, is `$lib/offline-chrome`; the mechanism and the
+	     test that decides which case a surface is in are jolly-roger's
+	     `$lib/ui/chrome` and its ADR-0009.
 
 	     NO CONNECTION FLOW, AND THAT IS THE POINT RATHER THAN AN OMISSION. A
 	     flow exists to relay a wallet's questions - which wallet, which account,
@@ -64,41 +79,20 @@
 	     that flash past describing decisions nobody is making. The rule the two
 	     states give between them: a nested world using the PLAYER's wallet needs
 	     its own flow, and one that brings its own must not have it. -->
-	<div class="flex h-full flex-col">
-		<div
-			class="shrink-0 border-b border-dashed border-muted-foreground/40 bg-muted/40 px-4 py-2 text-center text-sm"
-		>
-			Everything below runs against a chain inside this tab, on chain id
-			<code>{$offlineWorld.world.chainId}</code>. Nothing leaves the browser.
-			The navbar above is still describing the remote chain.
-			<p class="mt-1 text-xs text-muted-foreground">
-				<!-- The membership this world was PROVISIONED with, said rather than
-				     assumed: it was fixed when the world booted and the only way to a
-				     different one is a new world. -->
-				{$offlineLobby.seats} seats at this table, and changing that starts a new
-				world.
-				<button
-					class="underline underline-offset-2"
-					data-testid="leave-the-table"
-					onclick={() => offlineLobby.leaveTheTable()}>Leave this table</button
-				>
-			</p>
-			<p class="mt-1 text-xs text-muted-foreground">
-				{THE_KEY_THIS_BROWSER_PLAYS_WITH}
-			</p>
-		</div>
-		<div class="min-h-0 flex-1">
-			<Context context={$offlineWorld.context}>
-				<Play />
-				<!-- The app's own overlays, bound to THIS world. Without them the
-				     flows this game opens (authorising the browser's key, topping it
-				     up) drive stores nothing on screen is reading, and the button
-				     appears to do nothing. See the file for what is deliberately not
-				     in it. -->
-				<InWorld />
-			</Context>
-		</div>
-	</div>
+	<!-- THE WHOLE REGION IS THE GAME. This world's own bar took the strip's place
+	     and is CHROME now, so there is nothing to subtract here: the shell's content
+	     region is already the viewport minus this world's navbar and bar, and `Play`
+	     asks for `h-full` and means it, exactly as it does online. That is what
+	     ADR-0007 (jolly-roger) exists for, and the reason this route spells no
+	     height of its own. -->
+	<Context context={$offlineWorld.context}>
+		<Play />
+		<!-- The app's own overlays, bound to THIS world. Without them the flows this
+		     game opens (authorising the browser's key, topping it up) drive stores
+		     nothing on screen is reading, and the button appears to do nothing. See
+		     the file for what is deliberately not in it. -->
+		<InWorld />
+	</Context>
 {:else if $offlineLobby.step === 'Choosing'}
 	<!-- THE CHOICE, AND IT IS THE ONLY ONE. A seat has an occupant, and today an
 	     occupant is you or the world; how many there are is the whole of what a
