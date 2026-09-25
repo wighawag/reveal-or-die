@@ -97,13 +97,18 @@ void _identityIsCarryable;
  * artefact: nobody is signed in yet, or the account holds nothing it can play
  * with. The setup gate turns that into an instruction instead of a dead board.
  *
- * A plain `Readable` and nothing more, on purpose. reveal-or-die's equivalent
- * store also offers `select(avatarID)`, because there an account can own
- * several avatars and somebody has to pick; adding `select` here would ship a
+ * A plain `Readable` and nothing more, on purpose. A game in this tree whose
+ * account can own SEVERAL identities already offers a `select` on its own
+ * equivalent store, because somebody has to pick; adding one here would ship a
  * capability upstream that no consumer on `main` can exercise, since there is
  * exactly one identity and it is not chosen. A richer store satisfies this
  * type structurally, so a game that needs selection supplies it without this
  * type growing a method that does nothing here.
+ *
+ * The game is deliberately not named, and neither is what it calls an identity:
+ * a citation is only correct while it spells what that repo actually uses, and
+ * this file is inherited by every one of them. See `AGENTS.md`, which keeps the
+ * list of places where naming one was worth the risk.
  */
 export type ActiveIdentityStore = Readable<GameIdentity | undefined>;
 

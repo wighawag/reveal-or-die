@@ -246,7 +246,9 @@ function twoPhaseFrom(info: ClockedCycleInfo): TwoPhase {
 }
 
 /**
- * WHERE THE CHAIN SAYS THE CYCLE IS. The contract's `getCycle`, as read.
+ * WHERE THE CHAIN SAYS THE CYCLE IS, as the game's own cycle reader answered it.
+ * Which call that is belongs to the game: two in this tree already spell it
+ * differently, and the framework sees this shape either way.
  *
  * `phaseStart` and `phaseEnd` are chain time. They are what make a prediction
  * possible at all: the pair says which grid the cycle is currently on, and
