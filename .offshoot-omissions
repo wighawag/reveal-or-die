@@ -19,4 +19,28 @@
 # it is "why", and an unexplained list is how a deletion outlives the reason for
 # it and becomes cargo cult.
 #
-# This template omits nothing - it is where the files come from.
+# THIS FILE USED TO SAY "this template omits nothing - it is where the files come
+# from", AND THAT WAS FALSE FROM THE DAY THE GAME LANDED. Files come from
+# jolly-roger, not from here: this repo is a descendant with a `stem` remote like
+# any other, and it deletes the app demo it inherits because it ships a GAME in
+# its place. The cost of the wrong sentence was paid exactly as the header above
+# predicts: a cascade stopped on `offline-demo/+page.svelte`, the list said there
+# was nothing to look up, and the intent had to be excavated from a merge that
+# recorded the deletion in no diff at all. Recorded as a finding on the `work`
+# branch, 2026-09-25.
+
+# The app's own greeting demo. This repo replaces it with a game: `routes/play`
+# is what a player is here for, and `/demo` would be a second, unrelated thing to
+# maintain in a repo whose reference app IS the game. A descendant of THIS
+# template deletes `routes/play` in turn and writes its own, which is the same
+# move one level down.
+web/src/routes/demo
+
+# The same demo, played against a chain in the tab. Deleted for the same reason
+# and replaced by `routes/offline`, which plays THIS GAME offline; keeping both
+# would mean two offline routes, one of them exercising an app this repo no
+# longer has. Note that the two are not interchangeable as examples of the chrome
+# decision: the demo keeps the app's chrome and `routes/offline` declares its own,
+# because a world that owns the page makes the app's claims false (ADR-0004 on
+# the `work` branch, and jolly-roger's ADR-0009).
+web/src/routes/offline-demo
