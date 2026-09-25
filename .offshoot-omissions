@@ -17,7 +17,31 @@
 # FORMAT. One path per line, relative to the repo root. `#` starts a comment.
 # Give every entry a reason: the next person's question is never "which file",
 # it is "why", and an unexplained list is how a deletion outlives the reason for
-# it and becomes cargo cult.
+# it and becomes cargo cult. A DIRECTORY entry covers everything under it, which
+# is usually what you want: a whole replaced directory rather than forty files.
+#
+# AND IT IS CHECKED NOW, which is the only reason to trust it. Three guards, all
+# pointing different ways:
+#
+#   web/test/offshoot-omissions.test.ts   every LISTED path is still absent
+#   scripts/check-omissions.mjs           every ABSENT path is listed (needs the stem)
+#   scripts/apply-omissions.sh            re-drop them all, and run both checks
+#
+# ENTRIES ARE STEM-RELATIVE, which is the one thing to understand before editing.
+# What belongs here is what THIS repo drops from ITS stem (jolly-roger
+# `integration`). jolly-roger's own list names three paths it drops from
+# template-svelte-shadcn; those are absent from its `integration` too, so they are
+# not in this repo's stem, so they are not omissions HERE and are deliberately not
+# copied down. `check-omissions.mjs` is what makes that unambiguous: it only ever
+# reports a path that is present in the stem and absent here.
+#
+# ENTRIES ARE STEM-RELATIVE, which is the one thing to understand before editing.
+# What belongs here is what THIS repo drops from ITS stem, `template-commit-reveal`
+# `with/all`. Upstream's list names paths IT drops from jolly-roger (a greetings
+# demo, a context file, some suites) and those are already absent from `with/all`,
+# so they are not in our stem, cannot be omissions here, and are deliberately not
+# copied down. `scripts/check-omissions.mjs` is what makes that unarguable: it only
+# ever reports a path that is present in the stem and absent here.
 #
 # THIS LINE USED TO SAY "this template omits nothing - it is where the files come
 # from", AND IN THIS REPO IT WAS FALSE TWICE OVER: this is a GAME, not a template,
@@ -96,7 +120,7 @@ web/e2e/fixtures/game.ts
 #
 # The old code, if it is ever wanted, is in e0b7885.
 
-web/test/lib/placement/advance.test.ts
+web/test/lib/placement
 # THE TEMPLATE'S GAME AGAIN, this time as a unit test, and it arrived on
 # 2026-09-24 as a CLEAN ADD into a directory this repo does not otherwise have.
 # It tests `$lib/placement/advance.ts` - `getAttendance` read and `advanceCycle`
@@ -104,8 +128,11 @@ web/test/lib/placement/advance.test.ts
 # `web/src/lib/world/advance.ts`, against `getEpoch` and `moveToNextPhase`, and
 # it has tests of its own beside it.
 #
-# LISTED AS THE WHOLE CLASS, not just this file, because it is the fourth of its
-# kind and there will be a fifth. `web/src/lib/placement/` is the template's
+# LISTED AS THE WHOLE DIRECTORY, not just `advance.test.ts`, because it is the
+# fourth of its kind and there will be a fifth. It used to be the single path
+# while this paragraph claimed the class - prose and data disagreeing, so the
+# other ten files in there were unlisted and `check-omissions.mjs` reported every
+# one of them. The entry is the directory now. `web/src/lib/placement/` is the template's
 # game and this repo's is `web/src/lib/world/`; every test the template writes
 # under `web/test/lib/placement/` is therefore a test of code that does not
 # exist here, and it arrives with no conflict because git has nothing to
@@ -115,3 +142,92 @@ web/test/lib/placement/advance.test.ts
 # `node scripts/check-dangling-imports.mjs` is what finds them, and it is
 # already wired into scripts/apply-omissions.sh, so resolving a cascade the
 # documented way reports them before the commit rather than after the build.
+
+# ===========================================================================
+# THE FORTY-EIGHT BELOW were all missing until 2026-09-25, when the list was
+# checked against the stem for the first time and held 4 of 52. Nothing was
+# broken by their absence; what was missing was the ANSWER to "was this
+# deliberate?", at the only moment anyone asks - mid-merge. See the finding of
+# that date on the `work` branch.
+
+# ---------------------------------------------------------------------------
+# THE TEMPLATE'S GAME. This is the big one, and it is the whole point of the
+# split: `web/src/lib/placement/` IS template-commit-reveal's reference game
+# (cells, a bonded ERC20 stake, a per-cell tally) and this repo's game is
+# `web/src/lib/world/` (a maze, avatars, enter/move/exit, custody as the bond).
+# The template is arranged by DIRECTORY precisely so that "what do I replace" has
+# an obvious answer, and this is that answer being given.
+#
+# LISTED AS THE DIRECTORY, so the template can keep developing its own game
+# without a single conflict here, and so the next file it adds under it is covered
+# in advance rather than arriving as a clean ADD nobody notices. That is not
+# hypothetical: five such files arrived here in one 2026-09-23 cascade carrying
+# nine imports of `$lib/placement`, all clean, and `check-dangling-imports.mjs`
+# was written because of it.
+web/src/lib/placement
+
+# ---------------------------------------------------------------------------
+# THE TEMPLATE'S CONTRACTS, which are not inherited in this tree at all - each
+# game carries its own (AGENTS.md). Two groups, and they differ for one reason
+# worth stating: WHAT IS AT STAKE.
+#
+# The template bonds a freely-mintable ERC20 and sells it through `StakeSale`;
+# here the stake is the AVATAR, held in the game's custody, and there is no token
+# at all. So `contracts/src/tokens/` has no counterpart to keep - our equivalents
+# are `contracts/src/avatars/` (Avatars, AvatarsSale, Locker and the two payment
+# routes) plus the `GameDeposit` route that takes custody.
+contracts/src/tokens
+
+# The identity half of the template's `with/nft-identity` branch. Same subject as
+# ours - an account owns a token and the token plays - and a different
+# implementation: ours is `contracts/src/avatars/` with `GameDeposit.sol`, and our
+# `GameIdentity` is a bigint declared in `web/src/lib/game/identity.ts`.
+contracts/src/game/avatar
+
+# The deploys for all of the above. Ours are `001_deploy_avatars.ts`,
+# `010_deploy_game.ts` and `020_deploy_sale.ts`: no token to deploy, and the sale
+# sells avatars rather than stake.
+contracts/deploy/001_deploy_token.ts
+contracts/deploy/005_deploy_avatars.ts
+contracts/deploy/020_deploy_stake_sale.ts
+
+# The template's own contract suites. Each one is written against the stake model
+# above - they share a fixture exporting `TURN_BOND` and a `Placement` of
+# `{cellID}`, neither of which exists here - so none of them can run against these
+# contracts.
+#
+# WHAT SURVIVES AND WHAT DOES NOT, said plainly rather than implied. The cycle
+# policy is covered here by `contracts/test/js/ManualCycle.test.ts`, and entry and
+# custody by `Avatars.test.ts` and `Game.test.ts`. THE GAS BUDGET IS NOT COVERED
+# HERE, and that is a real gap rather than a replacement: `GasBudget.test.ts`
+# pins the worst-case gas of a turn against the credits multiplier, and by
+# ADR-0003's rule that figure is per-repo because it is measured against these
+# contracts. A suite of our own is owed; it is not this file's to write.
+contracts/test/js/CyclePolicy.test.ts
+contracts/test/js/GasBudget.test.ts
+contracts/test/js/StakeSale.test.ts
+
+# ---------------------------------------------------------------------------
+# THE CANVAS-2D HOST'S TEST AND ITS HARNESS. The subject is shared - this repo
+# has `web/src/lib/game/render/canvas2d/` and tests it in `renderers.test.ts` -
+# but the stem's suite draws THE TEMPLATE'S BOARD: it imports
+# `$lib/placement/render/board-immediate` and `$lib/placement/view`, both deleted
+# above. Only the thing being drawn had to change, and it did, on its own path.
+web/test/lib/game/render/Canvas2DHarness.svelte
+web/test/lib/game/render/canvas2d.svelte.test.ts
+
+# ---------------------------------------------------------------------------
+# A SUITE FOR A FACTORY THIS REPO DOES NOT HAVE. The stem's
+# `web/test/lib/game/identity.test.ts` tests `createActiveIdentity`, exported by
+# the stem's `game/identity.ts` to answer "which of this account's avatars is
+# playing" off the chain. Ours is heavily diverged and exports no such factory -
+# `GameIdentity`, `onchainIdentity` and `ActiveIdentityStore`, and the lookup lives
+# elsewhere - so the suite does not merely fail here, it cannot compile.
+#
+# WORTH KNOWING WHAT IS THEREFORE UNGUARDED, because the honest answer is not
+# "covered elsewhere": `web/test/identity-boundary.test.ts` is STRUCTURAL (no
+# shared module may name the concrete identity type) and says nothing about
+# behaviour. Whatever resolves the active identity here should get its own
+# behavioural suite; the stem's three states, the stale list most of all, are the
+# ones to steal when it does.
+web/test/lib/game/identity.test.ts
