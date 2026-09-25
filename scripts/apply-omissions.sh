@@ -9,6 +9,18 @@
 #
 #   bash scripts/apply-omissions.sh && git commit
 #
+# ONE COPY OF THIS SCRIPT IN THE TREE, WITH ONE DELIBERATE EXCEPTION. It lives at
+# `template-svelte`, the root, and cascades unchanged to every descendant. The
+# exception is `template-commit-reveal` and its descendant `reveal-or-die`, which
+# also carry `scripts/check-dangling-imports.mjs` and run it from here, gating
+# the "now commit the merge" line behind it. That version is NOT drift: two
+# cascades out of that template broke `reveal-or-die` through hunks that merged
+# CLEANLY, so nothing reported a conflict at all, and this is the moment that
+# check is worth a second. Those two repos are therefore expected to conflict
+# with this file on every cascade that touches it, for ever. RESOLVE IT BY
+# KEEPING BOTH HALVES - whatever changed up here, plus their dangling-import
+# block - and never by flattening either side.
+#
 # It ALSO runs the dangling-import check before it lets you commit, because the
 # omissions are only half of what a cascade gets wrong. Twice now the thing that
 # broke a repo in this tree merged CLEANLY and reported no conflict at all: see
