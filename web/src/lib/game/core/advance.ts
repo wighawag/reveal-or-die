@@ -21,15 +21,37 @@
  * `acknowledgeMissedReveal` forfeits a bond and is therefore the player's to
  * press; an advance takes nothing from anyone.)
  *
- * THE CONDITIONS ARE MIRRORED HERE AND THE CONTRACT IS STILL THE JUDGE.
+ * THE CONDITIONS ARE MIRRORED HERE, AND WHETHER THAT IS SAFE DEPENDS ON A
+ * PROPERTY OF YOUR CONTRACT THAT THIS FILE CANNOT CHECK.
  * {@link advancePermitted} is a copy of the contract's own guards, and copies
- * drift. What makes this one safe is what it is FOR: it exists so the client
- * does not broadcast a transaction every second that it already knows will
- * revert. Being wrong in the strict direction costs one reverted transaction;
- * being wrong in the lax direction costs nothing at all, because the contract
- * refuses. No stake is ever on this prediction, which is the property that
- * makes a mirrored guard acceptable here and would not make it acceptable in
- * the reveal path.
+ * drift. The copy is admissible when the contract RE-CHECKS the same conditions
+ * at execution time and reverts, because then this is only an optimisation:
+ * being wrong in the strict direction costs one reverted transaction, being
+ * wrong in the lax direction costs nothing at all, and no stake is ever on the
+ * prediction. That is the argument this file used to make in capitals, flatly,
+ * as though it were a statement about the framework.
+ *
+ * IT IS A STATEMENT ABOUT ONE CONTRACT. The reference game's `_advanceCycle`
+ * re-checks the policy, that somebody is waited for, that everyone waited for
+ * has committed, and that every commitment in the cycle has been opened. A game
+ * in this tree already does NOT: its own advance checks the policy and nothing
+ * else, with the unanimity guard left as a TODO. There the mirrored guard is not
+ * a prediction, it is the ONLY guard - and being wrong in the lax direction
+ * opens the reveal phase on a player who never committed, or closes a cycle on
+ * one who never revealed. In a game whose stake is an avatar, that is the avatar.
+ *
+ * SO THE RELIANCE IS DECLARED RATHER THAN ASSUMED: {@link CycleAdvanceDeps}
+ * takes `contractIsTheJudge`, with no default, so adopting this file means
+ * answering the question rather than inheriting the reassurance. Answer `false`
+ * and two things change, both of them about not spending somebody's stake on a
+ * guess this client alone is making: {@link CycleAdvanceStore.advance} stops
+ * being an unconditional push, and the cycle is re-read immediately before any
+ * push, because a phase reading that is one poll out of date is the one way a
+ * permitted-looking advance is the wrong one.
+ *
+ * WHAT IT DOES NOT DO IS MAKE AN UNGUARDED CONTRACT SAFE. Nothing a client does
+ * can, because anyone may call an advance and most callers are not this file.
+ * `false` buys care in this browser; the fix is in the contract.
  */
 import {writable, type Readable} from 'svelte/store';
 import type {CycleInfoStore, CyclePolicy} from './cycle';
@@ -68,9 +90,10 @@ export type AdvanceVerdict =
 /**
  * Would the contract accept an advance right now?
  *
- * A PREDICTION AND NOT AN AUTHORITY - see the file comment for why a mirrored
- * guard is admissible here. It answers in the same order the contract checks,
- * so a disagreement is one line to find rather than a whole path to re-derive.
+ * A PREDICTION WHERE THE CONTRACT JUDGES, AND THE ONLY GUARD WHERE IT DOES NOT
+ * - see the file comment, which is the one place that difference is spelled
+ * out. It answers in the same order the reference contract checks, so a
+ * disagreement is one line to find rather than a whole path to re-derive.
  *
  * UNANIMITY, NEVER A MAJORITY: `committed < waitedFor` refuses. A subset that
  * could close a phase would time slow players out and turn the cycle into a
@@ -145,7 +168,17 @@ export type CycleAdvanceState =
 	 * the mempool when this one was mined. Both are the contract refusing to do
 	 * something that is no longer true, and the next reading will say so.
 	 */
-	| {step: 'Failed'; cycleNumber: number; message: string; error: unknown};
+	| {step: 'Failed'; cycleNumber: number; message: string; error: unknown}
+	/**
+	 * Asked to push, and this client refused.
+	 *
+	 * ONLY REACHABLE WHERE THE CONTRACT IS NOT THE JUDGE. Where it is, a hand
+	 * press is deliberately sent and refused on chain, because the contract's
+	 * answer is better than this file's copy of it. Where it is not, there is no
+	 * better answer to defer to, and sending anyway would spend somebody's stake
+	 * to find out.
+	 */
+	| {step: 'Refused'; cycleNumber: number; because: AdvanceRefusal};
 
 export type CycleAdvanceStore = Readable<CycleAdvanceState> & {
 	readonly value: CycleAdvanceState;
@@ -160,10 +193,18 @@ export type CycleAdvanceStore = Readable<CycleAdvanceState> & {
 	 */
 	check(): Promise<void>;
 	/**
-	 * Push now, without asking whether it is permitted.
+	 * Push now.
 	 *
-	 * For a button. The local reading is only a prediction, so a hand press lets
-	 * the CONTRACT answer rather than this file's copy of its rules.
+	 * For a button, and what it does depends on the one property this file cannot
+	 * check. Where the contract is the judge it pushes WITHOUT asking whether the
+	 * rules permit it, deliberately: the local reading is only a prediction, so a
+	 * hand press lets the contract answer rather than this file's copy of its
+	 * rules, and the worst case is one reverted transaction.
+	 *
+	 * Where the contract is NOT the judge that same press is the whole decision,
+	 * so it is checked first - a fresh cycle reading, a fresh attendance read, and
+	 * the verdict - and a refusal is reported as {@link CycleAdvanceState} rather
+	 * than sent.
 	 */
 	advance(): Promise<void>;
 	/** Begin watching. Returns the teardown. */
@@ -174,12 +215,32 @@ export type CycleAdvanceStore = Readable<CycleAdvanceState> & {
 const RETRY_BASE_MS = 2000;
 const RETRY_CAP_MS = 30000;
 
-export function createCycleAdvance(params: {
+export type CycleAdvanceDeps = {
 	cycleInfo: CycleInfoStore;
-	/** Reads `getAttendance` off the game contract. */
+	/** Reads the contract's attendance: who is waited for, and who has acted. */
 	readAttendance: () => Promise<Attendance>;
-	/** Sends the game's `advanceCycle`, and resolves once it has been mined. */
+	/** Sends the game's advance, and resolves once it has been mined. */
 	advance: () => Promise<unknown>;
+	/**
+	 * DOES YOUR CONTRACT RE-CHECK THESE CONDITIONS AND REVERT?
+	 *
+	 * `true` means its advance enforces, at execution time, everything
+	 * {@link advancePermitted} predicts: the policy, that somebody is waited for,
+	 * that unanimity has been reached in the commit phase, and that every
+	 * commitment in the cycle has been opened in the reveal phase. Then this
+	 * client's copy is an optimisation and nothing is riding on it.
+	 *
+	 * `false` means it does not - typically because the unanimity guard is a TODO,
+	 * which is the state of one game in this tree today. Then this client's copy
+	 * is the only thing standing between a mistimed press and a player who loses
+	 * what they staked without ever having been asked to act.
+	 *
+	 * NO DEFAULT, AND THAT IS THE POINT. The safe-looking answer is the one that
+	 * matches the reference contract, so a default would hand every adopter the
+	 * reassurance that only the reference game has earned. Read your own advance
+	 * before answering: grep it for the tally, not for the function name.
+	 */
+	contractIsTheJudge: boolean;
 	/**
 	 * Re-read the cycle from the chain, if this policy has anything to re-read.
 	 *
@@ -188,6 +249,15 @@ export function createCycleAdvance(params: {
 	 * until the next poll; after a failure the likeliest explanation is that this
 	 * browser's picture of the phase was already stale, which is exactly when
 	 * asking again is worth a round trip.
+	 *
+	 * AND BEFORE A PUSH WHERE THE CONTRACT IS NOT THE JUDGE, which is the one
+	 * place it is not merely an optimisation. A verdict is computed from the
+	 * phase this browser last saw, and a phase one poll out of date is exactly
+	 * how "everyone has committed, open the reveal phase" becomes "close the
+	 * cycle on players who have not revealed". Where the contract judges, that
+	 * mistake costs a reverted transaction; where it does not, it costs their
+	 * stake. A game that supplies no `refreshCycle` is saying its cycle reading
+	 * cannot go stale.
 	 */
 	refreshCycle?: () => Promise<void>;
 	auto?: AutoAdvance;
@@ -195,8 +265,13 @@ export function createCycleAdvance(params: {
 	pollInterval?: number;
 	/** Injectable clock, for the tests of the backoff below. */
 	now?: () => number;
-}): CycleAdvanceStore {
+};
+
+export function createCycleAdvance(
+	params: CycleAdvanceDeps,
+): CycleAdvanceStore {
 	const {cycleInfo, readAttendance} = params;
+	const contractIsTheJudge = params.contractIsTheJudge;
 	const auto = params.auto ?? 'when-nothing-else-will';
 	const pollInterval = params.pollInterval ?? 1000;
 	const now = params.now ?? (() => Date.now());
@@ -331,16 +406,99 @@ export function createCycleAdvance(params: {
 		});
 		if (!verdict.permitted) return;
 
+		if (!contractIsTheJudge) {
+			// THE ONE GUARD, so the phase it just judged has to be current. Read
+			// again, and judge again on what came back: between the attendance read
+			// and this one the cycle may have moved, and pushing on the old picture
+			// is how a cycle gets closed on somebody who has not revealed.
+			await refreshBeforePushing();
+			const fresh = cycleInfo.now();
+			const second = advancePermitted({
+				policy: fresh.config.policy,
+				isCommitPhase: fresh.isCommitPhase,
+				attendance,
+			});
+			if (
+				!second.permitted ||
+				fresh.currentCycleNumber !== info.currentCycleNumber
+			) {
+				return;
+			}
+			await push(fresh.currentCycleNumber, second.opens);
+			return;
+		}
+
 		await push(info.currentCycleNumber, verdict.opens);
 	}
 
 	async function advance(): Promise<void> {
 		if (inFlight) return;
+
+		if (contractIsTheJudge) {
+			// SENT WITHOUT ASKING, deliberately. The contract's answer is better
+			// than this file's copy of it, and the cost of being wrong is one
+			// reverted transaction.
+			const info = cycleInfo.now();
+			await push(
+				info.currentCycleNumber,
+				info.isCommitPhase ? 'the-reveal-phase' : 'the-next-cycle',
+			);
+			return;
+		}
+
+		// NOTHING ELSE WILL REFUSE THIS, so the press is checked before it is
+		// spent - and against a FRESH reading, because the failure that costs a
+		// stake is a phase one poll out of date rather than a tally that is
+		// wrong.
+		await refreshBeforePushing();
 		const info = cycleInfo.now();
-		await push(
-			info.currentCycleNumber,
-			info.isCommitPhase ? 'the-reveal-phase' : 'the-next-cycle',
-		);
+
+		let attendance: Attendance;
+		try {
+			attendance = await readAttendance();
+		} catch (error) {
+			set({
+				step: 'Failed',
+				cycleNumber: info.currentCycleNumber,
+				message:
+					'could not read who the cycle is waiting for, and this client is ' +
+					'the only thing that checks',
+				error,
+			});
+			return;
+		}
+
+		const verdict = advancePermitted({
+			policy: info.config.policy,
+			isCommitPhase: info.isCommitPhase,
+			attendance,
+		});
+		if (!verdict.permitted) {
+			set({
+				step: 'Refused',
+				cycleNumber: info.currentCycleNumber,
+				because: verdict.because,
+			});
+			return;
+		}
+
+		await push(info.currentCycleNumber, verdict.opens);
+	}
+
+	/**
+	 * Re-read the cycle before spending, and swallow a failure.
+	 *
+	 * A failed re-read leaves the reading this browser already had, which is the
+	 * same position every other caller is in; it is not a reason to refuse, and
+	 * it is not a reason to pretend the reading is fresh either. The verdict is
+	 * computed from whatever the store holds afterwards.
+	 */
+	async function refreshBeforePushing(): Promise<void> {
+		try {
+			await params.refreshCycle?.();
+		} catch {
+			// See above: the caller carries on with the reading it had.
+		}
 	}
 
 	function start(): () => void {
