@@ -98,14 +98,23 @@ describe('the offline world\u2019s lobby', () => {
 		expect(reloads).toBe(1);
 	});
 
-	it('forgets the key the world actually writes', async () => {
-		// Guards the guard. Every assertion above is written against the mock's
-		// copy of the key, so a rename in `$lib/offline` would leave them green
-		// while this file cleared a key nothing uses - and "leave this table" would
-		// quietly go back into the same world.
-		vi.doUnmock('$lib/offline');
-		vi.resetModules();
-		const real = await import('$lib/offline');
-		expect(real.CHAIN_ID_STORAGE_KEY).toBe('offline-world:chain-id');
-	});
+	// A COLD IMPORT OF THE WHOLE OFFLINE WORLD (a chain, the deploy scripts, the
+	// app context), about three seconds alone and the one thing here that is not
+	// mocked. Vitest's default five seconds made it fail intermittently once the
+	// suite ran beside heavier files: measured in bomber-world, 2 of 3 full runs,
+	// while it passed every time on its own.
+	it(
+		'forgets the key the world actually writes',
+		{timeout: 30_000},
+		async () => {
+			// Guards the guard. Every assertion above is written against the mock's
+			// copy of the key, so a rename in `$lib/offline` would leave them green
+			// while this file cleared a key nothing uses - and "leave this table" would
+			// quietly go back into the same world.
+			vi.doUnmock('$lib/offline');
+			vi.resetModules();
+			const real = await import('$lib/offline');
+			expect(real.CHAIN_ID_STORAGE_KEY).toBe('offline-world:chain-id');
+		},
+	);
 });
