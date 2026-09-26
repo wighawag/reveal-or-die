@@ -631,9 +631,9 @@ abstract contract UsingGameInternal is
     /// @dev THE SEAM. `virtual` and nothing else in this contract is, which is
     ///      deliberate: a game that keys by a token overrides this ONE function
     ///      and touches no store, no route and no other internal. The precedent
-    ///      is bomber-world's `_epoch()` - THAT REPO'S OWN NAME, since it has
-    ///      not been ported to this vocabulary - and the rule is N4 of Decision
-    ///      3 in the plan on the `work` branch.
+    ///      is bomber-world's `_cycleNumber()` (so named since that repo was
+    ///      ported to this vocabulary on 2026-09-26), and the rule is N4 of
+    ///      Decision 3 in the plan on the `work` branch.
     ///
     ///      THIS GAME IS AN ADDRESS GAME, so the identity is the account and
     ///      the only question is authority: may `sender` act for it? A token
