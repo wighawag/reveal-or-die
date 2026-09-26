@@ -188,9 +188,8 @@ export function createOfflinePlayers(params: {
 	// THE SEAM SITTING BESIDE THIS FILE, rather than a fourth copy of the same
 	// read. This is the one line where the two offline worlds in this tree
 	// differed - `getCycle` against reveal-or-die's `getCycleNumber` - and both
-	// of them already ship a
-	// reader that answers it in the framework's own shape for the trackers. The
-	// played players were duplicating it instead of asking.
+	// of them already ship a reader that answers it in the framework's own shape
+	// for the trackers. The played players were duplicating it instead of asking.
 	const readCycle = createCycleReader({publicClient, deployments: records});
 
 	function send(
