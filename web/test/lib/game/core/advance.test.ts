@@ -368,6 +368,11 @@ describe('createCycleAdvance', () => {
 				sent.push(sent.length);
 				return new Promise<void>((resolve) => (release = resolve));
 			},
+			// The chain moved, as it does after an advance. Without this the fake
+			// would still say "everyone committed, commit phase" afterwards, and the
+			// check queued below would be right to push again.
+			refreshCycle: async () =>
+				cycles.move({cycleNumber: 2, isCommitPhase: false}),
 			contractIsTheJudge: true,
 		});
 
@@ -493,5 +498,322 @@ describe('when the contract is NOT the judge', () => {
 		await h.store.check();
 
 		expect(h.sent).toHaveLength(1);
+	});
+});
+
+describe('one decision at a time', () => {
+	/**
+	 * THE HOLE THESE CLOSE. The guard used to be read at the top of `check()` and
+	 * set only inside `push()`, with at least one `await` between them, so a
+	 * second caller entering that window passed it and both sent an advance. The
+	 * poll and the pokes are independent callers, so it is reachable.
+	 *
+	 * WHY THESE ARE INTERLEAVING TESTS. The older in-flight test above waits until
+	 * the push has started, which is exactly the case the old guard already
+	 * covered. Here every read is HELD until the test lets it go, so both callers
+	 * are inside the window at once.
+	 */
+
+	/**
+	 * A chain the advance client can be wrong about.
+	 *
+	 * The client's picture of the phase moves only when it refreshes, so it can
+	 * be stale; attendance is read live but held until released; an advance is
+	 * MINED a macrotask after it is sent, so two sends made in the same window
+	 * both go out before either lands. `judge` is the contract property itself:
+	 * true refuses an advance the rules do not permit, false accepts any advance,
+	 * which is what one game in this tree does today.
+	 */
+	function chain(params: {judge: boolean; attendance: Attendance}) {
+		const cycles = fakeCycles({policy: 'manual'});
+		const onChain = {
+			cycleNumber: 2,
+			isCommitPhase: true,
+			attendance: params.attendance,
+		};
+		let clock = 0;
+		let held: Promise<void> | undefined;
+		let release: (() => void) | undefined;
+		let readFailures = 0;
+		const sent: number[] = [];
+		const refused: string[] = [];
+
+		const store = createCycleAdvance({
+			cycleInfo: cycles.cycleInfo,
+			readAttendance: async () => {
+				// Answered as of when it was ASKED, as a node answers, however long
+				// the answer then takes to arrive.
+				const answer = onChain.attendance;
+				if (held) await held;
+				if (readFailures > 0) {
+					readFailures--;
+					throw new Error('the node did not answer');
+				}
+				return answer;
+			},
+			advance: async () => {
+				sent.push(sent.length);
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				const verdict = advancePermitted({
+					policy: 'manual',
+					isCommitPhase: onChain.isCommitPhase,
+					attendance: onChain.attendance,
+				});
+				if (!verdict.permitted) {
+					if (params.judge) {
+						refused.push(verdict.because);
+						throw new Error(verdict.because);
+					}
+				}
+				if (onChain.isCommitPhase) {
+					onChain.isCommitPhase = false;
+				} else {
+					onChain.cycleNumber += 1;
+					onChain.isCommitPhase = true;
+					onChain.attendance = {
+						waitedFor: onChain.attendance.waitedFor,
+						committed: 0,
+						revealed: 0,
+					};
+				}
+			},
+			refreshCycle: async () =>
+				cycles.move({
+					cycleNumber: onChain.cycleNumber,
+					isCommitPhase: onChain.isCommitPhase,
+				}),
+			contractIsTheJudge: params.judge,
+			now: () => clock,
+		});
+
+		return {
+			store,
+			cycles,
+			onChain,
+			sent,
+			refused,
+			hold() {
+				held = new Promise<void>((resolve) => (release = resolve));
+			},
+			release() {
+				held = undefined;
+				release?.();
+			},
+			failNextReads: (count: number) => (readFailures = count),
+			setClock: (value: number) => (clock = value),
+		};
+	}
+
+	/** Let every pending microtask and one macrotask run. */
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+	const allCommitted: Attendance = {waitedFor: 2, committed: 2, revealed: 0};
+
+	describe('two checks interleaving across the attendance read', () => {
+		it('send ONE advance where the contract is the judge', async () => {
+			const c = chain({judge: true, attendance: allCommitted});
+			c.hold();
+			const first = c.store.check();
+			const second = c.store.check();
+			await settle();
+			c.release();
+			await Promise.all([first, second]);
+
+			expect(c.sent).toHaveLength(1);
+			// The duplicate used to come back as a refusal this client caused
+			// itself, and feed the backoff a failure with no information in it.
+			expect(c.refused).toEqual([]);
+			expect(c.store.value).toEqual({step: 'Idle'});
+		});
+
+		it('send ONE advance where it is NOT, and the cycle moves once', async () => {
+			// THE CASE THAT COSTS A STAKE. Nothing on chain refuses the second
+			// advance, so it is accepted: the reveal phase opens and is closed
+			// again at once, on players who have not revealed.
+			const c = chain({judge: false, attendance: allCommitted});
+			c.hold();
+			const first = c.store.check();
+			const second = c.store.check();
+			await settle();
+			c.release();
+			await Promise.all([first, second]);
+
+			// Asserted first so a regression fails on the harm, not the count.
+			expect(c.onChain).toMatchObject({cycleNumber: 2, isCommitPhase: false});
+			expect(c.sent).toHaveLength(1);
+		});
+	});
+
+	describe('a check interleaving with a hand press', () => {
+		it('a press during a check sends nothing more, where the contract judges', async () => {
+			// The judge path sends a press without reading anything, so the old
+			// guard let it straight through a check that was still reading.
+			const c = chain({judge: true, attendance: allCommitted});
+			c.hold();
+			const check = c.store.check();
+			await settle();
+			const press = c.store.advance();
+			c.release();
+			await Promise.all([check, press]);
+
+			expect(c.sent).toHaveLength(1);
+			expect(c.refused).toEqual([]);
+		});
+
+		it('a press during a check sends nothing more, where it does not', async () => {
+			const c = chain({judge: false, attendance: allCommitted});
+			c.hold();
+			const check = c.store.check();
+			await settle();
+			const press = c.store.advance();
+			await settle();
+			c.release();
+			await Promise.all([check, press]);
+
+			expect(c.sent).toHaveLength(1);
+			expect(c.onChain).toMatchObject({cycleNumber: 2, isCommitPhase: false});
+		});
+
+		it('a check during a press re-reads after it rather than pushing again', async () => {
+			// The sole-guard press has awaits of its own now (a refresh and a
+			// read), so the window runs the other way too.
+			const c = chain({judge: false, attendance: allCommitted});
+			c.hold();
+			const press = c.store.advance();
+			await settle();
+			const check = c.store.check();
+			await settle();
+			c.release();
+			await Promise.all([press, check]);
+
+			expect(c.sent).toHaveLength(1);
+			expect(c.onChain).toMatchObject({cycleNumber: 2, isCommitPhase: false});
+		});
+	});
+
+	it('QUEUES a check that arrives mid-pass, and runs it on a fresh read', async () => {
+		// The poke is sent the moment something changed, so arriving while the
+		// poll is mid-read is the likely case. Dropping it would leave the round
+		// waiting on the next poll, which is the latency the poke exists to
+		// remove.
+		const c = chain({
+			judge: true,
+			attendance: {waitedFor: 2, committed: 1, revealed: 0},
+		});
+		c.hold();
+		const poll = c.store.check();
+		await settle();
+		// The last commitment lands while the poll's read is in flight, so the
+		// poll is answered with the old tally, and the poke that landing sends
+		// arrives mid-pass.
+		c.onChain.attendance = allCommitted;
+		const poke = c.store.check();
+		c.release();
+		await Promise.all([poll, poke]);
+
+		expect(c.sent).toHaveLength(1);
+	});
+
+	describe('every early return leaves the client able to advance', () => {
+		/**
+		 * A CLAIM THAT IS NEVER RELEASED IS WORSE THAN THE DUPLICATE IT CLOSES:
+		 * under `manual` nothing else moves the cycle, so it is a world that stops
+		 * with no error anywhere. Each case takes one early return and then asks
+		 * for an advance that should obviously go out.
+		 */
+
+		it('after a failed attendance read', async () => {
+			const c = chain({judge: true, attendance: allCommitted});
+			c.failNextReads(1);
+			await c.store.check();
+			expect(c.sent).toHaveLength(0);
+
+			await c.store.check();
+			expect(c.sent).toHaveLength(1);
+		});
+
+		it('after a verdict that is not permitted', async () => {
+			const c = chain({
+				judge: true,
+				attendance: {waitedFor: 2, committed: 1, revealed: 0},
+			});
+			await c.store.check();
+			expect(c.sent).toHaveLength(0);
+
+			c.onChain.attendance = allCommitted;
+			await c.store.check();
+			expect(c.sent).toHaveLength(1);
+		});
+
+		it('after a backoff that has not elapsed', async () => {
+			// The chain refuses the first push because it is in the reveal phase
+			// while this client still thinks commit; then, with nothing new read,
+			// the next check stops at the backoff.
+			const c = chain({judge: true, attendance: allCommitted});
+			c.onChain.isCommitPhase = false;
+			await c.store.check();
+			expect(c.refused).toEqual(['still-waiting-to-reveal']);
+			// The refresh after a failed attempt corrected the phase; put the
+			// client's picture back so the situation is unchanged.
+			c.cycles.move({cycleNumber: 2, isCommitPhase: true});
+			await c.store.check();
+			expect(c.sent).toHaveLength(1);
+
+			c.onChain.isCommitPhase = true;
+			c.setClock(2000);
+			await c.store.check();
+			expect(c.sent).toHaveLength(2);
+			expect(c.store.value).toEqual({step: 'Idle'});
+		});
+
+		it('after refusing a reading that aged during the decision', async () => {
+			const c = chain({judge: false, attendance: allCommitted});
+			// The chain is already one advance ahead of what this client last saw.
+			c.onChain.isCommitPhase = false;
+			await c.store.check();
+			expect(c.sent).toHaveLength(0);
+
+			c.onChain.attendance = {waitedFor: 2, committed: 2, revealed: 2};
+			await c.store.check();
+			expect(c.sent).toHaveLength(1);
+		});
+
+		it('after a hand press that could not read the attendance', async () => {
+			const c = chain({judge: false, attendance: allCommitted});
+			c.failNextReads(1);
+			await c.store.advance();
+			expect(c.store.value.step).toBe('Failed');
+
+			await c.store.check();
+			expect(c.sent).toHaveLength(1);
+		});
+
+		it('after a hand press this client refused', async () => {
+			const c = chain({
+				judge: false,
+				attendance: {waitedFor: 2, committed: 1, revealed: 0},
+			});
+			await c.store.advance();
+			expect(c.store.value.step).toBe('Refused');
+
+			c.onChain.attendance = allCommitted;
+			await c.store.check();
+			expect(c.sent).toHaveLength(1);
+		});
+
+		it('after a pass that threw', async () => {
+			// No return is involved at all: the claim is released in a `finally`,
+			// so even a pass that does not finish cannot keep it.
+			const c = chain({judge: true, attendance: allCommitted});
+			const now = c.cycles.cycleInfo.now;
+			c.cycles.cycleInfo.now = () => {
+				throw new Error('no cycle yet');
+			};
+			await expect(c.store.check()).rejects.toThrow('no cycle yet');
+
+			c.cycles.cycleInfo.now = now;
+			await c.store.check();
+			expect(c.sent).toHaveLength(1);
+		});
 	});
 });
