@@ -140,8 +140,8 @@ that, and every one of them is easy to break by accident.
   different orders; keep that test working when you change resolution rules.
 
   The test is whether the ORDER can change what a player GETS, not whether
-  shared state is read at all. There is exactly one place here that reads it on
-  purpose: `_place` checks whether a cell has ever been claimed so it can add it
+  shared state is read at all. In template-commit-reveal's own reference game
+  there is exactly one place that reads it on purpose: `_place` checks whether a cell has ever been claimed so it can add it
   to a per-zone index once, and the indexed set, every stake and every player's
   position come out identical either way (only the array order and which reveal
   pays for the append differ). That argument is written next to the code and
@@ -159,7 +159,8 @@ that, and every one of them is easy to break by accident.
 - **Renaming a persisted key or field forfeits the stake of every player who
   has one in flight, and every suite stays green while it happens.** The secret
   that opens a commitment lives in the browser, in your game's own submission
-  storage (`placement/storage.ts` here), and nowhere else. `load()` discards
+  storage (`placement/storage.ts` in template-commit-reveal's reference game,
+  `world/storage.ts` in reveal-or-die and bomber-world), and nowhere else. `load()` discards
   any record it cannot read, so a record written by the previous build under
   the old name is not a migration problem, it is a player who can no longer
   reveal: the commitment stands, the reveal never comes, and
@@ -192,9 +193,9 @@ git worktree add ../<repo>-work work   # or check it out beside the repo
 
 If reality contradicts the plan, change the document in the same commit as the code that proved it wrong, and say which claim was wrong.
 
-The README's ADR section points at `work:docs/adr/`. That is **jolly-roger's** branch layout, and a repo further down this tree may hold nothing at that path; the listing command above is the reliable route. The README is byte-identical to the stem's in this repo and is deliberately left that way.
+The README's ADR section points at `work:docs/adr/`. That is **jolly-roger's** branch layout, and a repo further down this tree may hold nothing at that path; the listing command above is the reliable route. template-commit-reveal's README is byte-identical to jolly-roger's and is deliberately left that way; a game's README is its own, and says nothing about this.
 
-**AN ADR NUMBER IS ONLY MEANINGFUL WITH A REPO ATTACHED, now that this one has ADRs of its own.** Every bare citation in the code (`ADR-0002`, `ADR-0004`) means **jolly-roger's**, which holds 0001 to 0008 and will keep adding to them; this repo's own sequence starts again at 0001 and is unrelated. Read a bare number as jolly-roger's, and write new citations as "ADR-0001 (template-commit-reveal `work`)". The existing bare ones are left alone deliberately: most are in files byte-identical to the stem's, where editing them would be the divergence-by-copy this tree keeps paying for.
+**AN ADR NUMBER IS ONLY MEANINGFUL WITH A REPO ATTACHED, now that template-commit-reveal has ADRs of its own.** Every bare citation in the code (`ADR-0002`, `ADR-0004`) means **jolly-roger's**, which holds 0001 to 0008 and will keep adding to them; template-commit-reveal's own sequence starts again at 0001 and is unrelated. Read a bare number as jolly-roger's, and write new citations as "ADR-0001 (template-commit-reveal `work`)". The existing bare ones are left alone deliberately: most are in files byte-identical to the stem's, where editing them would be the divergence-by-copy this tree keeps paying for.
 
 ## Before you commit a cascade, in this repo or in a descendant
 
