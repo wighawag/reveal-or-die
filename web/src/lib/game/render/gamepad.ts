@@ -134,7 +134,26 @@ export type GamepadRecognizer = {
 	reset(): void;
 };
 
-export function createGamepadRecognizer(): GamepadRecognizer {
+/**
+ * Buttons the GAME binds to actions of its own, by standard-mapping index (3 is
+ * the north face button, 4 and 5 the bumpers, 6 and 7 the triggers), to the name
+ * it will receive in `{type: 'action', name}`. Consulted before the defaults, so
+ * binding 0, 1 or 2 takes that button back from `confirm`, `cancel` or
+ * `secondary`.
+ */
+export type GamepadActions = Readonly<Record<number, string>>;
+
+export function createGamepadRecognizer(
+	actions: GamepadActions = {},
+): GamepadRecognizer {
+	const bound: readonly [number, ControlIntent][] = [
+		...Object.entries(actions).map(([index, name]): [number, ControlIntent] => [
+			Number(index),
+			{type: 'action', name},
+		]),
+		...BUTTON_INTENTS.filter(([index]) => !(index in actions)),
+	];
+
 	const states = new Map<number, PadState>();
 
 	return {
@@ -151,7 +170,7 @@ export function createGamepadRecognizer(): GamepadRecognizer {
 				};
 				const down = new Set<number>();
 
-				for (const [index, intent] of BUTTON_INTENTS) {
+				for (const [index, intent] of bound) {
 					if (!pressed(pad.buttons, index)) continue;
 					down.add(index);
 					if (!previous.down.has(index)) intents.push(intent);
@@ -209,6 +228,8 @@ export type GamepadOptions = {
 	getGamepads?: () => ArrayLike<GamepadLike | null>;
 	requestFrame?: (callback: () => void) => number;
 	cancelFrame?: (handle: number) => void;
+	/** The game's own buttons: see {@link GamepadActions}. */
+	actions?: GamepadActions;
 };
 
 /** One frame of a real pad, flattened into what the recogniser reads. */
@@ -254,7 +275,7 @@ export function attachGamepad(
 
 	if (!host || !getGamepads || !requestFrame || !cancelFrame) return () => {};
 
-	const recognizer = createGamepadRecognizer();
+	const recognizer = createGamepadRecognizer(options.actions);
 	let frame: number | undefined;
 	let stopped = false;
 

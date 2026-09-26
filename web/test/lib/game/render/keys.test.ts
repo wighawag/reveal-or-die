@@ -81,3 +81,41 @@ describe('the keystrokes it deliberately does not take', () => {
 		});
 	});
 });
+
+describe('the actions a game names for itself', () => {
+	const actions = {b: 'delayedBomb', x: 'drop'};
+
+	it('carries a bound key to the game, under the name the game gave it', () => {
+		expect(recognizeKey({key: 'b'}, {actions})).toEqual({
+			type: 'action',
+			name: 'delayedBomb',
+		});
+		// unbound, the same key is still nobody's
+		expect(recognizeKey({key: 'b'})).toBeUndefined();
+	});
+
+	it('lets the game take a default key back', () => {
+		// `x` is a spelling of `secondary` by default; bound, it is the game's.
+		expect(recognizeKey({key: 'x'})).toEqual({type: 'secondary'});
+		expect(recognizeKey({key: 'x'}, {actions})).toEqual({
+			type: 'action',
+			name: 'drop',
+		});
+		// and every other default is untouched
+		expect(recognizeKey({key: 'Enter'}, {actions})).toEqual({type: 'confirm'});
+	});
+
+	it('refuses a bound key exactly where it refuses every other key', () => {
+		expect(recognizeKey({key: 'b', intoText: true}, {actions})).toBeUndefined();
+		expect(recognizeKey({key: 'b', modified: true}, {actions})).toBeUndefined();
+		expect(recognizeKey({key: 'b', repeat: true}, {actions})).toBeUndefined();
+		expect(
+			recognizeKey({key: 'b', repeat: true}, {actions, repeats: true}),
+		).toEqual({type: 'action', name: 'delayedBomb'});
+		// Enter and Space into a focused control still belong to the control,
+		// even when the game has bound them.
+		expect(
+			recognizeKey({key: ' ', intoControl: true}, {actions: {' ': 'bomb'}}),
+		).toBeUndefined();
+	});
+});
