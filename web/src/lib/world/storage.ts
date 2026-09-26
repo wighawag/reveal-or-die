@@ -43,11 +43,13 @@ type StoredAction = {actionType: number; data: string};
  * commit-reveal rule in `AGENTS.md`, and it is why this was held back once
  * already.
  *
- * It was renamed anyway, and the reason is CHECKED FOR THIS REPO rather than
- * inherited from the template. The template could rename its own because it has
- * no committed deployment at all; that argument does not transfer, because this
- * repo HAS one (`contracts/deployments/rise-testnet`). Three things make it
- * free here regardless:
+ * It was renamed anyway, in reveal-or-die, and the reason was CHECKED FOR THAT
+ * REPO rather than inherited from the template. The template could rename its
+ * own because it has no committed deployment at all; that argument does not
+ * transfer, because reveal-or-die HAS one (`contracts/deployments/rise-testnet`).
+ * Three things made it free there regardless (and bomber-world, which inherits
+ * this file, deleted its records when it was ported, so nothing of its can be
+ * in flight at all):
  *
  * 1. THAT DEPLOYMENT IS ALREADY UNREACHABLE by this build. Its `Game` ABI
  *    carries none of `delegationStatus`, `registerDelegate`,
