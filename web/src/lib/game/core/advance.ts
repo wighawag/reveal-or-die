@@ -190,6 +190,10 @@ export type CycleAdvanceStore = Readable<CycleAdvanceState> & {
 	 * unanimity - a commit that lands is exactly when the reveal phase becomes
 	 * pushable, and waiting a whole poll interval to notice is the difference
 	 * between a round that feels instant and one that does not.
+	 *
+	 * One pass runs at a time. A call that arrives while one is running is
+	 * QUEUED and runs as a fresh pass once it ends; its promise resolves at once
+	 * rather than waiting for that pass.
 	 */
 	check(): Promise<void>;
 	/**
@@ -205,6 +209,9 @@ export type CycleAdvanceStore = Readable<CycleAdvanceState> & {
 	 * so it is checked first - a fresh cycle reading, a fresh attendance read, and
 	 * the verdict - and a refusal is reported as {@link CycleAdvanceState} rather
 	 * than sent.
+	 *
+	 * Ignored while a check or another press is already deciding, because that
+	 * pass is deciding exactly this; it is never queued behind one.
 	 */
 	advance(): Promise<void>;
 	/** Begin watching. Returns the teardown. */
@@ -284,7 +291,55 @@ export function createCycleAdvance(
 		store.set(next);
 	}
 
-	let inFlight = false;
+	/**
+	 * ONE DECISION AT A TIME, CLAIMED BEFORE THE FIRST READ AND RELEASED IN A
+	 * `finally`, and a check that arrives while one runs is QUEUED, not dropped.
+	 *
+	 * Claimed early because the decision is not the push, it is everything from
+	 * the first read to the push: a flag set only inside the push left a window
+	 * across every `await` before it (the attendance read, and on the sole-guard
+	 * path two cycle refreshes), and a second caller entering that window passed
+	 * the guard and sent a second advance. The pollers and the pokes are
+	 * independent callers, so they do interleave. Where the contract is the judge
+	 * the duplicate is one reverted transaction and a `Failed` this client caused
+	 * itself. Where it is NOT, both are accepted and the cycle moves TWICE, which
+	 * closes a cycle on players who have not revealed: the exact harm
+	 * `contractIsTheJudge: false` exists to prevent.
+	 *
+	 * Released in a `finally` around the whole pass, never at an individual
+	 * return, because a flag claimed and not released is worse than the duplicate
+	 * it closes: under `manual` nothing else moves the cycle, so it is a world that
+	 * stops with no error anywhere. No early return can skip a `finally`.
+	 *
+	 * QUEUED rather than dropped for the reason `createSerialisedLoop` in
+	 * `./played.ts` gives: a poke arrives exactly when something just changed, so
+	 * one arriving mid-pass is the likely case, and dropping it falls back to the
+	 * poll - the second of latency the poke exists to remove. A queued check runs
+	 * the WHOLE pass again, reads included, so it re-reads rather than re-pushes;
+	 * and it cannot spin, because only a caller sets it.
+	 *
+	 * That loop is not reused, deliberately. The hand press has to share this
+	 * exclusion and is DROPPED rather than queued (a press queued behind a check
+	 * that already pushed would, where the contract judges, be an unconditional
+	 * second send), and the loop has no way to express a second kind of pass or to
+	 * refuse one; importing it would also tie this file to the played seats' module
+	 * for ten lines of flag.
+	 */
+	let busy = false;
+	let wanted = false;
+
+	async function exclusively(first: () => Promise<void>): Promise<void> {
+		busy = true;
+		try {
+			await first();
+			while (wanted) {
+				wanted = false;
+				await checkOnce();
+			}
+		} finally {
+			busy = false;
+		}
+	}
 
 	/**
 	 * BACKOFF THAT RESETS ON NEW INFORMATION, which is the shape this needs
@@ -342,7 +397,6 @@ export function createCycleAdvance(
 		cycleNumber: number,
 		opens: 'the-reveal-phase' | 'the-next-cycle',
 	): Promise<void> {
-		inFlight = true;
 		set({step: 'Advancing', cycleNumber, opens});
 		try {
 			await params.advance();
@@ -361,9 +415,9 @@ export function createCycleAdvance(
 				error,
 			});
 		} finally {
-			inFlight = false;
 			// See `refreshCycle`: an attempt is exactly when the local picture of
-			// the phase is most likely to have moved on.
+			// the phase is most likely to have moved on. Still inside the claim, so
+			// a check queued meanwhile judges the phase this re-read returns.
 			try {
 				await params.refreshCycle?.();
 			} catch {
@@ -374,7 +428,15 @@ export function createCycleAdvance(
 	}
 
 	async function check(): Promise<void> {
-		if (inFlight) return;
+		if (busy) {
+			wanted = true;
+			return;
+		}
+		return exclusively(checkOnce);
+	}
+
+	/** One pass of {@link check}. Only ever called holding the claim. */
+	async function checkOnce(): Promise<void> {
 		const info = cycleInfo.now();
 		if (!pushes(info.config.policy)) return;
 
@@ -432,8 +494,13 @@ export function createCycleAdvance(
 	}
 
 	async function advance(): Promise<void> {
-		if (inFlight) return;
+		// Dropped, not queued: see `busy`. A pass is already deciding exactly this.
+		if (busy) return;
+		return exclusively(advanceOnce);
+	}
 
+	/** One hand press. Only ever called holding the claim. */
+	async function advanceOnce(): Promise<void> {
 		if (contractIsTheJudge) {
 			// SENT WITHOUT ASKING, deliberately. The contract's answer is better
 			// than this file's copy of it, and the cost of being wrong is one
