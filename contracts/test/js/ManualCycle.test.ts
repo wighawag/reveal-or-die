@@ -135,8 +135,8 @@ describe('a cycle pushed by hand', function () {
 
 		// REVEAL. If the push above had moved the CYCLE rather than the phase,
 		// this is where it would fail, with `InvalidEpoch` and a stranded
-		// commitment - which is why `moveToNextEpoch` is not what the client
-		// calls. See `web/src/lib/world/advance.ts`.
+		// commitment - which is what the since-removed `moveToNextEpoch` did.
+		// See `web/src/lib/world/advance.ts`.
 		await env.execute(Game, {
 			account: env.unnamedAccounts[0],
 			functionName: 'reveal',
@@ -182,5 +182,19 @@ describe('a cycle pushed by hand', function () {
 				args: [],
 			}),
 		).toBeRejected();
+	});
+
+	it('has no way to skip a phase, because the one that did is gone', async function () {
+		// `moveToNextEpoch` opened the next cycle's commit phase from anywhere,
+		// so during a commit phase it skipped the reveal and stranded every
+		// commitment in it. Removed rather than guarded; this pins that nothing
+		// behind the proxy answers to it any more, which a revert-on-timed test
+		// could not tell apart from a guarded copy.
+		const {Game} = await networkHelpers.loadFixture(deployAll);
+		const names = (Game.abi as readonly {type: string; name?: string}[])
+			.filter((item) => item.type === 'function')
+			.map((item) => item.name);
+		expect(names.includes('moveToNextEpoch')).toEqual(false);
+		expect(names.includes('moveToNextPhase')).toEqual(true);
 	});
 });

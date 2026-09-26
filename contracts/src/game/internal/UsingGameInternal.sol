@@ -214,27 +214,14 @@ abstract contract UsingGameInternal is
         return _manualEpoch;
     }
 
-    /// @notice Abandon this cycle and open the next one's commit phase.
-    /// @dev NOT WHAT AN ADVANCE IS, and the difference costs stakes. Called
-    ///  during a commit phase this skips the reveal phase entirely, so every
-    ///  commitment made in the cycle it leaves can never be opened:
-    ///  `_reveal` refuses with `InvalidEpoch`, and `_makeCommitment` then
-    ///  refuses everything afterwards with `PreviousCommitmentNotRevealed`
-    ///  until each one is acknowledged. The client uses `moveToNextPhase` and
-    ///  says so at `web/src/lib/world/advance.ts`.
-    function _moveToNextEpoch() internal returns (ManualEpoch memory) {
-        // TODO add posibility to skip epoch even if turn are timed
-        // TODO add logic to present moving to next epoch if not all player who already in the game has done so
-        if (CYCLE_POLICY != CyclePolicy.Manual) {
-            revert NextPhaseNotAllowed();
-        }
-
-        ManualEpoch memory currentManualEpoch = _getManualEpoch();
-        _manualEpoch.epoch = currentManualEpoch.epoch + 1;
-        _manualEpoch.commiting = true;
-
-        return _manualEpoch;
-    }
+    // `_moveToNextEpoch` WAS HERE, and it is gone on purpose. It opened the
+    // next cycle's commit phase from wherever the cycle was, so called during a
+    // commit phase it skipped the reveal phase and stranded every commitment in
+    // it: `_reveal` refused them with `InvalidEpoch`, and each then had to be
+    // acknowledged as missed. It was exposed on the router and called by
+    // nothing. Removed rather than guarded, as template-commit-reveal did
+    // (`work:work/notes/findings/the-manual-epoch-prototype-could-strand-a-commitment.md`):
+    // a manual cycle advances ONE PHASE at a time, through `_moveToNextPhase`.
 
     function _moveToNextPhase() internal returns (ManualEpoch memory) {
         // TODO add posibility to skip epoch even if turn are timed

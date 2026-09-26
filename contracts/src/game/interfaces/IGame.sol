@@ -24,8 +24,6 @@ interface IGameReveal is UsingGameTypes {
         address payable payee
     ) external payable;
 
-    function moveToNextEpoch() external returns (ManualEpoch memory);
-
     function moveToNextPhase() external returns (ManualEpoch memory);
 
     function acknowledgeMissedReveal(uint256 avatarID) external;

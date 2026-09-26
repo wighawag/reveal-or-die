@@ -35,13 +35,11 @@
  * cycle. That is exactly `AdvanceVerdict.opens`, so nothing has to be told
  * which one it is doing.
  *
- * `moveToNextEpoch` is deliberately NOT used, and it is the trap in this
- * contract's surface. It jumps straight to the next cycle's commit phase, so
- * calling it during a commit phase would skip the reveal phase entirely and
- * strand every commitment made in it: the reveal never becomes legal, and
- * `_makeCommitment` then refuses everything afterwards with
- * `PreviousCommitmentNotRevealed` until each one is acknowledged. It exists for
- * abandoning a cycle, which is not what an advance is.
+ * There used to be a second entry point, `moveToNextEpoch`, and it was the
+ * trap in this contract's surface: it jumped straight to the next cycle's
+ * commit phase, so called during a commit phase it skipped the reveal phase and
+ * stranded every commitment made in it. It was removed from the contract
+ * (2026-09-26), so one phase at a time is now the only advance there is.
  *
  * **3. THERE IS NO `getAttendance`, AND THERE IS NO MEMBERSHIP SET AT ALL.**
  * This is the one place this game is behind the framework rather than merely
@@ -373,9 +371,8 @@ export function createCycleAdvancer(
 			{
 				address: Game.address,
 				abi: Game.abi,
-				// ONE PHASE, NEVER A WHOLE CYCLE. See the head of this file for why
-				// `moveToNextEpoch` is not this call: it would skip the reveal phase
-				// and strand every commitment made in the one it left.
+				// ONE PHASE, NEVER A WHOLE CYCLE: the only advance the contract has.
+				// See the head of this file for the one it used to have as well.
 				functionName: 'moveToNextPhase',
 				args: [],
 				account: executor.account,
