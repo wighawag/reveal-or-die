@@ -9,6 +9,7 @@ deployments/hardhat*
 deployments/lan
 deployments/default
 deployments/test
+deployments/ephemeral
 _metadata
 
 # hardhat
