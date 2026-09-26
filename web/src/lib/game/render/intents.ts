@@ -38,7 +38,20 @@ export type ControlIntent =
 	 */
 	| {type: 'secondary'}
 	/** Take it back: Backspace, or the gamepad's east button. */
-	| {type: 'cancel'};
+	| {type: 'cancel'}
+	/**
+	 * Any further action, which the game NAMES and maps its own keys and
+	 * buttons to (`KeyOptions.actions`, `GamepadOptions.actions`).
+	 *
+	 * The four above are what every board game has; some have more. bomber-world
+	 * has three non-directional actions for the one `secondary` (leave the
+	 * world, an instant bomb, a delayed bomb), and before this existed the only
+	 * ways to reach a third were to overload an intent or to listen for a key
+	 * outside this seam, which also cut the gamepad off from it. The name is the
+	 * game's own word and nothing here reads it: the adapters only carry it from
+	 * the key or button the game bound it to, to the handler that acts on it.
+	 */
+	| {type: 'action'; name: string};
 
 /** Handed each intent as it is recognised, in the order it happened. */
 export type ControlIntentHandler = (intent: ControlIntent) => void;

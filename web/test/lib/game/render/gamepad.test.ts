@@ -346,3 +346,51 @@ describe('the polling loop', () => {
 		expect(() => attachGamepad(() => {}, {host: host()})()).not.toThrow();
 	});
 });
+
+describe('buttons a game binds to actions of its own', () => {
+	it('carries a bound button to the game once per press, under its name', () => {
+		const recognizer = createGamepadRecognizer({3: 'delayedBomb'});
+		const held = pad({buttons: {3: true}});
+		expect(recognizer.poll([held])).toEqual([
+			{type: 'action', name: 'delayedBomb'},
+		]);
+		expect(recognizer.poll([held])).toEqual([]);
+		// unbound, the north button is nobody's
+		expect(createGamepadRecognizer().poll([held])).toEqual([]);
+	});
+
+	it('lets the game take a default button back, and leaves the rest alone', () => {
+		const recognizer = createGamepadRecognizer({2: 'drop'});
+		expect(recognizer.poll([pad({buttons: {2: true}})])).toEqual([
+			{type: 'action', name: 'drop'},
+		]);
+		expect(recognizer.poll([pad({buttons: {0: true}})])).toEqual([
+			{type: 'confirm'},
+		]);
+	});
+
+	it('passes the binding through the DOM half', () => {
+		let frame: (() => void) | undefined;
+		const seen: unknown[] = [];
+		const pads = [
+			{
+				index: 0,
+				buttons: [3].reduce(
+					(b, i) => ((b[i] = {pressed: true}), b),
+					new Array(17).fill({pressed: false}),
+				),
+				axes: [0, 0],
+			},
+		];
+		const stop = attachGamepad((intent) => seen.push(intent), {
+			host: {addEventListener: () => {}, removeEventListener: () => {}},
+			getGamepads: () => pads,
+			requestFrame: (callback) => ((frame = callback), 1),
+			cancelFrame: () => {},
+			actions: {3: 'delayedBomb'},
+		});
+		frame?.();
+		expect(seen).toEqual([{type: 'action', name: 'delayedBomb'}]);
+		stop();
+	});
+});
