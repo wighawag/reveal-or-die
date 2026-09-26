@@ -320,11 +320,11 @@ export function createOfflinePlayers(params: {
 
 	// THE SEAM SITTING BESIDE THIS FILE, rather than a second copy of the same
 	// read. This is the one line where this file and the template's differed -
-	// `getCycleNumber` against `getCycle` - and both repos already ship a reader that
-	// answers it in the framework's own shape for the trackers. Note it reads
-	// `getCycleNumber` because that is what THIS game's contract is still called; the
-	// framework sees `CycleReading` either way, which is the whole point of the
-	// seam.
+	// `getCycleNumber` against `getCycle` - and both repos already ship a reader
+	// that answers it in the framework's own shape for the trackers. It reads
+	// `getCycleNumber` because that is THIS game's function (the template's
+	// contract has both, and this game only the one); the framework sees
+	// `CycleReading` either way, which is the whole point of the seam.
 	const readCycle = createCycleReader({publicClient, deployments});
 
 	function send(
