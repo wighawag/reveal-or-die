@@ -10,7 +10,7 @@
  *
  * ONE ENTRY PER AVATAR, holding the death it was last acknowledged for, rather
  * than one entry per death: a dead avatar that is withdrawn never comes back,
- * and one that is re-bought and dies AGAIN has a strictly later `lastEpoch`
+ * and one that is re-bought and dies AGAIN has a strictly later `lastCycleNumber`
  * (it only advances on reveals), so "stored >= this death" re-opens the notice
  * for the new death while keeping the old acknowledgement forever settled.
  */
@@ -20,7 +20,7 @@ const PREFIX = '__world_death_ack_';
 export type Death = {
 	avatarID: bigint;
 	/**
-	 * The cycle of the reveal the avatar died in: its `lastEpoch` at the time.
+	 * The cycle of the reveal the avatar died in: its `lastCycleNumber` at the time.
 	 *
 	 * This is what makes the acknowledgement about ONE death rather than the
 	 * avatar in general - see the module comment.

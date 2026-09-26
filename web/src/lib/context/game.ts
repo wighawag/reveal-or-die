@@ -558,8 +558,8 @@ export function createGameContext(core: CoreServices): GameContext {
 	// stand here said this repo could not use it because its contracts have "no
 	// `getCycle` to ask". That was wrong about the NAME and right about
 	// everything else, which is a combination worth recording: the read exists
-	// and is called `getEpoch`, and it answers under both policies, because
-	// `_epoch()` returns the manual cycle when there is no clock. What was
+	// and is called `getCycleNumber`, and it answers under both policies, because
+	// `_cycleNumber()` returns the manual cycle when there is no clock. What was
 	// genuinely missing was the other half - a commit phase under the manual
 	// policy, which this game's contract derived away into `SKIP_COMMIT` - and
 	// that is fixed in the same change as this line. See `$lib/world/advance`.
@@ -855,8 +855,8 @@ export function createGameContext(core: CoreServices): GameContext {
 		 *
 		 * `_getResolvedAvatar` says it in as many words: "we force character to
 		 * continuously commit+reveal". With `numMissesAllowed = 3`, an avatar whose
-		 * `lastEpoch` falls more than four cycles behind is set to `life = 0`.
-		 * `lastEpoch` only advances on a REVEAL, so a player who watches a few
+		 * `lastCycleNumber` falls more than four cycles behind is set to `life = 0`.
+		 * `lastCycleNumber` only advances on a REVEAL, so a player who watches a few
 		 * cycles without moving loses the avatar they paid for, having done nothing
 		 * wrong and been warned by nothing.
 		 *
@@ -1177,7 +1177,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		// nothing.
 		//
 		// And so does whether an avatar is still ALIVE. `_getResolvedAvatar`
-		// computes `life` from how far `lastEpoch` has fallen behind the cycle
+		// computes `life` from how far `lastCycleNumber` has fallen behind the cycle
 		// being asked about, so a kill happens on the chain's clock with nobody
 		// sending anything. `deposited` used to be re-read only when something this
 		// client did succeeded - a reveal, a purchase, an acknowledgement - which

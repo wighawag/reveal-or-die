@@ -251,7 +251,7 @@ describe('Playing offline', () => {
 		// AND THE OTHER TWO REACHED THE BOARD, which no count of transactions and
 		// no phase assertion can tell you. A player that commits and reveals an
 		// EMPTY turn satisfies every assertion above - it is a legal turn, it
-		// writes `lastEpoch`, it counts as a reveal, and it leaves the human
+		// writes `lastCycleNumber`, it counts as a reveal, and it leaves the human
 		// looking at a board with one avatar on it.
 		//
 		// BY NAME, not by count. The ids are derived from the seat addresses the

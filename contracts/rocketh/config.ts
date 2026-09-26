@@ -83,8 +83,8 @@ export const config = {
 				supportsSendRawTransactionSync: false,
 			},
 		},
-		// rise testnet - where this game is actually deployed
-		// (contracts/deployments/rise-testnet). Keyed by id, NOT by the name
+		// rise testnet, where this game was deployed until 2026-09-26 (its
+		// records were then deleted: see the rename commit). Keyed by id, NOT by the name
 		// 'rise-testnet' it used to carry: rocketh 0.19 looks `chains` up by
 		// number only, so a name key is accepted by the types and then silently
 		// never matched at runtime.
@@ -180,18 +180,12 @@ export const config = {
 				numMissesAllowed: 3n,
 			},
 			/**
-			 * WHAT IS LIVE ON RISE TESTNET IS NOT THIS. The deployed routes carry
-			 * {commitPhaseDuration: 40, revealPhaseDuration: 4, numMoves: 10},
-			 * decoded from `argsData` in
-			 * contracts/deployments/rise-testnet/Game_Implementation_Router_Commit_Route.json.
-			 * The config this replaced claimed {32, 5}, which was never on chain
-			 * either, so the drift predates the port.
-			 *
-			 * A 4-second reveal phase is below the floor argued for above, and the
-			 * penalty for missing a reveal falls on the player. Deploying this
-			 * entry upgrades the live game rather than reproducing it; that is
-			 * intended, but it IS an upgrade, so expect new route addresses and an
-			 * `upgradeTo` on the proxy.
+			 * THE OLD RISE TESTNET DEPLOYMENT WAS NOT THIS. Its routes carried
+			 * {commitPhaseDuration: 40, revealPhaseDuration: 4, numMoves: 10}; a
+			 * 4-second reveal phase is below the floor argued for above. Its
+			 * records were deleted on 2026-09-26 (it had seen one transaction, its
+			 * own deploy, and it predated the epoch -> cycle rename of the ABI), so
+			 * the next deploy here is a FRESH one, not an upgrade.
 			 */
 			'rise-testnet': {
 				commitPhaseDuration: 30n,

@@ -25,9 +25,9 @@ describe('Game', function () {
 			Avatars,
 			AvatarsSale,
 			unnamedAccounts,
-			advanceToEpoch,
+			advanceToCycle,
 			advanceToRevealPhase,
-			getEpoch,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
@@ -39,8 +39,8 @@ describe('Game', function () {
 		// console.log(before_avatars);
 
 		const timestamp = await getTimestamp();
-		const {epoch: initialEpoch, commiting: initialCommiting} =
-			getEpoch(timestamp);
+		const {cycleNumber: initialCycleNumber, commiting: initialCommiting} =
+			getCycleNumber(timestamp);
 
 		const subID = 0n;
 		const avatarID = avatarIDFor(unnamedAccounts[0], subID);
@@ -60,7 +60,7 @@ describe('Game', function () {
 			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
 		});
 
-		await advanceToEpoch(initialEpoch + 2);
+		await advanceToCycle(initialCycleNumber + 2);
 		const entrancePosition = 0n;
 		const secret =
 			'0x0000000000000000000000000000000000000000000000000000000000000000';
@@ -72,7 +72,7 @@ describe('Game', function () {
 			args: [avatarID, commitmentHash(secret, enterActions), zeroAddress],
 		});
 
-		await advanceToRevealPhase(initialEpoch + 2);
+		await advanceToRevealPhase(initialCycleNumber + 2);
 
 		await env.execute(Game, {
 			account: env.unnamedAccounts[0],
@@ -80,7 +80,7 @@ describe('Game', function () {
 			args: [avatarID, enterActions, secret, zeroAddress],
 		});
 
-		await advanceToEpoch(initialEpoch + 3);
+		await advanceToCycle(initialCycleNumber + 3);
 
 		// A Move's `data` is an ABSOLUTE packed position (y << 32 | x), not a
 		// direction and not a distance, and _isValidMove only accepts a target
@@ -103,7 +103,7 @@ describe('Game', function () {
 			args: [avatarID, commitmentHash(secret, moveActions), zeroAddress],
 		});
 
-		await advanceToRevealPhase(initialEpoch + 3);
+		await advanceToRevealPhase(initialCycleNumber + 3);
 
 		await env.execute(Game, {
 			account: env.unnamedAccounts[0],
@@ -135,15 +135,15 @@ describe('Game', function () {
 			Game,
 			AvatarsSale,
 			unnamedAccounts,
-			advanceToEpoch,
-			getEpoch,
+			advanceToCycle,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
 		const owner = unnamedAccounts[0];
 		const delegate = unnamedAccounts[1];
 
-		const {epoch: initialEpoch} = getEpoch(await getTimestamp());
+		const {cycleNumber: initialCycleNumber} = getCycleNumber(await getTimestamp());
 		const subID = 0n;
 		const avatarID = avatarIDFor(owner, subID);
 
@@ -161,7 +161,7 @@ describe('Game', function () {
 			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
 		});
 
-		await advanceToEpoch(initialEpoch + 2);
+		await advanceToCycle(initialCycleNumber + 2);
 
 		const secret =
 			'0x0000000000000000000000000000000000000000000000000000000000000000';
@@ -245,9 +245,9 @@ describe('Game', function () {
 				Game,
 				AvatarsSale,
 				unnamedAccounts,
-				advanceToEpoch,
+				advanceToCycle,
 				advanceToRevealPhase,
-				getEpoch,
+				getCycleNumber,
 				getTimestamp,
 			} = await networkHelpers.loadFixture(deployAll);
 
@@ -282,8 +282,8 @@ describe('Game', function () {
 			const avatar = {A: avatarA, B: avatarB};
 			const secret = {A: secretA, B: secretB};
 
-			async function round(epoch: number, actions: {A: Action[]; B: Action[]}) {
-				await advanceToEpoch(epoch);
+			async function round(cycleNumber: number, actions: {A: Action[]; B: Action[]}) {
+				await advanceToCycle(cycleNumber);
 				for (const who of ['A', 'B'] as const) {
 					await env.execute(Game, {
 						account: account[who],
@@ -295,7 +295,7 @@ describe('Game', function () {
 						],
 					});
 				}
-				await advanceToRevealPhase(epoch);
+				await advanceToRevealPhase(cycleNumber);
 				for (const who of order) {
 					await env.execute(Game, {
 						account: account[who],
@@ -305,7 +305,7 @@ describe('Game', function () {
 				}
 			}
 
-			const {epoch: start} = getEpoch(await getTimestamp());
+			const {cycleNumber: start} = getCycleNumber(await getTimestamp());
 
 			// They enter either side of the cell they will contest. (0,1), (0,2)
 			// and (0,3) are all walkable in the single generated area; (0,0) is
@@ -376,9 +376,9 @@ describe('Game', function () {
 			Game,
 			AvatarsSale,
 			unnamedAccounts,
-			advanceToEpoch,
+			advanceToCycle,
 			advanceToRevealPhase,
-			getEpoch,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
@@ -406,12 +406,12 @@ describe('Game', function () {
 			(BigInt.asUintN(32, BigInt(entryY)) << 32n) |
 			BigInt.asUintN(32, BigInt(entryX));
 
-		const {epoch: start} = getEpoch(await getTimestamp());
+		const {cycleNumber: start} = getCycleNumber(await getTimestamp());
 		const secret =
 			'0x00000000000000000000000000000000000000000000000000000000000000cc' as const;
 		const actions: Action[] = [{actionType: 0, data: entry}];
 
-		await advanceToEpoch(start + 2);
+		await advanceToCycle(start + 2);
 		await env.execute(Game, {
 			account: player,
 			functionName: 'commit',
@@ -459,9 +459,9 @@ describe('Game', function () {
 			Game,
 			AvatarsSale,
 			unnamedAccounts,
-			advanceToEpoch,
+			advanceToCycle,
 			advanceToRevealPhase,
-			getEpoch,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
@@ -490,16 +490,16 @@ describe('Game', function () {
 
 		const secret =
 			'0x00000000000000000000000000000000000000000000000000000000000000dd' as const;
-		const {epoch: start} = getEpoch(await getTimestamp());
+		const {cycleNumber: start} = getCycleNumber(await getTimestamp());
 
-		async function round(epoch: number, actions: Action[]) {
-			await advanceToEpoch(epoch);
+		async function round(cycleNumber: number, actions: Action[]) {
+			await advanceToCycle(cycleNumber);
 			await env.execute(Game, {
 				account: player,
 				functionName: 'commit',
 				args: [avatarID, commitmentHash(secret, actions), zeroAddress],
 			});
-			await advanceToRevealPhase(epoch);
+			await advanceToRevealPhase(cycleNumber);
 			await env.execute(Game, {
 				account: player,
 				functionName: 'reveal',
@@ -547,9 +547,9 @@ describe('Game', function () {
 			Game,
 			AvatarsSale,
 			unnamedAccounts,
-			advanceToEpoch,
+			advanceToCycle,
 			advanceToRevealPhase,
-			getEpoch,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
@@ -588,25 +588,25 @@ describe('Game', function () {
 
 		const onTheExit = await buy(0n);
 		const onTheFloor = await buy(1n);
-		const {epoch: start} = getEpoch(await getTimestamp());
+		const {cycleNumber: start} = getCycleNumber(await getTimestamp());
 
 		// `_enter` checks nothing, so both can be put exactly where they are
-		// wanted: one standing on the exit, one on plain floor. Both in ONE epoch,
+		// wanted: one standing on the exit, one on plain floor. Both in ONE cycle,
 		// because a commitment can only be made in the commit phase and the first
-		// avatar's reveal has already taken the epoch into the second half.
+		// avatar's reveal has already taken the cycle into the second half.
 		const enterExit: Action[] = [{actionType: 0, data: pos(3n, 5n)}];
 		const enterFloor: Action[] = [{actionType: 0, data: pos(0n, 1n)}];
-		await advanceToEpoch(start + 2);
+		await advanceToCycle(start + 2);
 		await commit(onTheExit, enterExit);
 		await commit(onTheFloor, enterFloor);
 		await advanceToRevealPhase(start + 2);
 		await reveal(onTheExit, enterExit);
 		await reveal(onTheFloor, enterFloor);
 
-		// Both try to leave in the same epoch, from the two kinds of cell.
+		// Both try to leave in the same cycle, from the two kinds of cell.
 		const leaveExit: Action[] = [{actionType: 2, data: pos(3n, 5n)}];
 		const leaveFloor: Action[] = [{actionType: 2, data: pos(0n, 1n)}];
-		await advanceToEpoch(start + 3);
+		await advanceToCycle(start + 3);
 		await commit(onTheExit, leaveExit);
 		await commit(onTheFloor, leaveFloor);
 		await advanceToRevealPhase(start + 3);
@@ -643,7 +643,7 @@ describe('Game', function () {
 		 * client cheerfully told the player to go and withdraw it.
 		 *
 		 * Death is computed rather than recorded - `_getResolvedAvatar` reads how
-		 * far `lastEpoch` has fallen behind the epoch being asked about, and no
+		 * far `lastCycleNumber` has fallen behind the cycle being asked about, and no
 		 * transaction marks the moment - which is why the body is taken off the
 		 * board HERE and not when it died.
 		 */
@@ -653,9 +653,9 @@ describe('Game', function () {
 			Avatars,
 			AvatarsSale,
 			unnamedAccounts,
-			advanceToEpoch,
+			advanceToCycle,
 			advanceToRevealPhase,
-			getEpoch,
+			getCycleNumber,
 			getTimestamp,
 		} = await networkHelpers.loadFixture(deployAll);
 
@@ -670,10 +670,10 @@ describe('Game', function () {
 			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
 		});
 		const avatarID = avatarIDFor(player, 0n);
-		const {epoch: start} = getEpoch(await getTimestamp());
+		const {cycleNumber: start} = getCycleNumber(await getTimestamp());
 
 		const enter: Action[] = [{actionType: 0, data: pos(0n, 1n)}];
-		await advanceToEpoch(start + 2);
+		await advanceToCycle(start + 2);
 		await env.execute(Game, {
 			account: player,
 			functionName: 'commit',
@@ -699,11 +699,11 @@ describe('Game', function () {
 		// Now go quiet. It dies one round after the misses it is allowed, which
 		// is the number the deployment configures and the client explains.
 		const numMissesAllowed = Number(Game.linkedData!.numMissesAllowed);
-		// MINED, not merely scheduled: `advanceToEpoch` sets the next block's
+		// MINED, not merely scheduled: `advanceToCycle` sets the next block's
 		// timestamp, so a READ that follows it without a transaction in between
 		// still evaluates against the old block. Every other test here happens to
 		// send something next; this one asks a question.
-		await advanceToEpoch(start + 2 + numMissesAllowed + 2, true);
+		await advanceToCycle(start + 2 + numMissesAllowed + 2, true);
 		const dead = await env.read(Game, {
 			functionName: 'getAvatar',
 			args: [avatarID],

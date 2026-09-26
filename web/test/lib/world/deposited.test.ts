@@ -11,7 +11,7 @@ const avatar = (o: Partial<DepositedAvatar> = {}): DepositedAvatar => ({
 	avatarID: 1n,
 	inGame: true,
 	position: 0n,
-	lastEpoch: 6n,
+	lastCycleNumber: 6n,
 	life: 1,
 	...o,
 });

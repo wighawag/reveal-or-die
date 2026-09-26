@@ -78,7 +78,7 @@ describe('Contracts Page', () => {
 
 		// Should list the game's own view functions. One specific function, not an
 		// `.or()` of two: the union matches both cards and trips strict mode.
-		await expect(page.getByText('getEpoch').first()).toBeVisible({
+		await expect(page.getByText('getCycleNumber').first()).toBeVisible({
 			timeout: 5000,
 		});
 	});
@@ -108,9 +108,9 @@ describe('Contracts Page', () => {
 		await expect(readTab).toBeVisible({timeout: 5000});
 		await readTab.click();
 
-		// `getEpoch` takes no arguments, so it can be called with nothing filled in
+		// `getCycleNumber` takes no arguments, so it can be called with nothing filled in
 		const functionCard = page.locator('[class*="card"]').filter({
-			hasText: 'getEpoch',
+			hasText: 'getCycleNumber',
 		});
 
 		// Click the call/query button

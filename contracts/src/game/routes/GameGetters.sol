@@ -7,8 +7,8 @@ import "../interfaces/IGame.sol";
 contract GameGetters is IGameGetters, UsingGameInternal {
     constructor(Config memory config) UsingGameInternal(config) {}
 
-    function getEpoch() external view returns (uint64 epoch, bool commiting) {
-        return _epoch();
+    function getCycleNumber() external view returns (uint64 cycleNumber, bool commiting) {
+        return _cycleNumber();
     }
 
     function getAvatarsInZone(
@@ -18,7 +18,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     )
         external
         view
-        returns (PublicAvatar[] memory avatars, bool more, uint64 epoch)
+        returns (PublicAvatar[] memory avatars, bool more, uint64 cycleNumber)
     {
         return _getAvatarsInZone(zone, fromIndex, limit);
     }
@@ -30,7 +30,7 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     )
         external
         view
-        returns (PublicAvatar[] memory avatars, bool more, uint64 epoch)
+        returns (PublicAvatar[] memory avatars, bool more, uint64 cycleNumber)
     {
         return _getAvatarsInMultipleZones(zones, fromIndex, limit);
     }
@@ -38,8 +38,8 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     function getAvatar(
         uint256 avatarID
     ) external view returns (PublicAvatar memory) {
-        (uint64 epoch, ) = _epoch();
-        return _getPublicAvatar(avatarID, epoch);
+        (uint64 cycleNumber, ) = _cycleNumber();
+        return _getPublicAvatar(avatarID, cycleNumber);
     }
 
     function getCommitment(

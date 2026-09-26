@@ -24,7 +24,7 @@ interface UsingGameTypes {
     ///  hand, AND a game that skipped its commit phase entirely (`SKIP_COMMIT`,
     ///  which carried `TODO allow to specify it separately`). So asking for the
     ///  first silently bought the second, and a manual deployment of this game
-    ///  had no commit phase at all: `getEpoch` answered `commiting: false`
+    ///  had no commit phase at all: `getCycleNumber` answered `commiting: false`
     ///  forever, `_makeCommitment` reverted `InRevealPhase`, and
     ///  `_moveToNextPhase` reverted `CommitPhaseIsSkipped`. A commit-reveal
     ///  game that cannot commit is not a mode, it is a broken configuration
@@ -68,7 +68,7 @@ interface UsingGameTypes {
         uint256 avatarID;
         bool inGame;
         uint64 position;
-        uint64 lastEpoch;
+        uint64 lastCycleNumber;
         uint8 life;
     }
 
@@ -76,7 +76,7 @@ interface UsingGameTypes {
         uint256 avatarID;
         bool inGame;
         uint64 position;
-        uint64 lastEpoch;
+        uint64 lastCycleNumber;
         uint8 life;
     }
 
@@ -97,15 +97,15 @@ interface UsingGameTypes {
         /// @dev A parameter rather than the literal it used to be, because the
         ///  number is the whole of the only way to die in this game and the
         ///  client has to be able to SAY it. Nothing on chain announces a death
-        ///  - there is no event, `life` is computed from how far `lastEpoch`
+        ///  - there is no event, `life` is computed from how far `lastCycleNumber`
         ///  has fallen behind - so a player is owed an explanation that only
         ///  the client can assemble, and one assembled from a copy of this
         ///  number would drift the moment a game tuned it.
         uint256 numMissesAllowed;
     }
 
-    struct ManualEpoch {
-        uint64 epoch;
+    struct ManualCycle {
+        uint64 cycleNumber;
         bool commiting;
     }
 
@@ -139,11 +139,11 @@ interface UsingGameTypes {
     }
 
     struct Avatar {
-        bool inGame; // TODO startEpoch could act as InGame
+        bool inGame; // TODO startCycleNumber could act as InGame
         uint64 position;
         uint64 zoneIndex;
-        uint64 startEpoch;
-        uint64 lastEpoch;
+        uint64 startCycleNumber;
+        uint64 lastCycleNumber;
         uint8 life;
     }
 
@@ -153,7 +153,7 @@ interface UsingGameTypes {
 
     struct Commitment {
         bytes24 hash;
-        uint64 epoch;
+        uint64 cycleNumber;
     }
 
     // ------------------------------------------------------------------------

@@ -27,7 +27,7 @@ const avatar = (
 	avatarID,
 	inGame: false,
 	position: 0n,
-	lastEpoch: 0n,
+	lastCycleNumber: 0n,
 	life: 3,
 	...overrides,
 });

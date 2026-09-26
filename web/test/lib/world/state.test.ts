@@ -168,16 +168,16 @@ function fakeClient(options: {
 		avatarID: bigint;
 		inGame: boolean;
 		position: bigint;
-		lastEpoch: bigint;
+		lastCycleNumber: bigint;
 		life: number;
 	}[];
-	// `epoch` here is the EVENT'S OWN component name, which this game's
-	// contracts still use: the reader does `args.epoch`, so a fixture spelling
-	// it `cycleNumber` would test nothing.
+	// `cycleNumber` here is the EVENT'S OWN component name, and the reader
+	// does `args.cycleNumber`, so a fixture spelling it any other way would
+	// test nothing.
 	events?: {
 		args: {
 			avatarID: bigint;
-			epoch: bigint;
+			cycleNumber: bigint;
 			actions: {actionType: number; data: bigint}[];
 		};
 	}[];
@@ -213,7 +213,7 @@ const someAvatar = {
 	avatarID: 5n,
 	inGame: true,
 	position: 0n,
-	lastEpoch: 6n,
+	lastCycleNumber: 6n,
 	life: 1,
 };
 
@@ -225,7 +225,7 @@ describe('reading what the chain resolved, not just where things stand', () => {
 				{
 					args: {
 						avatarID: 5n,
-						epoch: 7n,
+						cycleNumber: 7n,
 						actions: [{actionType: 1, data: 1n}],
 					},
 				},
@@ -253,8 +253,20 @@ describe('reading what the chain resolved, not just where things stand', () => {
 		const {client} = fakeClient({
 			avatars: [someAvatar],
 			events: [
-				{args: {avatarID: 5n, epoch: 6n, actions: [{actionType: 1, data: 9n}]}},
-				{args: {avatarID: 5n, epoch: 7n, actions: [{actionType: 1, data: 1n}]}},
+				{
+					args: {
+						avatarID: 5n,
+						cycleNumber: 6n,
+						actions: [{actionType: 1, data: 9n}],
+					},
+				},
+				{
+					args: {
+						avatarID: 5n,
+						cycleNumber: 7n,
+						actions: [{actionType: 1, data: 1n}],
+					},
+				},
 			],
 		});
 		const read = createWorldReader({

@@ -78,7 +78,7 @@ import {
  * build the same actions, across any number of reloads in between.
  *
  * What would break it is deriving from a position read AFTER the reveal, which
- * is why {@link turnFor} is never called once `lastEpoch` says this cycle is
+ * is why {@link turnFor} is never called once `lastCycleNumber` says this cycle is
  * done, and why {@link candidateTurns} lets the HASH judge rather than trusting
  * the derivation. `test/lib/offline-players.test.ts` pins this by committing,
  * throwing the whole store away, building a fresh one and revealing.
@@ -99,7 +99,7 @@ import {
  * nothing to burn: `_acknowledgeMissedReveal` carries `TODO burn / stake` and
  * takes nothing. What actually costs something is the CLOCK - an avatar that
  * has not revealed for `numMissesAllowed` cycles is dead, computed from how far
- * `lastEpoch` has fallen behind, with no event and no transaction to mark it.
+ * `lastCycleNumber` has fallen behind, with no event and no transaction to mark it.
  * The game is called reveal-or-die and that is the whole of why.
  *
  * Which changes the safety valve below rather than removing it. Settling a
@@ -118,15 +118,15 @@ export type OfflinePlayer = {
 	identity: bigint;
 };
 
-/** What `getCommitment` hands back. `epoch` is the ABI's own component name. */
-type Commitment = {hash: `0x${string}`; epoch: bigint};
+/** What `getCommitment` hands back. `cycleNumber` is the ABI's own component name. */
+type Commitment = {hash: `0x${string}`; cycleNumber: bigint};
 
 /** What `getAvatar` hands back, of which four fields are read here. */
 type PublicAvatar = {
 	owner: `0x${string}`;
 	inGame: boolean;
 	position: bigint;
-	lastEpoch: bigint;
+	lastCycleNumber: bigint;
 	life: number;
 };
 
@@ -188,8 +188,8 @@ function seedFor(params: {
  *    is legal here is a walk that resolves whole.
  * 3. **NOTHING LEGAL: THE EMPTY TURN**, which is what this file does when an
  *    avatar is boxed in by walls on all four sides. It is not doing nothing:
- *    an empty reveal still runs `_resolveActions`, which writes `lastEpoch`,
- *    and `lastEpoch` is what keeps the avatar alive and what the attendance
+ *    an empty reveal still runs `_resolveActions`, which writes `lastCycleNumber`,
+ *    and `lastCycleNumber` is what keeps the avatar alive and what the attendance
  *    reader counts as a reveal. So the cycle closes on it and the player stays
  *    a member. Refusing to commit would have frozen the world instead, because
  *    unanimity waits for this player either way.
@@ -320,9 +320,9 @@ export function createOfflinePlayers(params: {
 
 	// THE SEAM SITTING BESIDE THIS FILE, rather than a second copy of the same
 	// read. This is the one line where this file and the template's differed -
-	// `getEpoch` against `getCycle` - and both repos already ship a reader that
+	// `getCycleNumber` against `getCycle` - and both repos already ship a reader that
 	// answers it in the framework's own shape for the trackers. Note it reads
-	// `getEpoch` because that is what THIS game's contract is still called; the
+	// `getCycleNumber` because that is what THIS game's contract is still called; the
 	// framework sees `CycleReading` either way, which is the whole point of the
 	// seam.
 	const readCycle = createCycleReader({publicClient, deployments});
@@ -403,7 +403,7 @@ export function createOfflinePlayers(params: {
 		// the only phase in which anything can still be done about it. Replacing
 		// a commitment made in the same cycle is expressly allowed, so this costs
 		// nothing when it never fires.
-		if (Number(onChain.epoch) === cycleNumber) {
+		if (Number(onChain.cycleNumber) === cycleNumber) {
 			if (onChain.hash.toLowerCase() === hash.toLowerCase()) return;
 		}
 
@@ -421,7 +421,7 @@ export function createOfflinePlayers(params: {
 	): Promise<void> {
 		// Nothing committed in this cycle means nothing owed: this player entered
 		// after the commit phase closed, or has already been settled.
-		if (Number(onChain.epoch) !== cycleNumber) return;
+		if (Number(onChain.cycleNumber) !== cycleNumber) return;
 
 		const secret = playedSeatSecret({
 			chainId: records.chain.id,
@@ -498,9 +498,12 @@ export function createOfflinePlayers(params: {
 		// keeping straight: there the same call burns a bonded stake and is
 		// justified on the grounds that the bond is the world's own. Here
 		// `_acknowledgeMissedReveal` takes nothing at all. The loss already
-		// happened when the reveal did not, and is counted by `lastEpoch` falling
+		// happened when the reveal did not, and is counted by `lastCycleNumber` falling
 		// behind; this only unblocks the next commitment.
-		if (onChain.epoch !== 0n && Number(onChain.epoch) < cycle.cycleNumber) {
+		if (
+			onChain.cycleNumber !== 0n &&
+			Number(onChain.cycleNumber) < cycle.cycleNumber
+		) {
 			await send(player, {
 				functionName: 'acknowledgeMissedReveal',
 				args: [player.identity],

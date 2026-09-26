@@ -201,7 +201,7 @@ const avatar = (o: Partial<DepositedAvatar> = {}): DepositedAvatar => ({
 	avatarID: 1n,
 	inGame: false,
 	position: 0n,
-	lastEpoch: 0n,
+	lastCycleNumber: 0n,
 	life: 3,
 	...o,
 });
@@ -535,7 +535,12 @@ describe('a killed avatar', () => {
 					{step: 'Idle'},
 					{
 						avatars: [
-							avatar({avatarID: 1n, life: 0, inGame: true, lastEpoch: 2n}),
+							avatar({
+								avatarID: 1n,
+								life: 0,
+								inGame: true,
+								lastCycleNumber: 2n,
+							}),
 							avatar({avatarID: 2n}),
 						],
 						activeIdentity: 2n,
@@ -557,7 +562,7 @@ describe('a killed avatar', () => {
 				fakeContext(
 					{step: 'Idle'},
 					{
-						avatars: [avatar({life: 0, inGame: true, lastEpoch: 2n})],
+						avatars: [avatar({life: 0, inGame: true, lastCycleNumber: 2n})],
 						currentCycleNumber: 3,
 						numMissesAllowed: 3,
 					},
@@ -569,14 +574,14 @@ describe('a killed avatar', () => {
 	});
 
 	it('is not reported until the cycle it died in has passed', () => {
-		// `lastEpoch` is when it last acted, so the kill is only readable from the
+		// `lastCycleNumber` is when it last acted, so the kill is only readable from the
 		// next cycle onwards; reporting sooner would announce a death mid-cycle.
 		const model = get(
 			createHud(
 				fakeContext(
 					{step: 'Idle'},
 					{
-						avatars: [avatar({life: 0, inGame: true, lastEpoch: 3n})],
+						avatars: [avatar({life: 0, inGame: true, lastCycleNumber: 3n})],
 						currentCycleNumber: 3,
 					},
 				),

@@ -34,7 +34,7 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
     mapping(uint256 => Commitment) internal _commitments;
     mapping(uint64 => Zone) internal _zones;
 
-    ManualEpoch internal _manualEpoch;
+    ManualCycle internal _manualCycle;
 
     /// @notice Create an instance of a game
     /// @param config configuration options for the game

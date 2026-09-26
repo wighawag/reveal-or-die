@@ -128,7 +128,7 @@ export type HudModel = {
 	 */
 	/**
 	 * Carries the ID and the death cycle, not just the label, because the
-	 * acknowledgement of a death is recorded per DEATH: `lastEpoch` only
+	 * acknowledgement of a death is recorded per DEATH: `lastCycleNumber` only
 	 * advances on reveals, so the avatar being re-bought and dying again is a
 	 * strictly later cycle, which is what lets one stored acknowledgement settle
 	 * an old death while still letting a new one through. See
@@ -613,14 +613,13 @@ export function createHud(context: Context): Readable<HudModel> {
 			const avatars =
 				deposited.step === 'Loaded' ? deposited.avatars : ([] as const);
 			const inWorld = $position !== undefined;
-			// `lastEpoch` (the contract's name) is when the avatar last acted, so a
-			// kill in the cycle just
-			// resolved only becomes readable once the next one has begun.
+			// `lastCycleNumber` is when the avatar last acted, so a kill in the cycle
+			// just resolved only becomes readable once the next one has begun.
 			const casualty = avatars.find(
 				(a) =>
 					a.life === 0 &&
 					a.inGame &&
-					$cycle.currentCycleNumber >= Number(a.lastEpoch) + 1,
+					$cycle.currentCycleNumber >= Number(a.lastCycleNumber) + 1,
 			);
 			const plannedCount = $plan.planned.length;
 			const canLeave = $canExit as boolean;
@@ -689,12 +688,12 @@ export function createHud(context: Context): Readable<HudModel> {
 				died:
 					casualty &&
 					(() => {
-						const {avatarID, lastEpoch} = casualty;
+						const {avatarID, lastCycleNumber} = casualty;
 						const cause = causeOfDeath(game.config);
 						return {
 							label: avatarLabel(avatarID),
 							avatarID,
-							deathCycleNumber: Number(lastEpoch),
+							deathCycleNumber: Number(lastCycleNumber),
 							cause,
 							explanation: explainDeath(cause),
 						};

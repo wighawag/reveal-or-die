@@ -31,15 +31,15 @@ interface UsingGameErrors is UsingGameTypes {
     error AvatarStillInGame(uint256 avatarID);
 
     /// @notice happen when attempting to move an avatar that just entered the game. \
-    ///  It needs to wait the next epoch
+    ///  It needs to wait for the next cycle
     error AvatarNotReady(uint256 avatarID);
 
     /// @notice When in Reveal phase, it is not possible to commit new moves or cancel previous commitment
     ///  During Reveal phase, players have to reveal their commitment, if not already done.
-    error InRevealPhase(uint64 epoch);
+    error InRevealPhase(uint64 cycleNumber);
 
     /// @notice When in Commit phase, player can make new commitment but they cannot reveal their move yet.
-    error InCommitmentPhase(uint64 epoch);
+    error InCommitmentPhase(uint64 cycleNumber);
 
     /// @notice Previous commitment need to be revealed before making a new one. Even if the corresponding reveal phase has passed.\
     ///  It is also not possible to withdraw any amount from reserve until the commitment is revealed.\
@@ -56,13 +56,13 @@ interface UsingGameErrors is UsingGameTypes {
     /// @notice Player can only reveal moves they commited.
     error NothingToReveal();
 
-    /// @notice Player can only reveal their move in the same epoch they commited.abi
+    /// @notice Player can only reveal their move in the same cycle they committed.
     ///  If a player reveal later it can only do to minimize the reserve burn cost by calling : `acknowledgeMissedReveal`
-    error InvalidEpoch(uint64 expectedEpoch, uint64 epochGiven);
+    error InvalidCycle(uint64 currentCycleNumber, uint64 commitmentCycleNumber);
 
     /// @notice Player have to reveal if they can
     /// prevent player from acknowledging missed reveal if there is still time to reveal.
-    error CanStillReveal(uint64 epoch);
+    error CanStillReveal(uint64 cycleNumber);
 
     /// @notice happen when attempting to move a dead avatar
     ///  The avatar is dead, no action possible
@@ -77,7 +77,7 @@ interface UsingGameErrors is UsingGameTypes {
     /// @notice happen when attempting to send a non-avatar ERC721 to the game
     error OnlyAvatarsAreAccepted();
 
-    /// @notice happen when attempting to move to next phase/epoch when not configured to be able to do it.
+    /// @notice happen when attempting to move to the next phase when not configured to be able to do it.
     error NextPhaseNotAllowed();
 
     /// @notice The declared cycle policy and the phase durations disagree.

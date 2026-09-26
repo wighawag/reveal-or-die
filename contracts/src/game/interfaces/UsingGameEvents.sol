@@ -16,65 +16,65 @@ interface UsingGameEvents is UsingGameTypes {
 
     /// @notice A avatar has entered the game
     /// @param avatarID the id of the NFT being added
-    /// @param epoch the epoch at which it happened
+    /// @param cycleNumber the cycle in which it happened
     /// @param zone the resulting avatar's zone
     /// @param newPosition the resulting avatar's position
     event EnteredTheGame(
         uint256 indexed avatarID,
-        uint64 indexed epoch,
+        uint64 indexed cycleNumber,
         uint64 indexed zone,
         uint64 newPosition
     );
 
     /// @notice An avatar has left the game
     /// @param avatarID the id of the NFT being removed
-    /// @param epoch the epoch at which it happened
+    /// @param cycleNumber the cycle in which it happened
     /// @param zoneWhenLeaving the avatar's zone when leaving
     /// @param positionWhenLeaving the avatar's position when leaving
     event LeftTheGame(
         uint256 indexed avatarID,
-        uint64 indexed epoch,
+        uint64 indexed cycleNumber,
         uint64 indexed zoneWhenLeaving,
         uint64 positionWhenLeaving
     );
 
     /// @notice A player has commited to make a move and reveal it on the reveal phase
     /// @param avatarID avatar whose commitment is made
-    /// @param epoch epoch number on which this commit belongs to
+    /// @param cycleNumber the cycle this commitment belongs to
     /// @param commitmentHash the hash of moves
     event CommitmentMade(
         uint256 indexed avatarID,
-        uint64 indexed epoch,
+        uint64 indexed cycleNumber,
         bytes24 commitmentHash
     );
 
     /// @notice A player has cancelled its current commitment (before it reached the reveal phase)
     /// @param avatarID avatar whose commitment is cancelled
-    /// @param epoch epoch number on which this commit belongs to
-    event CommitmentCancelled(uint256 indexed avatarID, uint64 indexed epoch);
+    /// @param cycleNumber the cycle this commitment belongs to
+    event CommitmentCancelled(uint256 indexed avatarID, uint64 indexed cycleNumber);
 
     /// @notice A player has acknowledged its failure to reveal its previous commitment
     /// @param avatarID the account that made the commitment
-    /// @param epoch epoch number on which this commit belongs to
-    event CommitmentVoid(uint256 indexed avatarID, uint64 indexed epoch);
+    /// @param cycleNumber the cycle this commitment belongs to
+    event CommitmentVoid(uint256 indexed avatarID, uint64 indexed cycleNumber);
 
     /// @notice Player has revealed its previous commitment
     /// @param avatarID avatar id whose action is commited
-    /// @param epoch epoch number on which this commit belongs to
+    /// @param cycleNumber the cycle this commitment belongs to
     /// @param commitmentHash the hash of the moves
     /// @param actions the actions
     event CommitmentRevealed(
         uint256 indexed avatarID,
-        uint64 indexed epoch,
+        uint64 indexed cycleNumber,
         uint64 indexed zone,
         bytes24 commitmentHash,
         Action[] actions
     );
 
-    /// @notice a new epoch/phase has been manually triggered
-    /// @param epoch epoch of the new phase
+    /// @notice a new phase has been opened by hand
+    /// @param cycleNumber the cycle the new phase belongs to
     /// @param commiting whether we are in the commiting phase or not
-    event NewPhase(uint64 indexed epoch, bool commiting);
+    event NewPhase(uint64 indexed cycleNumber, bool commiting);
 
     // allow to easily inspect errors, instead of revert
     event Error(bytes4 selector, bytes data);

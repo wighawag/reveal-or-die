@@ -87,7 +87,7 @@ contract GameDeposit is IGameDeposit, UsingGameInternal, IERC721Receiver {
         uint256 startIndex,
         uint256 limit
     ) external view returns (PublicAvatar[] memory avatarIDs, bool more) {
-        (uint64 epoch, ) = _epoch();
+        (uint64 cycleNumber, ) = _cycleNumber();
         uint256 total = _ownedAvatars[owner].length;
         if (startIndex >= total) {
             return (new PublicAvatar[](0), false);
@@ -99,7 +99,7 @@ contract GameDeposit is IGameDeposit, UsingGameInternal, IERC721Receiver {
 
         for (uint256 i = 0; i < actualLimit; i++) {
             uint256 avatarID = _ownedAvatars[owner][startIndex + i];
-            list[i] = _getPublicAvatar(avatarID, epoch);
+            list[i] = _getPublicAvatar(avatarID, cycleNumber);
         }
 
         return (list, actualLimit != limit);

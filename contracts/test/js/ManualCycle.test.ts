@@ -17,7 +17,7 @@ const {deployAll} = setupFixtures(provider);
  * derivation also set `SKIP_COMMIT` - one expression standing for two unrelated
  * things, with `TODO allow to specify it separately` beside it. So a deployment
  * that asked for a cycle pushed by hand silently also asked for a game with NO
- * COMMIT PHASE: `getEpoch` answered `commiting: false` forever, `commit`
+ * COMMIT PHASE: `getCycleNumber` answered `commiting: false` forever, `commit`
  * reverted `InRevealPhase`, and `moveToNextPhase` reverted
  * `CommitPhaseIsSkipped`. A commit-reveal game that cannot commit, and nothing
  * anywhere refused the configuration.
@@ -76,7 +76,7 @@ describe('a cycle pushed by hand', function () {
 		});
 
 		const [cycleNumber, committing] = (await env.read(Game, {
-			functionName: 'getEpoch',
+			functionName: 'getCycleNumber',
 		})) as readonly [bigint, boolean];
 
 		// The `+ 2` is the framework's, so that the hypothetical reveal phase
@@ -128,13 +128,13 @@ describe('a cycle pushed by hand', function () {
 			args: [],
 		});
 		const [afterPush, stillCommitting] = (await env.read(Game, {
-			functionName: 'getEpoch',
+			functionName: 'getCycleNumber',
 		})) as readonly [bigint, boolean];
 		expect(afterPush).toEqual(2n);
 		expect(stillCommitting).toEqual(false);
 
 		// REVEAL. If the push above had moved the CYCLE rather than the phase,
-		// this is where it would fail, with `InvalidEpoch` and a stranded
+		// this is where it would fail, with `InvalidCycle` and a stranded
 		// commitment - which is what the since-removed `moveToNextEpoch` did.
 		// See `web/src/lib/world/advance.ts`.
 		await env.execute(Game, {
@@ -146,14 +146,14 @@ describe('a cycle pushed by hand', function () {
 		const avatar = (await env.read(Game, {
 			functionName: 'getAvatar',
 			args: [avatarID],
-		})) as {inGame: boolean; lastEpoch: bigint};
+		})) as {inGame: boolean; lastCycleNumber: bigint};
 		expect(avatar.inGame).toEqual(true);
-		// `lastEpoch` IS HOW THE CLIENT COUNTS REVEALS, because this contract
+		// `lastCycleNumber` IS HOW THE CLIENT COUNTS REVEALS, because this contract
 		// keeps no attendance and `reveal` zeroes the commitment when it is done -
 		// so a member that has revealed is otherwise indistinguishable from one
 		// that never committed. `world/advance.ts` depends on exactly this, and
 		// this is where that dependency is pinned.
-		expect(avatar.lastEpoch).toEqual(2n);
+		expect(avatar.lastCycleNumber).toEqual(2n);
 
 		// PUSH AGAIN, which closes the cycle and opens the next one's commit
 		// phase.
@@ -163,7 +163,7 @@ describe('a cycle pushed by hand', function () {
 			args: [],
 		});
 		const [nextCycle, committingAgain] = (await env.read(Game, {
-			functionName: 'getEpoch',
+			functionName: 'getCycleNumber',
 		})) as readonly [bigint, boolean];
 		expect(nextCycle).toEqual(3n);
 		expect(committingAgain).toEqual(true);

@@ -33,15 +33,14 @@ function world(...avatars: Avatar[]): WorldState & {cycleNumber: number} {
 }
 
 /**
- * `lastEpoch` AND `lastTurn` TOGETHER, because the chain cannot produce one
+ * `lastCycleNumber` AND `lastTurn` TOGETHER, because the chain cannot produce one
  * without the other: `_resolveActions` ends every resolved turn with
- * `_avatars[avatarID].lastEpoch = epoch` - the contract's own spelling, since
- * this game's contracts are not renamed - and the log it emits carries the same
+ * `_avatars[avatarID].lastCycleNumber = cycleNumber`, and the log it emits carries the same
  * cycle. A fixture that advanced only the log described an avatar that cannot
  * exist, which is why these two helpers now set both.
  *
  * The reverse IS producible, and has its own tests below: the entity read
- * always carries `lastEpoch`, while the log read is allowed to come back empty.
+ * always carries `lastCycleNumber`, while the log read is allowed to come back empty.
  */
 const movedThisCycle = (id: bigint, to: {x: number; y: number}) =>
 	avatar({
@@ -137,7 +136,7 @@ describe('holding the cycle being resolved', () => {
 		// own failures on purpose - losing the animation beats losing the board -
 		// so `lastTurn` is allowed to be absent, and taking the hold's decision
 		// from it meant one such fetch let the whole cycle through mid-window.
-		// `lastEpoch` comes from storage in the same pinned read and cannot be.
+		// `lastCycleNumber` comes from storage in the same pinned read and cannot be.
 		const shown = world(avatar({avatarID: 1n, position: {x: 0, y: 0}}));
 		const held = holdResolvingCycle({
 			shown,

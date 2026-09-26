@@ -5,14 +5,13 @@ import {causeOfDeath, explainDeath} from '$lib/world/death';
  * The only account of a death the player will ever get.
  *
  * Nothing on chain records why an avatar died: `life` is computed from how far
- * `lastEpoch` has fallen behind, and no event is emitted. So the sentence in
+ * `lastCycleNumber` has fallen behind, and no event is emitted. So the sentence in
  * the notice is the client's own reading of a rule, which is exactly why it is
  * a tested function rather than a string in a component.
  */
 describe('why an avatar died', () => {
 	it('counts the cycles of silence it actually takes, which is one more than the tolerance', () => {
-		// `_getResolvedAvatar` kills it when `epoch > lastEpoch + 1 + M` - the
-		// contract's own spelling, and this game's contracts are not renamed. With
+		// `_getResolvedAvatar` kills it when `cycleNumber > lastCycleNumber + 1 + M`. With
 		// M = 3 and a last turn in cycle L, it is dead in L+5, having said nothing
 		// in L+1, L+2, L+3 and L+4: four cycles, not three.
 		expect(causeOfDeath({numMissesAllowed: 3})).toEqual({

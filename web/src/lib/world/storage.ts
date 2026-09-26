@@ -45,11 +45,11 @@ type StoredAction = {actionType: number; data: string};
  *
  * It was renamed anyway, in reveal-or-die, and the reason was CHECKED FOR THAT
  * REPO rather than inherited from the template. The template could rename its
- * own because it has no committed deployment at all; that argument does not
- * transfer, because reveal-or-die HAS one (`contracts/deployments/rise-testnet`).
- * Three things made it free there regardless (and bomber-world, which inherits
- * this file, deleted its records when it was ported, so nothing of its can be
- * in flight at all):
+ * own because it has no committed deployment at all; that argument did not
+ * transfer, because reveal-or-die HAD one on rise-testnet. Three things made
+ * it free there regardless (and both repos have since deleted their records:
+ * bomber-world when it was ported, reveal-or-die at its epoch -> cycle rename,
+ * so today nothing of either can be in flight at all):
  *
  * 1. THAT DEPLOYMENT IS ALREADY UNREACHABLE by this build. Its `Game` ABI
  *    carries none of `delegationStatus`, `registerDelegate`,

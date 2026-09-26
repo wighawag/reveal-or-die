@@ -12,7 +12,7 @@ import {
  *
  * The contract's half of this is pinned in `contracts/test/js/ManualCycle.test.ts`
  * against a real chain: that a manual game HAS a commit phase, that one push
- * opens the reveal phase without moving the cycle, and that `lastEpoch` is what
+ * opens the reveal phase without moving the cycle, and that `lastCycleNumber` is what
  * a reveal writes. What is pinned here is the arithmetic on top of it, because
  * two of the three numbers are read off something other than the obvious field
  * and both would be wrong in a way that still produces a plausible tally.
@@ -21,7 +21,7 @@ import {
 const GAME = '0x1111111111111111111111111111111111111111' as const;
 const CHAIN = 1337;
 
-type Avatar = {inGame: boolean; lastEpoch: bigint; life: number};
+type Avatar = {inGame: boolean; lastCycleNumber: bigint; life: number};
 
 /**
  * A chain that answers the three calls this file makes, and counts them.
@@ -42,13 +42,14 @@ function fakeChain(
 				args?: readonly unknown[];
 			}) => {
 				reads.push(request.functionName);
-				if (request.functionName === 'getEpoch') return [7n, true] as const;
+				if (request.functionName === 'getCycleNumber')
+					return [7n, true] as const;
 				const id = String(request.args?.[0]);
 				const member = members[id];
 				if (!member) throw new Error(`no such avatar ${id}`);
 				if (request.functionName === 'getAvatar') return member.avatar;
 				if (request.functionName === 'getCommitment') {
-					return {hash: '0x00', epoch: member.commitment};
+					return {hash: '0x00', cycleNumber: member.commitment};
 				}
 				throw new Error(`unexpected read ${request.functionName}`);
 			},
@@ -62,9 +63,9 @@ function fakeChain(
 	};
 }
 
-const alive = (lastEpoch: bigint, inGame = true): Avatar => ({
+const alive = (lastCycleNumber: bigint, inGame = true): Avatar => ({
 	inGame,
-	lastEpoch,
+	lastCycleNumber,
 	life: 1,
 });
 
@@ -92,7 +93,7 @@ describe('who a world waits for', () => {
 });
 
 describe('the cycle reader', () => {
-	it('reads getEpoch, and reports no timings because a manual cycle has none', async () => {
+	it('reads getCycleNumber, and reports no timings because a manual cycle has none', async () => {
 		const chain = fakeChain({});
 		const reading = await createCycleReader({
 			publicClient: chain.publicClient,
@@ -144,7 +145,7 @@ describe('attendance', () => {
 	});
 
 	it('still counts a member that has REVEALED as having committed', async () => {
-		// THE ONE THAT IS EASY TO GET WRONG. `_reveal` sets `commitment.epoch = 0`
+		// THE ONE THAT IS EASY TO GET WRONG. `_reveal` sets `commitment.cycleNumber = 0`
 		// when it is done, so a member that has finished looks exactly like one
 		// that never committed. Counting only the commitment would make
 		// `committed` FALL as the reveal phase progressed, and `advancePermitted`
@@ -168,11 +169,14 @@ describe('attendance', () => {
 	it('stops waiting for a member with no life left', async () => {
 		// `_makeCommitment` reverts `AvatarIsDead`, so a dead member the cycle
 		// still waited for would block it forever. Death is computed from how far
-		// `lastEpoch` has fallen behind and is never written down or announced,
+		// `lastCycleNumber` has fallen behind and is never written down or announced,
 		// which is why this is read every time rather than remembered.
 		const {read} = readerFor(
 			{
-				'1': {avatar: {inGame: true, lastEpoch: 2n, life: 0}, commitment: 0n},
+				'1': {
+					avatar: {inGame: true, lastCycleNumber: 2n, life: 0},
+					commitment: 0n,
+				},
 				'2': {avatar: alive(7n), commitment: 0n},
 			},
 			[1n, 2n],

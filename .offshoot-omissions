@@ -137,7 +137,7 @@ web/test/lib/placement
 # 2026-09-24 as a CLEAN ADD into a directory this repo does not otherwise have.
 # It tests `$lib/placement/advance.ts` - `getAttendance` read and `advanceCycle`
 # sent against the template's contracts. This game's half of the same job is
-# `web/src/lib/world/advance.ts`, against `getEpoch` and `moveToNextPhase`, and
+# `web/src/lib/world/advance.ts`, against `getCycleNumber` and `moveToNextPhase`, and
 # it has tests of its own beside it.
 #
 # LISTED AS THE WHOLE DIRECTORY, not just `advance.test.ts`, because it is the

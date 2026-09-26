@@ -20,7 +20,7 @@ contract GameReveal is IGameReveal, UsingGameInternal {
         }
     }
 
-    function moveToNextPhase() external returns (ManualEpoch memory) {
+    function moveToNextPhase() external returns (ManualCycle memory) {
         return _moveToNextPhase();
     }
 

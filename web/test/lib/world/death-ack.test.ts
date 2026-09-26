@@ -50,7 +50,7 @@ describe('acknowledging a death', () => {
 	});
 
 	it('still shows the news when the SAME avatar dies again', () => {
-		// `lastEpoch` only advances on reveals, so a second death is a strictly
+		// `lastCycleNumber` only advances on reveals, so a second death is a strictly
 		// later cycle. Settling the avatar "in general" would swallow it.
 		const ack = scoped(memory());
 		ack.acknowledge({avatarID: 5n, deathCycleNumber: 12});

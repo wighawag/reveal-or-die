@@ -42,7 +42,7 @@ export type Avatar = {
 	owner: `0x${string}`;
 	inGame: boolean;
 	position: Position;
-	/** The cycle of its last resolved turn: the contract's `lastEpoch`. */
+	/** The cycle of its last resolved turn: the contract's `lastCycleNumber`. */
 	lastCycleNumber: number;
 	life: number;
 	/** What its last resolved turn was, when a log for it was fetched. */
@@ -159,19 +159,18 @@ const REVEAL_CYCLES = 2;
 /**
  * The chain's `PublicAvatar`, as the getters return it.
  *
- * `lastEpoch` IS THE CONTRACT'S NAME AND NOT THE CLIENT'S. This type is the
- * cast target for `getAvatarsInMultipleZones`, so its components are read out
- * of the ABI BY NAME: the struct component really is called `lastEpoch`
- * (`UsingGameTypes.PublicAvatar`), and these contracts are this game's own and
- * have not been renamed. Spelling it `lastCycleNumber` here would read
- * `undefined`, and nothing would say so.
+ * THESE FIELD NAMES ARE THE ABI'S. This type is the cast target for
+ * `getAvatarsInMultipleZones`, so its components are read out of the ABI BY
+ * NAME (`UsingGameTypes.PublicAvatar`): a field spelled differently from the
+ * contract's would read `undefined`, and nothing would say so. The contract
+ * said `lastEpoch` until 2026-09-26, which is why this warning exists.
  */
 type PublicAvatar = {
 	owner: `0x${string}`;
 	avatarID: bigint;
 	inGame: boolean;
 	position: bigint;
-	lastEpoch: bigint;
+	lastCycleNumber: bigint;
 	life: number;
 };
 
@@ -245,12 +244,12 @@ export function createWorldReader(params: {
 						// Both are INDEXED, so this is a node-side topic filter rather
 						// than a download of every reveal in the world.
 						//
-						// `epoch:` IS THE EVENT'S OWN TOPIC NAME, not the client's: the
-						// key has to match `CommitmentRevealed(uint256 indexed
-						// avatarID, uint64 indexed epoch, ...)` as this game's contract
-						// declares it. A key viem does not recognise is not an error,
-						// it is an unfiltered query.
-						args: {epoch: cycleNumbers, zone: [...params.zones]},
+						// `cycleNumber:` IS THE EVENT'S OWN TOPIC NAME: the key has to
+						// match `CommitmentRevealed(uint256 indexed avatarID, uint64
+						// indexed cycleNumber, ...)` as this game's contract declares it.
+						// A key viem does not recognise is not an error, it is an
+						// unfiltered query.
+						args: {cycleNumber: cycleNumbers, zone: [...params.zones]},
 						strict: true,
 						fromBlock: range.from,
 						toBlock: range.to,
@@ -259,13 +258,13 @@ export function createWorldReader(params: {
 			);
 
 			for (const event of batches.flat()) {
-				// `epoch` again the EVENT'S component name, for the reason above.
+				// `cycleNumber` again the EVENT'S component name, for the reason above.
 				const args = event.args as unknown as {
 					avatarID: bigint;
-					epoch: bigint;
+					cycleNumber: bigint;
 					actions: readonly Action[];
 				};
-				const cycleNumber = Number(args.epoch);
+				const cycleNumber = Number(args.cycleNumber);
 				const held = byAvatar.get(args.avatarID);
 				// One avatar can only reveal once per cycle, so the only way to see
 				// two is to have asked for two cycles. The later one is its last turn.
@@ -376,8 +375,7 @@ export function createWorldReader(params: {
 					owner: a.owner,
 					inGame: a.inGame,
 					position: bigIntIDToXY(a.position),
-					// Client field on the left, ABI component on the right.
-					lastCycleNumber: Number(a.lastEpoch),
+					lastCycleNumber: Number(a.lastCycleNumber),
 					life: Number(a.life),
 					lastTurn: turns.get(a.avatarID),
 				});

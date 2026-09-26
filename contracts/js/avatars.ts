@@ -116,14 +116,17 @@ export function createReader(
 	const rpc = createCurriedJSONRPC<Methods>(provider);
 
 	async function getAvatarsFromCamera(
-		epoch: number,
+		cycleNumber: number,
 		camera: {x: number; y: number; width: number; height: number},
 	): Promise<Avatars> {
 		const zones = calculateVisibleZones(camera);
-		return getAvatars(epoch, zones);
+		return getAvatars(cycleNumber, zones);
 	}
 
-	async function getAvatars(epoch: number, zones: bigint[]): Promise<Avatars> {
+	async function getAvatars(
+		cycleNumber: number,
+		zones: bigint[],
+	): Promise<Avatars> {
 		let startIndex = 0;
 		const limit = options?.maxAvatarsPerRequest || 100; // TODO option ?
 		let allAvatars: Avatar[] = [];
@@ -150,7 +153,7 @@ export function createReader(
 			abi: [event],
 			eventName: 'CommitmentRevealed',
 			args: {
-				epoch: BigInt(epoch - 1),
+				cycleNumber: BigInt(cycleNumber - 1),
 				zone: zones,
 			},
 		});

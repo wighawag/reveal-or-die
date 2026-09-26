@@ -33,8 +33,8 @@ import type {WorldState} from './state';
  * The board to draw: `latest` with the resolving cycle's changes held back to
  * whatever `shown` had.
  *
- * WHAT COUNTS AS THIS CYCLE'S OUTCOME is read off `lastEpoch`, which is
- * STORAGE: `_resolveActions` ends with `_avatars[avatarID].lastEpoch = epoch`
+ * WHAT COUNTS AS THIS CYCLE'S OUTCOME is read off `lastCycleNumber`, which is
+ * STORAGE: `_resolveActions` ends with `_avatars[avatarID].lastCycleNumber = cycleNumber`
  * for every resolved turn, including the empty ones the client commits to keep
  * an idle avatar alive, so it arrives in the entity read pinned to the same
  * block as the position it explains and it cannot be missing.
@@ -68,7 +68,7 @@ export function holdResolvingCycle<TState extends WorldState>(params: {
 
 	for (const [id, avatar] of latest.avatars) {
 		// Not part of this cycle's outcome: nothing to hold. The contract's
-		// `lastEpoch` (this client's `lastCycleNumber`) only
+		// `lastCycleNumber` (this client's `lastCycleNumber`) only
 		// advances on a reveal, so this is exactly "its turn for this cycle has
 		// landed", and it is the same read that carries the position.
 		if (avatar.lastCycleNumber !== resolvingCycleNumber) continue;

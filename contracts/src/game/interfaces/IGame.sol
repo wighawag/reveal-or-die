@@ -24,13 +24,13 @@ interface IGameReveal is UsingGameTypes {
         address payable payee
     ) external payable;
 
-    function moveToNextPhase() external returns (ManualEpoch memory);
+    function moveToNextPhase() external returns (ManualCycle memory);
 
     function acknowledgeMissedReveal(uint256 avatarID) external;
 }
 
 interface IGameGetters is UsingGameTypes {
-    function getEpoch() external view returns (uint64 epoch, bool commiting);
+    function getCycleNumber() external view returns (uint64 cycleNumber, bool commiting);
 
     function getAvatarsInZone(
         uint64 zone,
@@ -39,7 +39,7 @@ interface IGameGetters is UsingGameTypes {
     )
         external
         view
-        returns (PublicAvatar[] memory avatars, bool more, uint64 epoch);
+        returns (PublicAvatar[] memory avatars, bool more, uint64 cycleNumber);
 
     function getAvatarsInMultipleZones(
         uint64[] calldata zones,
@@ -48,7 +48,7 @@ interface IGameGetters is UsingGameTypes {
     )
         external
         view
-        returns (PublicAvatar[] memory avatars, bool more, uint64 epoch);
+        returns (PublicAvatar[] memory avatars, bool more, uint64 cycleNumber);
 
     function getAvatar(
         uint256 avatarID

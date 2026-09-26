@@ -40,7 +40,7 @@ const authorised: DelegationValue = {
 const withAvatar: DepositedState = {
 	step: 'Loaded',
 	avatars: [
-		{avatarID: 1n, inGame: false, position: 0n, lastEpoch: 0n, life: 3},
+		{avatarID: 1n, inGame: false, position: 0n, lastCycleNumber: 0n, life: 3},
 	],
 };
 

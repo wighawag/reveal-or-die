@@ -251,7 +251,13 @@ function fakeContext(
 			deposited: writable({
 				step: 'Loaded',
 				avatars: [
-					{avatarID: ME, inGame: true, position: 0n, lastEpoch: 6n, life: 1},
+					{
+						avatarID: ME,
+						inGame: true,
+						position: 0n,
+						lastCycleNumber: 6n,
+						life: 1,
+					},
 				],
 			}),
 			activeIdentity: writable(ME),

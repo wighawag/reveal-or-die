@@ -108,12 +108,12 @@ async function push(w: EmbeddedWorld) {
 
 async function cycleOf(w: EmbeddedWorld) {
 	const records = w.deployments.get();
-	const [epoch, commiting] = (await clientFor(w).readContract({
+	const [cycleNumber, commiting] = (await clientFor(w).readContract({
 		address: records.contracts.Game.address,
 		abi: records.contracts.Game.abi,
-		functionName: 'getEpoch',
+		functionName: 'getCycleNumber',
 	})) as readonly [bigint, boolean];
-	return {cycleNumber: Number(epoch), isCommitPhase: commiting};
+	return {cycleNumber: Number(cycleNumber), isCommitPhase: commiting};
 }
 
 /**
@@ -149,7 +149,12 @@ async function avatarOf(w: EmbeddedWorld, identity: bigint) {
 		abi: records.contracts.Game.abi,
 		functionName: 'getAvatar',
 		args: [identity],
-	})) as {inGame: boolean; position: bigint; lastEpoch: bigint; life: number};
+	})) as {
+		inGame: boolean;
+		position: bigint;
+		lastCycleNumber: bigint;
+		life: number;
+	};
 }
 
 describe('the world plays a whole round', () => {
@@ -221,7 +226,7 @@ describe('the world plays a whole round', () => {
 				expect(avatar.inGame, `avatar ${player.identity} is in the world`).toBe(
 					true,
 				);
-				expect(avatar.lastEpoch).toBe(2n);
+				expect(avatar.lastCycleNumber).toBe(2n);
 				expect(avatar.life).toBeGreaterThan(0);
 			}
 		},
@@ -249,7 +254,7 @@ describe('the world plays a whole round', () => {
 				const avatar = await avatarOf(w, player.identity);
 				expect(avatar.inGame).toBe(true);
 				// Revealed in cycle 3 as well as 2, which is what keeps it alive.
-				expect(avatar.lastEpoch).toBe(3n);
+				expect(avatar.lastCycleNumber).toBe(3n);
 				const at = bigIntIDToXY(avatar.position);
 				expect(isObstacle(at.x, at.y), 'standing on a walkable cell').toBe(
 					false,
@@ -336,7 +341,7 @@ describe('a derived turn', () => {
 	it('is EMPTY when there is nothing legal to do, so the cycle can still close', () => {
 		// The acceptance criterion in one assertion. A player boxed in on all four
 		// sides still has to hand the cycle something, because unanimity waits for
-		// it either way: an empty turn commits, reveals, writes `lastEpoch` (which
+		// it either way: an empty turn commits, reveals, writes `lastCycleNumber` (which
 		// is what keeps the avatar alive and what the attendance reader counts)
 		// and resolves to nothing. Refusing to commit would freeze the world.
 		//

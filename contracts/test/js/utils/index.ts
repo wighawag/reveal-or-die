@@ -24,7 +24,7 @@ export {CYCLE_POLICY} from '../../../rocketh/config.js';
  *
  * WHY A SECOND DEPLOY EXISTS AT ALL, since every other test here plays the
  * SHIPPED one. Because the shipped one is timed, on every environment, and
- * always has been - so the manual branch of `_epoch()`, `_moveToNextPhase` and
+ * always has been - so the manual branch of `_cycleNumber()`, `_moveToNextPhase` and
  * the since-removed `_moveToNextEpoch` were reachable by nothing in this repo
  * and were wrong for as long as they had existed. A suite that can only deploy one configuration can
  * only ever test one.
@@ -134,8 +134,11 @@ export function setupFixtures(provider: EthereumProvider) {
 				return Math.floor(Date.now() / 1000);
 			}
 
-			function getEpoch(time: number): {epoch: number; commiting: boolean} {
-				const epochDuration =
+			function getCycleNumber(time: number): {
+				cycleNumber: number;
+				commiting: boolean;
+			} {
+				const cycleDuration =
 					Number(linkedData.commitPhaseDuration) +
 					Number(linkedData.revealPhaseDuration);
 				const startTime = Number(linkedData.startTime);
@@ -143,28 +146,29 @@ export function setupFixtures(provider: EthereumProvider) {
 					throw new Error('Game not started');
 				}
 				const timePassed = time - startTime;
-				const epoch = Math.floor(timePassed / epochDuration + 2);
+				const cycleNumber = Math.floor(timePassed / cycleDuration + 2);
 				const commiting =
-					timePassed - (epoch - 2) * epochDuration <
+					timePassed - (cycleNumber - 2) * cycleDuration <
 					Number(linkedData.commitPhaseDuration);
 
-				return {epoch, commiting};
+				return {cycleNumber, commiting};
 			}
 
-			function getEpochStartTime(epoch: number): number {
-				const epochDuration =
+			function getCycleStartTime(cycleNumber: number): number {
+				const cycleDuration =
 					Number(linkedData.commitPhaseDuration) +
 					Number(linkedData.revealPhaseDuration);
-				return Number(linkedData.startTime) + (epoch - 2) * epochDuration;
+				return Number(linkedData.startTime) + (cycleNumber - 2) * cycleDuration;
 			}
 
-			async function advanceToEpoch(epoch: number, mine?: boolean) {
-				await advanceToTime(getEpochStartTime(epoch), mine);
+			async function advanceToCycle(cycleNumber: number, mine?: boolean) {
+				await advanceToTime(getCycleStartTime(cycleNumber), mine);
 			}
 
-			async function advanceToRevealPhase(epoch: number, mine?: boolean) {
+			async function advanceToRevealPhase(cycleNumber: number, mine?: boolean) {
 				await advanceToTime(
-					getEpochStartTime(epoch) + Number(linkedData.commitPhaseDuration),
+					getCycleStartTime(cycleNumber) +
+						Number(linkedData.commitPhaseDuration),
 					mine,
 				);
 			}
@@ -174,10 +178,10 @@ export function setupFixtures(provider: EthereumProvider) {
 				Game,
 				Avatars,
 				AvatarsSale,
-				getEpoch,
+				getCycleNumber,
 				getTimestamp,
 				advanceToRevealPhase,
-				advanceToEpoch,
+				advanceToCycle,
 				namedAccounts: env.namedAccounts,
 				unnamedAccounts: env.unnamedAccounts,
 			};

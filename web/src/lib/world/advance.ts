@@ -21,11 +21,11 @@
  * ## Three things this game spells differently from the template, and the third
  * ## one matters
  *
- * **1. The cycle read is `getEpoch`, not `getCycle`.** Same function, older
+ * **1. The cycle read is `getCycleNumber`, not `getCycle`.** Same function, older
  * word, and `AGENTS.md` says to expect exactly that in a game repo: the
  * framework renamed the interval to `cycle`, contracts are not inherited here,
  * and this game has not been ported. It answers under BOTH policies, because
- * `_epoch()` returns the manual cycle when there is no clock - which is why the
+ * `_cycleNumber()` returns the manual cycle when there is no clock - which is why the
  * comment that used to sit in `context/game.ts` saying "there is no `getCycle`
  * to ask" was reading a grep rather than the contract.
  *
@@ -49,8 +49,7 @@
  * cost when wrong is a reverted transaction, because the contract checks the
  * same conditions and is the judge. Here the contract checks NOTHING:
  * `_moveToNextPhase` refuses only when the policy is not manual, and its own
- * source carries the TODO for the rest ("add logic to present moving to next
- * epoch if not all player who already in the game has done so"). So in a manual
+ * source says the unanimity guard is still missing. So in a manual
  * deployment of THIS game the mirrored guard is not a prediction, it is the
  * only guard there is, and being wrong in the lax direction does not cost a
  * transaction - it opens the reveal phase on somebody who had not committed
@@ -123,15 +122,14 @@ const waitedFor = new Map<number, readonly bigint[]>();
  *
  * THE EVIDENCE, and it is one function. `UsingGameInternal._moveToNextPhase`
  * checks `CYCLE_POLICY != CyclePolicy.Manual` and nothing else: no `waitedFor`,
- * no `committed`, no `revealed`. Its own source carries the TODO
- * ("add posibility to skip epoch even if turn are timed", and the unanimity
- * guard beneath it), annotated at the line. The template's contract re-checks
+ * no `committed`, no `revealed`. Its own source says the unanimity guard is
+ * missing, annotated at the line. The template's contract re-checks
  * all four conditions and reverts with a named error for each, which is what
  * `game/core/advance.ts` asks about and what it must NOT be told here.
  *
  * WHAT IT COSTS TO GET WRONG, in this game specifically: an advance pushed
  * early opens the reveal phase on a player who has not committed, or closes a
- * cycle on one who has not revealed. `lastEpoch` falls behind, `numMisses`
+ * cycle on one who has not revealed. `lastCycleNumber` falls behind, `numMisses`
  * counts it, and at `numMissesAllowed` the avatar is dead. The game is called
  * reveal-or-die and that is the whole of why this constant is not `true`.
  *
@@ -209,16 +207,16 @@ type ReadDeps = {
 export function createCycleReader(deps: ReadDeps): () => Promise<CycleReading> {
 	return async () => {
 		const Game = deps.deployments.get().contracts.Game;
-		// TWO UNNAMED-IN-TYPESCRIPT RETURNS: solidity names them `epoch` and
+		// TWO UNNAMED-IN-TYPESCRIPT RETURNS: solidity names them `cycleNumber` and
 		// `commiting`, and viem hands back a positional tuple for a function with
 		// more than one output whether or not they are named.
-		const [epoch, commiting] = (await deps.publicClient.readContract({
+		const [cycleNumber, commiting] = (await deps.publicClient.readContract({
 			address: Game.address,
 			abi: Game.abi,
-			functionName: 'getEpoch',
+			functionName: 'getCycleNumber',
 		})) as readonly [bigint, boolean];
 		return {
-			cycleNumber: Number(epoch),
+			cycleNumber: Number(cycleNumber),
 			isCommitPhase: commiting,
 			phaseStart: 0,
 			phaseEnd: 0,
@@ -226,13 +224,13 @@ export function createCycleReader(deps: ReadDeps): () => Promise<CycleReading> {
 	};
 }
 
-/** What `getCommitment` hands back. `epoch` is the ABI's own component name. */
-type OnChainCommitment = {hash: `0x${string}`; epoch: bigint};
+/** What `getCommitment` hands back. `cycleNumber` is the ABI's own component name. */
+type OnChainCommitment = {hash: `0x${string}`; cycleNumber: bigint};
 
 /** What `getAvatar` hands back, of which three fields are read here. */
 type PublicAvatar = {
 	inGame: boolean;
-	lastEpoch: bigint;
+	lastCycleNumber: bigint;
 	life: number;
 };
 
@@ -247,7 +245,7 @@ type PublicAvatar = {
  *   cycle still waited for would block it forever, which under the manual
  *   policy means the world never moves again. Death is not an event and is
  *   never written down: `_getResolvedAvatar` computes it from how far
- *   `lastEpoch` has fallen behind the cycle, so the only way to know is to ask,
+ *   `lastCycleNumber` has fallen behind the cycle, so the only way to know is to ask,
  *   every time. That is also why nothing has to deregister a member.
  *
  *   An avatar that has never ENTERED is alive by that rule (`life` is forced to
@@ -255,15 +253,15 @@ type PublicAvatar = {
  *   submission is the Enter, and a cycle that did not wait for it would open
  *   the reveal phase before it could make one.
  *
- * - **`revealed` is `lastEpoch == cycleNumber`.** The only thing that writes
- *   `lastEpoch` is `_resolveActions`, and the only thing that calls
+ * - **`revealed` is `lastCycleNumber == cycleNumber`.** The only thing that writes
+ *   `lastCycleNumber` is `_resolveActions`, and the only thing that calls
  *   `_resolveActions` is `_reveal`. So that equality means exactly "this member
  *   opened its commitment in this cycle", which is the number the framework
  *   wants and one this contract does not otherwise expose.
  *
  * - **`committed` is that, OR a commitment stamped with this cycle.** Both
  *   halves are needed and the first is the one that is easy to miss: `_reveal`
- *   sets `commitment.epoch = 0` when it is done, so a member that has already
+ *   sets `commitment.cycleNumber = 0` when it is done, so a member that has already
  *   revealed looks exactly like a member that never committed. Counting only
  *   the second half would make `committed` FALL as the reveal phase progressed,
  *   and `advancePermitted` would then refuse to close a cycle everybody had
@@ -314,7 +312,7 @@ export function createAttendanceReader(
 			if (avatar.life === 0) continue;
 			attendance.waitedFor += 1;
 
-			if (Number(avatar.lastEpoch) === cycleNumber) {
+			if (Number(avatar.lastCycleNumber) === cycleNumber) {
 				attendance.committed += 1;
 				attendance.revealed += 1;
 				continue;
@@ -326,7 +324,8 @@ export function createAttendanceReader(
 				functionName: 'getCommitment',
 				args: [avatarID],
 			})) as OnChainCommitment;
-			if (Number(commitment.epoch) === cycleNumber) attendance.committed += 1;
+			if (Number(commitment.cycleNumber) === cycleNumber)
+				attendance.committed += 1;
 		}
 		return attendance;
 	};

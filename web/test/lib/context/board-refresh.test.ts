@@ -71,7 +71,7 @@ describe('canTakeTurnNow', () => {
 /**
  * WHAT THE CHAIN DECIDES ON ITS OWN, and how the client hears about it.
  *
- * `_getResolvedAvatar` computes `life` from how far `lastEpoch` has fallen
+ * `_getResolvedAvatar` computes `life` from how far `lastCycleNumber` has fallen
  * behind the cycle being asked about, so an avatar is killed by the passage of
  * cycles with nobody sending anything. The account read used to be refreshed
  * only when something this client did SUCCEEDED, which is exactly the wrong

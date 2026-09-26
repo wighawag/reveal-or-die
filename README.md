@@ -9,7 +9,7 @@ A comprehensive template for building decentralized games that use commit+reveal
 
 - **Avatar-based gameplay** where players control digital avatars
 - **Multi-zone world** exploration and interaction
-- **Time-based epochs** with commit and reveal phases
+- **Time-based cycles** with commit and reveal phases
 - **Trustless state management** via smart contracts
 - **Real-time web interface** built with Svelte and Pixi.js
 
@@ -33,7 +33,7 @@ This monorepo contains two main components:
   - Commit-reveal game mechanics
   - Avatar system
   - Zone-based world system
-  - Epoch-based time management
+  - Cycle-based time management
   - Multi-network deployment support
 
 ### 🛡️ No Server Required
@@ -114,7 +114,7 @@ pnpm onchain:build    # Compile and export contracts
 
 ### Commit-Reveal Cycle
 
-The game operates in epochs with two distinct phases:
+The game operates in cycles with two distinct phases:
 
 1. **Commit Phase**: Players submit hashed moves (commitments)
 2. **Reveal Phase**: Players reveal their actual moves and secrets
@@ -137,7 +137,7 @@ This mechanism ensures:
 
 - **Zones**: The game world is divided into zones for organization
 - **Avatars**: Player-owned characters that can move and interact
-- **Epochs**: Time-based rounds that govern game progression
+- **Cycles**: the numbered intervals, each a commit phase then a reveal phase, that govern game progression
 
 ## 🛠️ Development
 

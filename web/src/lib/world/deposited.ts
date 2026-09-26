@@ -14,17 +14,17 @@ import type {Context} from '$lib/context/types';
 /**
  * An avatar the contract holds for this owner, as `avatarsPerOwner` returns it.
  *
- * `lastEpoch` IS THE CONTRACT'S NAME AND NOT THE CLIENT'S. This type is the
- * cast target for that call, so its components are read out of the ABI BY
- * NAME (`UsingGameTypes.PublicAvatar`), and this game's own contracts have not
- * been renamed. Spelling it `lastCycleNumber` here would read `undefined`
- * without failing anything.
+ * THESE FIELD NAMES ARE THE ABI'S. This type is the cast target for that call,
+ * so its components are read out of the ABI BY NAME
+ * (`UsingGameTypes.PublicAvatar`): a field spelled differently from the
+ * contract's would read `undefined` without failing anything. The contract said
+ * `lastEpoch` until 2026-09-26, which is why this warning exists.
  */
 export type DepositedAvatar = {
 	avatarID: bigint;
 	inGame: boolean;
 	position: bigint;
-	lastEpoch: bigint;
+	lastCycleNumber: bigint;
 	life: number;
 };
 

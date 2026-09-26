@@ -112,12 +112,12 @@ export function createMissedReveal(params: {
 				abi: Game.abi,
 				functionName: 'getCommitment',
 				args: [onchainIdentity(id)],
-				// `epoch` IS THE ABI'S COMPONENT NAME for `Commitment`, which this
-				// game's own contracts still use and which this rename did not touch.
-				// A cast naming it `cycleNumber` would read `undefined` silently.
-			})) as {hash: `0x${string}`; epoch: bigint};
+				// `cycleNumber` IS THE ABI'S COMPONENT NAME for `Commitment`, read BY
+				// NAME through this cast: a cast spelling it any other way would read
+				// `undefined` silently.
+			})) as {hash: `0x${string}`; cycleNumber: bigint};
 
-			const cycleNumber = Number(onChain.epoch);
+			const cycleNumber = Number(onChain.cycleNumber);
 			// Cycle 0 means no commitment; one for the CURRENT cycle is the cycle in
 			// progress and blocks nothing. Only an older one bars the way, which is
 			// exactly the condition `_makeCommitment` tests.

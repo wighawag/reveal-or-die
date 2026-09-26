@@ -35,7 +35,7 @@ export type WorldConfig = {
 	 * Read rather than assumed, because it is the whole of the only way to die
 	 * in this game and the client is the ONLY thing that can ever explain a
 	 * death: nothing on chain announces one - there is no event, and `life` is
-	 * computed from how far `lastEpoch` has fallen behind - so the sentence the
+	 * computed from how far `lastCycleNumber` has fallen behind - so the sentence the
 	 * player is shown has to come from here.
 	 *
 	 * UNDEFINED FOR A DEPLOYMENT THAT PREDATES THE PARAMETER, in which case the

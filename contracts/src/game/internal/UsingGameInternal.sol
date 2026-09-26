@@ -65,8 +65,8 @@ abstract contract UsingGameInternal is
             // The NFT was therefore locked in this contract permanently, which
             // is a far larger penalty than the game intends - the avatar is the
             // stake, and losing it is the loss, not losing it AND the token.
-            (uint64 epoch, ) = _epoch();
-            if (_getResolvedAvatar(avatarID, epoch).life > 0) {
+            (uint64 cycleNumber, ) = _cycleNumber();
+            if (_getResolvedAvatar(avatarID, cycleNumber).life > 0) {
                 revert UsingGameErrors.AvatarStillInGame(avatarID);
             }
 
@@ -79,7 +79,7 @@ abstract contract UsingGameInternal is
             uint64 zone = PositionUtils.getZone(x, y);
             _removeFromZone(zone, avatarID);
             _avatars[avatarID].inGame = false;
-            emit LeftTheGame(avatarID, epoch, zone, _avatars[avatarID].position);
+            emit LeftTheGame(avatarID, cycleNumber, zone, _avatars[avatarID].position);
             _avatars[avatarID].position = 0;
         }
 
@@ -109,56 +109,56 @@ abstract contract UsingGameInternal is
     ) internal {
         _requireAccountForAvatar(sender, avatarID);
 
-        (uint64 epoch, bool commiting) = _epoch();
+        (uint64 cycleNumber, bool commiting) = _cycleNumber();
 
         if (!commiting) {
-            revert InRevealPhase(epoch);
+            revert InRevealPhase(cycleNumber);
         }
 
         Commitment storage commitment = _commitments[avatarID];
 
         // A player who dislikes what they committed to must not be able to walk
-        // away by going quiet and simply committing again next epoch. Leaving an
+        // away by going quiet and simply committing again next cycle. Leaving an
         // unrevealed commitment behind has to cost something, so it must be
         // acknowledged first (`acknowledgeMissedReveal`, GameReveal.sol), which
         // clears the slot and voids the commitment.
-        if (commitment.epoch != 0 && commitment.epoch != epoch) {
+        if (commitment.cycleNumber != 0 && commitment.cycleNumber != cycleNumber) {
             revert PreviousCommitmentNotRevealed();
         }
 
-        AvatarResolved memory avatar = _getResolvedAvatar(avatarID, epoch);
+        AvatarResolved memory avatar = _getResolvedAvatar(avatarID, cycleNumber);
         if (avatar.life == 0) {
             revert AvatarIsDead(avatarID);
         }
 
         commitment.hash = commitmentHash;
-        commitment.epoch = epoch;
+        commitment.cycleNumber = cycleNumber;
 
-        emit CommitmentMade(avatarID, epoch, commitmentHash);
+        emit CommitmentMade(avatarID, cycleNumber, commitmentHash);
     }
 
     function _cancelCommitment(address sender, uint256 avatarID) internal {
         _requireAccountForAvatar(sender, avatarID);
 
-        (uint64 epoch, bool commiting) = _epoch();
+        (uint64 cycleNumber, bool commiting) = _cycleNumber();
         if (!commiting) {
-            revert InRevealPhase(epoch);
+            revert InRevealPhase(cycleNumber);
         }
 
         Commitment storage commitment = _commitments[avatarID];
-        if (commitment.epoch == 0) {
+        if (commitment.cycleNumber == 0) {
             revert NoCommitmentToCancel();
         }
 
-        if (commitment.epoch != epoch) {
+        if (commitment.cycleNumber != cycleNumber) {
             revert PreviousCommitmentNotRevealed();
         }
 
         // Note that we do not reset the hash
         // This ensure the slot do not get reset and keep the gas cost consistent across execution
-        commitment.epoch = 0;
+        commitment.cycleNumber = 0;
 
-        emit CommitmentCancelled(avatarID, epoch);
+        emit CommitmentCancelled(avatarID, cycleNumber);
     }
 
     function _reveal(
@@ -166,19 +166,19 @@ abstract contract UsingGameInternal is
         Action[] calldata actions,
         bytes32 secret
     ) internal {
-        (uint64 epoch, bool commiting) = _epoch();
+        (uint64 cycleNumber, bool commiting) = _cycleNumber();
 
         if (commiting) {
-            revert InCommitmentPhase(epoch);
+            revert InCommitmentPhase(cycleNumber);
         }
         Commitment storage commitment = _commitments[avatarID];
 
-        if (commitment.epoch == 0) {
+        if (commitment.cycleNumber == 0) {
             revert NothingToReveal();
         }
 
-        if (commitment.epoch != epoch) {
-            revert InvalidEpoch(epoch, commitment.epoch);
+        if (commitment.cycleNumber != cycleNumber) {
+            revert InvalidCycle(cycleNumber, commitment.cycleNumber);
         }
 
         bytes24 hashRevealed = commitment.hash;
@@ -186,45 +186,45 @@ abstract contract UsingGameInternal is
 
         (uint64 newPosition, uint256 numActionsResolved) = _resolveActions(
             avatarID,
-            epoch,
+            cycleNumber,
             actions
         );
 
         emit CommitmentRevealed(
             avatarID,
-            epoch,
+            cycleNumber,
             PositionUtils.getZone(newPosition),
             hashRevealed,
             actions[0:numActionsResolved]
         );
 
-        commitment.epoch = 0; // used
+        commitment.cycleNumber = 0; // used
     }
 
-    function _getManualEpoch() internal view returns (ManualEpoch memory) {
-        if (_manualEpoch.epoch == 0) {
-            // we start at 2 like the automatic epoch to make the hypothetical previous epoch be 1
+    function _getManualCycle() internal view returns (ManualCycle memory) {
+        if (_manualCycle.cycleNumber == 0) {
+            // we start at 2 like the timed cycle, to make the hypothetical previous cycle be 1
             // AND IN THE COMMIT PHASE, unconditionally. This was `!SKIP_COMMIT`,
             // which was derived from the same two zero durations that selected
             // this branch in the first place - so it was always false here, and
             // a manual cycle opened in a reveal phase it could never have
             // committed into.
-            return ManualEpoch({epoch: 2, commiting: true});
+            return ManualCycle({cycleNumber: 2, commiting: true});
         }
-        return _manualEpoch;
+        return _manualCycle;
     }
 
     // `_moveToNextEpoch` WAS HERE, and it is gone on purpose. It opened the
     // next cycle's commit phase from wherever the cycle was, so called during a
     // commit phase it skipped the reveal phase and stranded every commitment in
-    // it: `_reveal` refused them with `InvalidEpoch`, and each then had to be
+    // it: `_reveal` refused them with `InvalidCycle`, and each then had to be
     // acknowledged as missed. It was exposed on the router and called by
     // nothing. Removed rather than guarded, as template-commit-reveal did
     // (`work:work/notes/findings/the-manual-epoch-prototype-could-strand-a-commitment.md`):
     // a manual cycle advances ONE PHASE at a time, through `_moveToNextPhase`.
 
-    function _moveToNextPhase() internal returns (ManualEpoch memory) {
-        // TODO add posibility to skip epoch even if turn are timed
+    function _moveToNextPhase() internal returns (ManualCycle memory) {
+        // TODO add possibility to skip a cycle even if turns are timed
         // THE UNANIMITY GUARD IS STILL MISSING, and it is the one TODO in this
         // file with a stake behind it. Nothing here checks that everyone the
         // cycle is waiting for has acted, so a caller who pushes early opens
@@ -249,45 +249,45 @@ abstract contract UsingGameInternal is
             revert NextPhaseNotAllowed();
         }
 
-        ManualEpoch memory currentManualEpoch = _getManualEpoch();
-        if (currentManualEpoch.commiting) {
-            _manualEpoch.epoch = currentManualEpoch.epoch;
-            _manualEpoch.commiting = false;
+        ManualCycle memory currentManualCycle = _getManualCycle();
+        if (currentManualCycle.commiting) {
+            _manualCycle.cycleNumber = currentManualCycle.cycleNumber;
+            _manualCycle.commiting = false;
         } else {
-            _manualEpoch.commiting = true;
-            _manualEpoch.epoch = currentManualEpoch.epoch + 1;
+            _manualCycle.commiting = true;
+            _manualCycle.cycleNumber = currentManualCycle.cycleNumber + 1;
         }
-        return _manualEpoch;
+        return _manualCycle;
     }
 
     function _acknowledgeMissedReveal(uint256 avatarID) internal {
         // TODO burn / stake ....
         Commitment storage commitment = _commitments[avatarID];
 
-        if (commitment.epoch == 0) {
+        if (commitment.cycleNumber == 0) {
             revert NothingToReveal();
         }
 
-        (uint64 epoch, ) = _epoch();
+        (uint64 cycleNumber, ) = _cycleNumber();
 
-        if (commitment.epoch == epoch) {
-            revert CanStillReveal(epoch);
+        if (commitment.cycleNumber == cycleNumber) {
+            revert CanStillReveal(cycleNumber);
         }
 
-        commitment.epoch = 0;
+        commitment.cycleNumber = 0;
 
         // TODO block nft control
 
         // here we cannot know whether there were further move or even any moves
         // we just burn all tokens in reserve
-        emit CommitmentVoid(avatarID, epoch);
+        emit CommitmentVoid(avatarID, cycleNumber);
     }
 
     //-------------------------------------------------------------------------
 
     struct ActionResolution {
         uint256 avatarID;
-        uint64 epoch;
+        uint64 cycleNumber;
         bool stopProcessing;
         int32 startX;
         int32 startY;
@@ -309,7 +309,7 @@ abstract contract UsingGameInternal is
     //-------------------------------------------------------------------------
     function _resolveActions(
         uint256 avatarID,
-        uint64 epoch,
+        uint64 cycleNumber,
         Action[] memory actions
     ) internal returns (uint64 newPosition, uint256 numActionsResolved) {
         Avatar memory avatar = _avatars[avatarID];
@@ -318,7 +318,7 @@ abstract contract UsingGameInternal is
 
         ActionResolution memory resolution = ActionResolution({
             avatarID: avatarID,
-            epoch: epoch,
+            cycleNumber: cycleNumber,
             stopProcessing: false,
             startX: startX,
             startY: startY,
@@ -348,18 +348,18 @@ abstract contract UsingGameInternal is
             _removeFromZone(resolution.startZone, avatarID);
             emit LeftTheGame(
                 avatarID,
-                epoch,
+                cycleNumber,
                 resolution.currentZone,
                 newPosition
             );
         } else if (resolution.entering) {
             _avatars[avatarID].inGame = true;
-            _avatars[avatarID].startEpoch = epoch;
+            _avatars[avatarID].startCycleNumber = cycleNumber;
             _avatars[avatarID].position = newPosition;
             _avatars[avatarID].life = 1;
             uint64 zone = PositionUtils.getZone(newPosition);
             _addToZone(zone, avatarID);
-            emit EnteredTheGame(avatarID, epoch, zone, newPosition);
+            emit EnteredTheGame(avatarID, cycleNumber, zone, newPosition);
         } else {
             if (resolution.startZone != resolution.currentZone) {
                 _removeFromZone(resolution.startZone, avatarID);
@@ -368,7 +368,7 @@ abstract contract UsingGameInternal is
             _avatars[avatarID].position = newPosition;
         }
 
-        _avatars[avatarID].lastEpoch = epoch;
+        _avatars[avatarID].lastCycleNumber = cycleNumber;
     }
 
     function _forEachActions(
@@ -426,7 +426,7 @@ abstract contract UsingGameInternal is
                 resolution.currentY,
                 moveToX,
                 moveToY,
-                resolution.epoch
+                resolution.cycleNumber
             )
         ) {
             resolution.currentX = moveToX;
@@ -450,7 +450,7 @@ abstract contract UsingGameInternal is
     ///  treatment `_move` gives a step it will not make. Reverting would be
     ///  worse than the mistake: the reveal is a transaction against a commitment
     ///  that is already made, so a revert costs the player every action in the
-    ///  turn AND blocks the next epoch until `acknowledgeMissedReveal` is
+    ///  turn AND blocks the next cycle until `acknowledgeMissedReveal` is
     ///  called.
     ///  `UnableToExitFromThisPosition` stays declared in UsingGameErrors.sol
     ///  with the rest of the rules that are stated there and enforced elsewhere.
@@ -483,38 +483,38 @@ abstract contract UsingGameInternal is
         resolution.stopProcessing = true;
     }
 
-    function _epoch()
+    function _cycleNumber()
         internal
         view
         virtual
-        returns (uint64 epoch, bool commiting)
+        returns (uint64 cycleNumber, bool commiting)
     {
         if (CYCLE_POLICY == CyclePolicy.Manual) {
-            ManualEpoch memory currentManualEpoch = _getManualEpoch();
-            epoch = currentManualEpoch.epoch;
-            commiting = currentManualEpoch.commiting;
+            ManualCycle memory currentManualCycle = _getManualCycle();
+            cycleNumber = currentManualCycle.cycleNumber;
+            commiting = currentManualCycle.commiting;
         } else {
-            uint256 epochDuration = COMMIT_PHASE_DURATION +
+            uint256 cycleDuration = COMMIT_PHASE_DURATION +
                 REVEAL_PHASE_DURATION;
             uint256 time = _timestamp();
             if (time < START_TIME) {
                 revert GameNotStarted();
             }
             uint256 timePassed = time - START_TIME;
-            epoch = uint64(timePassed / epochDuration + 2); // epoch start at 2, this make the hypothetical previous reveal phase's epoch to be 1
+            cycleNumber = uint64(timePassed / cycleDuration + 2); // cycles start at 2, which makes the hypothetical previous reveal phase's cycle be 1
             commiting =
-                timePassed - ((epoch - 2) * epochDuration) <
+                timePassed - ((cycleNumber - 2) * cycleDuration) <
                 COMMIT_PHASE_DURATION;
         }
     }
 
     function _getResolvedAvatar(
         uint256 avatarID,
-        uint64 epoch
+        uint64 cycleNumber
     ) internal view returns (AvatarResolved memory) {
         Avatar memory avatar = _avatars[avatarID];
 
-        uint64 lastEpoch = avatar.lastEpoch;
+        uint64 lastCycleNumber = avatar.lastCycleNumber;
         uint8 life = avatar.life;
         if (!avatar.inGame) {
             life = 1;
@@ -523,9 +523,9 @@ abstract contract UsingGameInternal is
 
             // we force character to continuously commit+reveal
             uint64 numMissesAllowed = uint64(NUM_MISSES_ALLOWED);
-            if (epoch > lastEpoch + 1 + numMissesAllowed) {
+            if (cycleNumber > lastCycleNumber + 1 + numMissesAllowed) {
                 life = 0;
-                lastEpoch = lastEpoch + 1 + numMissesAllowed; // we fake lastEpoch so we can know when the character died
+                lastCycleNumber = lastCycleNumber + 1 + numMissesAllowed; // we fake lastCycleNumber so we can know when the character died
             }
         }
 
@@ -533,7 +533,7 @@ abstract contract UsingGameInternal is
             AvatarResolved({
                 position: avatar.position,
                 inGame: avatar.inGame,
-                lastEpoch: lastEpoch,
+                lastCycleNumber: lastCycleNumber,
                 avatarID: avatarID,
                 life: life
             });
@@ -541,9 +541,9 @@ abstract contract UsingGameInternal is
 
     function _getPublicAvatar(
         uint256 avatarID,
-        uint64 epoch
+        uint64 cycleNumber
     ) internal view returns (PublicAvatar memory) {
-        AvatarResolved memory avatar = _getResolvedAvatar(avatarID, epoch);
+        AvatarResolved memory avatar = _getResolvedAvatar(avatarID, cycleNumber);
         Player memory player = _players[avatarID];
 
         return
@@ -551,7 +551,7 @@ abstract contract UsingGameInternal is
                 owner: player.owner,
                 position: avatar.position,
                 inGame: avatar.inGame,
-                lastEpoch: avatar.lastEpoch,
+                lastCycleNumber: avatar.lastCycleNumber,
                 avatarID: avatarID,
                 life: avatar.life
             });
@@ -564,9 +564,9 @@ abstract contract UsingGameInternal is
     )
         internal
         view
-        returns (PublicAvatar[] memory avatars, bool more, uint64 epoch)
+        returns (PublicAvatar[] memory avatars, bool more, uint64 cycleNumber)
     {
-        (epoch, ) = _epoch();
+        (cycleNumber, ) = _cycleNumber();
         uint256 numAvatarsInZone = _zones[zone].avatars.length;
         if (fromIndex < numAvatarsInZone) {
             if (fromIndex + limit > numAvatarsInZone) {
@@ -579,7 +579,7 @@ abstract contract UsingGameInternal is
             for (uint256 i = 0; i < limit; i++) {
                 avatars[i] = _getPublicAvatar(
                     _zones[zone].avatars[fromIndex + i],
-                    epoch
+                    cycleNumber
                 );
             }
         }
@@ -592,9 +592,9 @@ abstract contract UsingGameInternal is
     )
         internal
         view
-        returns (PublicAvatar[] memory avatars, bool more, uint64 epoch)
+        returns (PublicAvatar[] memory avatars, bool more, uint64 cycleNumber)
     {
-        (epoch, ) = _epoch();
+        (cycleNumber, ) = _cycleNumber();
         // Create a struct to hold our working variables
         AvatarFetchState memory state = _initAvatarFetchState(zones, fromIndex);
 
@@ -611,14 +611,14 @@ abstract contract UsingGameInternal is
             avatars = new PublicAvatar[](limit);
 
             // Fill the result array by traversing zones
-            _fillAvatarResults(zones, fromIndex, limit, state, avatars, epoch);
+            _fillAvatarResults(zones, fromIndex, limit, state, avatars, cycleNumber);
         } else {
             // No avatars to return
             avatars = new PublicAvatar[](0);
             more = false;
         }
 
-        return (avatars, more, epoch);
+        return (avatars, more, cycleNumber);
     }
 
     // Helper struct to reduce stack variables
@@ -662,7 +662,7 @@ abstract contract UsingGameInternal is
         uint64 limit,
         AvatarFetchState memory state,
         PublicAvatar[] memory avatars,
-        uint64 epoch
+        uint64 cycleNumber
     ) private view {
         uint64 avatarsReturned = 0;
         uint64 currentFromIndex = fromIndex;
@@ -687,7 +687,7 @@ abstract contract UsingGameInternal is
                 uint256 avatarId = _zones[zoneId].avatars[inZoneIndex + i];
                 avatars[avatarsReturned + i] = _getPublicAvatar(
                     avatarId,
-                    epoch
+                    cycleNumber
                 );
             }
 
@@ -744,7 +744,7 @@ abstract contract UsingGameInternal is
         int32 y1,
         int32 x2,
         int32 y2,
-        uint64 epoch
+        uint64 cycleNumber
     ) internal view returns (bool valid) {
         // TODO cache area, detect area change and update accordingly
         UsingGameTypes.Area memory area = GameUtils.areaAt(x2, y2);
