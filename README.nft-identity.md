@@ -220,7 +220,7 @@ Three things make it real here, each with a test that fails when it is removed:
   the game merely READ `ownerOf`, a player could sell the avatar inside the
   reveal window and walk away whole, leaving the buyer to be seized from -
   which is a costless exit with an extra step. `withdrawAvatar` refuses while a
-  commitment is open, in the current epoch (you committed) and in a past one
+  commitment is open, in the current cycle (you committed) and in a past one
   (you are already forfeit).
 
 ## The reserve is still there, and is never funded
