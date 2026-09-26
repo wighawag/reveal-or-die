@@ -94,6 +94,47 @@ function nodeCatchupBudgetMs(averageBlockTime: number): number {
 const NODE_CATCHUP_RETRY_MS = 200;
 
 /**
+ * The fewest blocks a reader is ever handed for its logs: one request's worth
+ * at the lowest `eth_getLogs` cap in common use.
+ */
+export const MIN_LOG_BLOCKS = 1000;
+
+/**
+ * The first block of the range a reader's logs are read over, ending at
+ * `toBlock`.
+ *
+ * Roughly two cycles' worth, doubled, so late blocks cannot hide an event.
+ * EXCEPT that a span sized in seconds has nothing to measure on two kinds of
+ * chain, and both were found the same day (2026-09-26, by bomber-world's first
+ * test that needed a log read offline):
+ *
+ * 1. A MANUAL cycle has no durations (the contracts refuse any), so four cycles
+ *    of seconds is ZERO blocks and the range was the latest block alone. Every
+ *    reveal in an earlier block went unread.
+ * 2. A chain that mines blocks sharing a timestamp (the offline one does) makes
+ *    `chain-time`'s average block time ZERO, and 0 / 0 is NaN. A NaN start made
+ *    a chunking reader send no request at all: no error, no warning, and only
+ *    when the sampled blocks happened to share a timestamp.
+ *
+ * So the span is floored at {@link MIN_LOG_BLOCKS}, and a span that is not a
+ * finite number gets the floor. Logs are filtered by topic on the node, so a
+ * wider range costs no extra results; a reader that reads no logs ignores the
+ * range entirely.
+ */
+export function logRangeStart(params: {
+	toBlock: number;
+	cycleDuration: number;
+	averageBlockTime: number;
+}): number {
+	const {toBlock, cycleDuration, averageBlockTime} = params;
+	const sized = Math.floor((4 * cycleDuration) / averageBlockTime);
+	const span = Number.isFinite(sized)
+		? Math.max(sized, MIN_LOG_BLOCKS - 1)
+		: MIN_LOG_BLOCKS - 1;
+	return Math.max(0, toBlock - span);
+}
+
+/**
  * Knobs for the cycle-edge refresh policy. Defaults live in
  * `game/core/refresh`.
  */
@@ -198,14 +239,15 @@ export function createPollingOnchainState<TState>(params: {
 				Date.now() + nodeCatchupBudgetMs(currentScope.averageBlockTime);
 
 			for (;;) {
-				// The contract answers over a block range; ask for roughly two cycles'
-				// worth, doubled, so late blocks cannot hide an event. Re-read per
-				// attempt, since the point of retrying is that the chain moves on.
+				// The contract answers over a block range: see `logRangeStart` for how
+				// it is sized. Re-read per attempt, since the point of retrying is that
+				// the chain moves on.
 				const toBlock = Number(await publicClient.getBlockNumber());
-				const span = Math.floor(
-					(4 * cycleDuration) / currentScope.averageBlockTime,
-				);
-				const fromBlock = Math.max(0, toBlock - span);
+				const fromBlock = logRangeStart({
+					toBlock,
+					cycleDuration,
+					averageBlockTime: currentScope.averageBlockTime,
+				});
 
 				const result = await read({
 					zones: currentScope.zones,
