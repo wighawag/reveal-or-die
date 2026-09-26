@@ -59,11 +59,10 @@ import {seatsPlayedByTheWorld, tableOf} from '../../src/lib/game/lobby/seats';
  * making every seat a member, the CONTRACT counting attendance and refusing a
  * push until it is unanimous, and the advance client reading that count.
  * Checked again on 2026-09-26 when the guard moved into the contract: with
- * enrolment removed from `_deposit`, this test fails at `Committed`. BUT ONLY
- * WITH `contracts/dist` REBUILT from the mutated source: the offline world
- * deploys in the browser from the contracts package, which the e2e worktree
- * resolves to the MAIN checkout's `dist` (its node_modules are linked, not
- * installed), so a mutation that is only compiled is silently not tested.
+ * enrolment removed from `_deposit`, this test fails at `Committed`. The
+ * offline world deploys in the browser from the contracts package, and the e2e
+ * runner builds that package's `dist` in its own worktree and points the app at
+ * it, so a mutation to the source is what gets tested here.
  */
 
 /**
