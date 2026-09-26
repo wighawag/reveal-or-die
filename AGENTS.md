@@ -46,19 +46,23 @@ deliberately does NOT take so that your game can have them: `round` and `turn`
 are yours, and the framework never uses either. Read it before naming anything
 new, and extend it when your game settles a word of its own.
 
-**The template now says `cycle`, and the games still say `epoch`.** That split
-is deliberate and it is how you should read a grep.
+**The template says `cycle`, and so do reveal-or-die and bomber-world; the
+other games still say `epoch`.** That split is deliberate and it is how you
+should read a grep.
 
 In the template (`template-commit-reveal`) the rename has landed: `cycle` is the
 interval, `cycleNumber` is its index, one player's pass through a cycle is a
-`submission`, and apart from the two exceptions below `epoch` appears nowhere in
+`submission`, and apart from the one exception below `epoch` appears nowhere in
 `web/src` or `contracts/src`. If you find another one there, it is drift and it
 is worth fixing.
 
 In a GAME repo built from this template, `epoch` is expected and means the game
 has not been ported yet. Contracts are not inherited here, so each game carries
 its own and is ported one at a time; a descendant full of `epoch` is a schedule,
-not a stale glossary. What a game must not do is use `cycle` for something that
+not a stale glossary. reveal-or-die was ported on 2026-09-26, taking the
+template's names wherever the concept is the same (`getCycleNumber`,
+`_cycleNumber`, `InvalidCycle`, `lastCycleNumber`), and bomber-world follows it
+by cascade. What a game must not do is use `cycle` for something that
 is not the framework's interval.
 
 **AND THE SAME READING APPLIES TO A MECHANISM, NOT ONLY TO A WORD.** `CONTEXT.md`
@@ -74,8 +78,8 @@ only one never reports progress. What a game must not do is chain the
 commitment in its contracts and leave its client sending the whole turn, which
 fails only in the reveal phase and costs the stake.
 
-Three files keep an old word on purpose, and all three are different cases. Two
-keep `epoch`; the third keeps `round`, which is the other word this rename
+Two files keep an old word on purpose, and they are different cases. One keeps
+`epoch`; the other keeps `round`, which is the other word this rename
 moved (the shared interval became `cycle`, one player's pass became a
 `submission`, and `round` and `turn` went back to being a game's own words).
 
@@ -99,12 +103,14 @@ to the stem's, which is the second reason to leave it: editing `lib/core` to
 satisfy a grep buys a conflict in every future merge. A sweep that rewrites it
 to `cycle` has made the comment false; that happened once already.
 
-`contracts/src/game/internal/UsingGameInternal.sol` cites bomber-world's
-`_epoch()` as the precedent for its identity seam. That is a DESCENDANT'S symbol
-name, and by the paragraph above a game repo is expected to still say `epoch`
-until it is ported, so the citation is only correct while it spells the name
-that repo actually uses. A sweep rewrote it to `_cycleNumber()` once, naming a
-function that exists in no repo.
+**There used to be one more, and it is the lesson about citations.**
+`contracts/src/game/internal/UsingGameInternal.sol` cites bomber-world's cycle
+function as the precedent for its identity seam. That is a DESCENDANT'S symbol,
+so the citation is only correct while it spells the name that repo actually
+uses. It said `_epoch()` until 2026-09-26, and a sweep once rewrote it to
+`_cycleNumber()` early, naming a function that then existed in no repo. It says
+`_cycleNumber()` now because bomber-world was ported that day: the citation
+followed the descendant, not the glossary.
 
 `web/test/svelte-conventions-boundary.test.ts` cites `game/core/round.ts` and
 `RoundState` as a DESCENDANT'S file that failed a rune check. Same shape as the
