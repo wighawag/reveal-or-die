@@ -80,6 +80,18 @@ interface UsingGameErrors is UsingGameTypes {
     /// @notice happen when attempting to move to the next phase when not configured to be able to do it.
     error NextPhaseNotAllowed();
 
+    /// @notice nobody is being waited for, so unanimity has no denominator
+    error NoOneToWaitFor();
+
+    /// @notice some of the living members have not committed in this cycle yet
+    error StillWaitingToCommit(uint64 committed, uint64 waitedFor);
+
+    /// @notice some of this cycle's commitments have not been revealed yet
+    error StillWaitingToReveal(uint64 revealed, uint64 committed);
+
+    /// @notice a manual game waits for at most this many avatars
+    error TooManyToWaitFor(uint256 max);
+
     /// @notice The declared cycle policy and the phase durations disagree.
     /// @dev Refused at CONSTRUCTION, so a game can never run a schedule it did
     ///  not declare. `Manual` requires both durations to be zero (there is no

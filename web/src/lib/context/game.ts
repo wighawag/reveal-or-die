@@ -93,7 +93,6 @@ import {
 	createAttendanceReader,
 	createCycleAdvancer,
 	createCycleReader,
-	waitedForOnChain,
 	THIS_CONTRACT_JUDGES_AN_ADVANCE,
 } from '$lib/world/advance';
 import {
@@ -596,23 +595,14 @@ export function createGameContext(core: CoreServices): GameContext {
 		readAttendance: createAttendanceReader({
 			publicClient: core.publicClient,
 			deployments: core.deployments,
-			cycleNumber: () => get(currentCycleNumber),
-			// WHO THE CYCLE WAITS FOR IS NOT ON CHAIN HERE, which is the one place
-			// this game's contract is behind the framework and the reason this
-			// argument exists at all. The template reads `getAttendance` and needs
-			// to be told nothing; this game has no membership set, so a world that
-			// wants unanimity has to say who is in it. An ordinary deployment says
-			// nobody, which reads as `NoOneToWaitFor` and pushes nothing - the same
-			// answer the contract would give. See `$lib/world/advance`.
-			waitedFor: () => waitedForOnChain(deployments.chain.id),
 		}),
 		advance: createCycleAdvancer(core),
 		refreshCycle,
-		// NO, AND THE ANSWER IS THIS GAME'S TO GIVE, which is why it is a named
-		// constant in `world/advance.ts` beside the evidence rather than a literal
-		// here. This line arrived from the template saying `true`, merged cleanly,
-		// and was false the moment it landed: that contract re-checks four
-		// conditions and this one re-checks the policy alone.
+		// THE ANSWER IS THIS GAME'S TO GIVE, which is why it is a named constant
+		// in `world/advance.ts` beside the evidence rather than a literal here.
+		// It is `true` since this game's `_moveToNextPhase` judges unanimity; it
+		// was `false` before, when a `true` merged in from the template had been
+		// a false claim that every suite let through.
 		contractIsTheJudge: THIS_CONTRACT_JUDGES_AN_ADVANCE,
 	});
 

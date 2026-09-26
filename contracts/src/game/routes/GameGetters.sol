@@ -48,6 +48,17 @@ contract GameGetters is IGameGetters, UsingGameInternal {
         return _commitments[avatarID];
     }
 
+    /// @notice Who the manual cycle waits for, and how many have acted in the
+    ///  current cycle: the numbers `moveToNextPhase` judges by.
+    function getAttendance()
+        external
+        view
+        returns (Attendance memory attendance)
+    {
+        (uint64 cycleNumber, ) = _cycleNumber();
+        return _attendance(cycleNumber);
+    }
+
     function getConfig() external view returns (Config memory config) {
         return
             Config({

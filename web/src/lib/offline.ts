@@ -1,4 +1,4 @@
-import {get, writable, type Readable} from 'svelte/store';
+import {writable, type Readable} from 'svelte/store';
 import {
 	config,
 	extensions,
@@ -25,7 +25,6 @@ import {pokeWhenTheHumanActs} from '$lib/game/core/played';
 import {seatsPlayedByTheWorld, type Table} from '$lib/game/lobby/seats';
 import {authoriseTheBrowsersKey} from '$lib/game/acquire';
 import {resolveWorldConfig} from '$lib/world/config';
-import {declareWaitedFor} from '$lib/world/advance';
 
 /**
  * THIS GAME'S OFFLINE WORLD: the composition, which is the half
@@ -91,12 +90,10 @@ import {declareWaitedFor} from '$lib/world/advance';
  *    seats DO is `$lib/offline-players`. What is decided here is what each of
  *    them is GIVEN and how this game spells who they are.
  *
- *    AND HERE THE WORLD HAS TO SAY WHO THEY ARE, which is the one structural
- *    difference from the template's version of this file. That game's contract
- *    keeps an `Attendance` and answers `getAttendance`; this one keeps no
- *    membership set at all and cannot enumerate one, so unanimity is measured
- *    by the CLIENT against a table this file declares. See
- *    {@link declareWaitedFor} and the file it lives in.
+ *    WHO THE CYCLE WAITS FOR IS DECIDED BY PROVISIONING ITSELF: under the
+ *    manual policy the contract waits for every avatar that enters custody, so
+ *    giving each seat its avatar is what makes it a member. Nothing here has to
+ *    declare the table, as the template's world does not either.
  *
  * It lives beside `lib/index.ts` rather than in a route, for the reason the
  * mechanism's README gives: this repo deletes the demo routes it inherits, and
@@ -348,27 +345,6 @@ async function buildOfflineWorld(table: Table): Promise<OfflineWorldStatus> {
 	}
 
 	/**
-	 * WHO THE CYCLE WAITS FOR, DECLARED, which the template's world never has to
-	 * do because its contract keeps the tally itself.
-	 *
-	 * EVERY SEAT INCLUDING THE HUMAN'S, because unanimity is measured against
-	 * the table and not against the players the world happens to drive. A
-	 * declaration that listed only the played seats would let an advance close a
-	 * cycle the human had not revealed in, which in this game is a step towards
-	 * losing their avatar.
-	 *
-	 * It is safe to declare an avatar that is not in the world yet: the reader
-	 * treats one that has never entered as alive and waited for, which is right,
-	 * because its first submission is the Enter.
-	 */
-	declareWaitedFor(world.chainId, [
-		offlineIdentityOf(await theHumansAddress(context.context)),
-		...seatsPlayedByTheWorld(table).map((played) =>
-			offlineIdentityOf(played.address),
-		),
-	]);
-
-	/**
 	 * THE OTHER PLAYERS, STARTED WITH THE BOARD AND STOPPED WITH IT.
 	 *
 	 * Wrapped around the context's own `start` rather than started here, so that
@@ -410,54 +386,6 @@ async function buildOfflineWorld(table: Table): Promise<OfflineWorldStatus> {
 	status.set(ready);
 	return ready;
 }
-
-/**
- * The address the human is playing as, once the world has connected its wallet.
- *
- * READ OFF THE CONTEXT rather than remembered from provisioning, because
- * provisioning ran before the connection existed and the wallet is what decides
- * which of its accounts is in use.
- *
- * AND WAITED FOR, which the first version of this did not do and which cost a
- * browser run to find. `ensureConnected` and `requestSignature` resolving does
- * not mean every store downstream of them has been written: the account store
- * is fed by the connection's own state, so a synchronous read the instant those
- * resolve can still see `undefined`. There is no store to await here and no
- * promise that means "and the account is published", so this waits for the
- * first defined value.
- *
- * IT GIVES UP RATHER THAN HANGING. A world that cannot name its own player
- * cannot declare who the cycle waits for, and a table missing seat one is worse
- * than a failed boot: an advance would close cycles the human had not revealed
- * in, which is how they lose the avatar. Failing loudly here is the safe
- * direction.
- */
-async function theHumansAddress(context: Context): Promise<`0x${string}`> {
-	const immediate = get(context.account);
-	if (immediate) return immediate;
-	return new Promise((resolve, reject) => {
-		const timer = setTimeout(() => {
-			stop();
-			reject(
-				new Error(
-					'the offline world connected no account, so it does not know who is in seat one',
-				),
-			);
-		}, ACCOUNT_WAIT_MS);
-		const stop = context.account.subscribe((address) => {
-			if (!address) return;
-			clearTimeout(timer);
-			// `subscribe` calls back synchronously with the current value, so
-			// `stop` may not be assigned yet on the first call. Deferring the
-			// teardown is the ordinary way round that and costs one microtask.
-			queueMicrotask(() => stop());
-			resolve(address);
-		});
-	});
-}
-
-/** How long to wait for the connection to publish an account. */
-const ACCOUNT_WAIT_MS = 30_000;
 
 /**
  * Boot (or restore) the world for one chain id.

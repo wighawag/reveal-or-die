@@ -148,11 +148,10 @@ describe('a cycle pushed by hand', function () {
 			args: [avatarID],
 		})) as {inGame: boolean; lastCycleNumber: bigint};
 		expect(avatar.inGame).toEqual(true);
-		// `lastCycleNumber` IS HOW THE CLIENT COUNTS REVEALS, because this contract
-		// keeps no attendance and `reveal` zeroes the commitment when it is done -
-		// so a member that has revealed is otherwise indistinguishable from one
-		// that never committed. `world/advance.ts` depends on exactly this, and
-		// this is where that dependency is pinned.
+		// `lastCycleNumber` IS HOW ATTENDANCE COUNTS REVEALS, because `reveal`
+		// zeroes the commitment when it is done - so a member that has revealed
+		// is otherwise indistinguishable from one that never committed.
+		// `_attendance` depends on exactly this, and this is where it is pinned.
 		expect(avatar.lastCycleNumber).toEqual(2n);
 
 		// PUSH AGAIN, which closes the cycle and opens the next one's commit
@@ -167,6 +166,166 @@ describe('a cycle pushed by hand', function () {
 		})) as readonly [bigint, boolean];
 		expect(nextCycle).toEqual(3n);
 		expect(committingAgain).toEqual(true);
+	});
+
+	it('waits for EVERY member before either push, and the contract is the judge', async function () {
+		// The guard `_moveToNextPhase` lacked: a push used to open the reveal
+		// phase on a player who had not committed, or close a cycle on one who
+		// had not revealed, and anyone may send one. Two members, each push tried
+		// while one of them is still owed and refused, then allowed.
+		const {env, Avatars, AvatarsSale, unnamedAccounts} =
+			await networkHelpers.loadFixture(deployAll);
+		const Game = await deployGameWith(env, 'Game_Manual_Unanimity', {
+			avatars: Avatars.address,
+			cyclePolicy: CYCLE_POLICY.Manual,
+		});
+		const [a, b] = [unnamedAccounts[0], unnamedAccounts[1]];
+		for (const owner of [a, b]) {
+			await env.execute(AvatarsSale, {
+				account: owner,
+				functionName: 'purchase',
+				args: purchaseArgs({gameAddress: Game.address, owner, subID: 0n}),
+				value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			});
+		}
+		const id = {A: avatarIDFor(a, 0n), B: avatarIDFor(b, 0n)};
+		const account = {A: a, B: b};
+		const secret =
+			'0x0000000000000000000000000000000000000000000000000000000000000001' as const;
+		const enter = {
+			A: [{actionType: 0, data: (1n << 32n) | 0n}] as Action[],
+			B: [{actionType: 0, data: (3n << 32n) | 0n}] as Action[],
+		};
+
+		const attendance = async () =>
+			(await env.read(Game, {functionName: 'getAttendance'})) as {
+				waitedFor: bigint;
+				committed: bigint;
+				revealed: bigint;
+			};
+		const push = () =>
+			env.execute(Game, {
+				account: a,
+				functionName: 'moveToNextPhase',
+				args: [],
+			});
+		async function refused(name: string) {
+			let message = '';
+			try {
+				await push();
+			} catch (error) {
+				message = String(error);
+			}
+			expect(message.includes(name)).toEqual(true);
+		}
+		const commit = (who: 'A' | 'B') =>
+			env.execute(Game, {
+				account: account[who],
+				functionName: 'commit',
+				args: [id[who], commitmentHash(secret, enter[who]), zeroAddress],
+			});
+		const reveal = (who: 'A' | 'B') =>
+			env.execute(Game, {
+				account: account[who],
+				functionName: 'reveal',
+				args: [id[who], enter[who], secret, zeroAddress],
+			});
+
+		// Both were enrolled when they entered custody: membership is setup.
+		expect(await attendance()).toEqual({
+			waitedFor: 2n,
+			committed: 0n,
+			revealed: 0n,
+		});
+
+		await commit('A');
+		await refused('StillWaitingToCommit');
+		await commit('B');
+		await push();
+
+		await reveal('A');
+		expect(await attendance()).toEqual({
+			waitedFor: 2n,
+			committed: 2n,
+			revealed: 1n,
+		});
+		await refused('StillWaitingToReveal');
+		await reveal('B');
+		await push();
+
+		const [cycleNumber, commiting] = (await env.read(Game, {
+			functionName: 'getCycleNumber',
+		})) as readonly [bigint, boolean];
+		expect(cycleNumber).toEqual(3n);
+		expect(commiting).toEqual(true);
+		// and last cycle's reveals do not count towards this one's
+		expect(await attendance()).toEqual({
+			waitedFor: 2n,
+			committed: 0n,
+			revealed: 0n,
+		});
+	});
+
+	it('stops waiting for an avatar that leaves custody, and refuses with nobody left', async function () {
+		const {env, Avatars, AvatarsSale, unnamedAccounts} =
+			await networkHelpers.loadFixture(deployAll);
+		const Game = await deployGameWith(env, 'Game_Manual_Leaving', {
+			avatars: Avatars.address,
+			cyclePolicy: CYCLE_POLICY.Manual,
+		});
+		const owner = unnamedAccounts[0];
+		await env.execute(AvatarsSale, {
+			account: owner,
+			functionName: 'purchase',
+			args: purchaseArgs({gameAddress: Game.address, owner, subID: 0n}),
+			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+		});
+		const attendance = async () =>
+			(
+				(await env.read(Game, {functionName: 'getAttendance'})) as {
+					waitedFor: bigint;
+				}
+			).waitedFor;
+		expect(await attendance()).toEqual(1n);
+
+		await env.execute(Game, {
+			account: owner,
+			functionName: 'withdraw',
+			args: [avatarIDFor(owner, 0n), owner],
+		});
+		expect(await attendance()).toEqual(0n);
+
+		// Nobody to wait for is not "everybody has acted": an empty table must
+		// not let one caller spin the cycle forward on their own.
+		let message = '';
+		try {
+			await env.execute(Game, {
+				account: owner,
+				functionName: 'moveToNextPhase',
+				args: [],
+			});
+		} catch (error) {
+			message = String(error);
+		}
+		expect(message.includes('NoOneToWaitFor')).toEqual(true);
+	});
+
+	it('enrols nobody when the clock decides', async function () {
+		// The shipped deployment is timed: a purchase puts the avatar in custody
+		// and waits for nobody, so a timed game pays nothing for this.
+		const {env, Game, AvatarsSale, unnamedAccounts} =
+			await networkHelpers.loadFixture(deployAll);
+		const owner = unnamedAccounts[0];
+		await env.execute(AvatarsSale, {
+			account: owner,
+			functionName: 'purchase',
+			args: purchaseArgs({gameAddress: Game.address, owner, subID: 0n}),
+			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+		});
+		const {waitedFor} = (await env.read(Game, {
+			functionName: 'getAttendance',
+		})) as {waitedFor: bigint};
+		expect(waitedFor).toEqual(0n);
 	});
 
 	it('will not be pushed when the clock is the one deciding', async function () {

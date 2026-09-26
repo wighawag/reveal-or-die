@@ -76,6 +76,16 @@ interface UsingGameEvents is UsingGameTypes {
     /// @param commiting whether we are in the commiting phase or not
     event NewPhase(uint64 indexed cycleNumber, bool commiting);
 
+    /// @notice an avatar started or stopped being one the manual cycle waits for
+    /// @param avatarID the avatar
+    /// @param waitedFor whether it is waited for now
+    /// @param count how many avatars are waited for now
+    event WaitedForChanged(
+        uint256 indexed avatarID,
+        bool waitedFor,
+        uint64 count
+    );
+
     // allow to easily inspect errors, instead of revert
     event Error(bytes4 selector, bytes data);
 }

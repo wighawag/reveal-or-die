@@ -21,13 +21,10 @@
  * ## Three things this game spells differently from the template, and the third
  * ## one matters
  *
- * **1. The cycle read is `getCycleNumber`, not `getCycle`.** Same function, older
- * word, and `AGENTS.md` says to expect exactly that in a game repo: the
- * framework renamed the interval to `cycle`, contracts are not inherited here,
- * and this game has not been ported. It answers under BOTH policies, because
- * `_cycleNumber()` returns the manual cycle when there is no clock - which is why the
- * comment that used to sit in `context/game.ts` saying "there is no `getCycle`
- * to ask" was reading a grep rather than the contract.
+ * **1. The cycle read is `getCycleNumber`, not `getCycle`.** The template's
+ * contract has both; `getCycleNumber` is the one of the same shape, and this
+ * game's contract has only it. It answers under BOTH policies, because
+ * `_cycleNumber()` returns the manual cycle when there is no clock.
  *
  * **2. The advance is `moveToNextPhase`, not `advanceCycle`.** One call covers
  * both of the framework's outcomes: from the commit phase it opens the reveal
@@ -41,35 +38,20 @@
  * stranded every commitment made in it. It was removed from the contract
  * (2026-09-26), so one phase at a time is now the only advance there is.
  *
- * **3. THERE IS NO `getAttendance`, AND THERE IS NO MEMBERSHIP SET AT ALL.**
- * This is the one place this game is behind the framework rather than merely
- * spelling it differently, and it changes what the client's guard IS.
+ * **3. The contract judges the advance, as the template's does (since
+ * 2026-09-26).** `_moveToNextPhase` refuses with the template's errors
+ * (`NoOneToWaitFor`, `StillWaitingToCommit`, `StillWaitingToReveal`) unless
+ * every living member has committed, or every commitment has been revealed. It
+ * used to check the policy and nothing else, which made the client's mirrored
+ * guard the only guard there was; see {@link THIS_CONTRACT_JUDGES_AN_ADVANCE}.
  *
- * The framework's `advancePermitted` is documented as a PREDICTION whose only
- * cost when wrong is a reverted transaction, because the contract checks the
- * same conditions and is the judge. Here the contract checks NOTHING:
- * `_moveToNextPhase` refuses only when the policy is not manual, and its own
- * source says the unanimity guard is still missing. So in a manual
- * deployment of THIS game the mirrored guard is not a prediction, it is the
- * only guard there is, and being wrong in the lax direction does not cost a
- * transaction - it opens the reveal phase on somebody who had not committed
- * yet, or closes a cycle on somebody who had not revealed, and in this game the
- * penalty for missing reveals is the avatar.
- *
- * WHAT BOUNDS THAT TODAY is that a manual deployment of this game is an OFFLINE
- * world and nothing else: every deployment on a real chain is timed (see
- * `contracts/rocketh/config.ts`), under which the framework never pushes and
- * `_moveToNextPhase` reverts anyway. So the only caller is the tab that also
- * holds every key at the table. That is a real bound and not a safe one to
- * forget: the moment this game has a manual deployment with a player it does
- * not control, the guard has to move into the contract. See the note of that
- * name on the `work` branch.
- *
- * So `waitedFor` is an ARGUMENT here. Whoever built the world says who is in
- * it; an ordinary deployment says nobody, which the framework reads as
- * `NoOneToWaitFor` and refuses to push - the same answer the contract would
- * have given.
+ * WHO IS A MEMBER IS DECIDED AT SETUP: under the manual policy an avatar is
+ * waited for from the moment it enters custody, which is when a lobby or an
+ * offline world provisions its seats, until it leaves. A dead member is not
+ * waited for, and nothing has to say so: the contract counts attendance when
+ * it is asked, and death is computed the same way.
  */
+
 import {get} from 'svelte/store';
 import type {Context} from '$lib/context/types';
 import type {Attendance} from '$lib/game/core/advance';
@@ -94,85 +76,24 @@ export type AdvanceDeps = Pick<
 >;
 
 /**
- * WHO A WORLD IS WAITING FOR, kept by the client because the chain does not
- * keep it.
- *
- * KEYED BY CHAIN ID, which is how everything else a world owns is keyed here
- * (the operations ledger, this game's submission storage, the deployment
- * records). An app can hold more than one world at a time - the remote chain in
- * the navbar and an in-tab one below it - and a single global would let the
- * embedded world's table answer for the remote one. Under `timed` nothing ever
- * reads this, so that would have been invisible rather than harmless.
- *
- * A MODULE-LEVEL REGISTRY rather than a constructor argument, and that is a
- * consequence of a boundary rather than a preference: `createGameContext` takes
- * only `CoreServices`, and giving it a second parameter means changing
- * `createCoreContext`, which is `lib/core` and therefore jolly-roger's file -
- * a divergence every future cascade would pay for, to carry one value that
- * exactly one caller in this repo ever sets. The lifetime is right either way:
- * a world is app-scoped state, built once, and its membership is fixed at
- * provisioning and cannot change without staking or withdrawing somebody
- * mid-cycle.
- */
-const waitedFor = new Map<number, readonly bigint[]>();
-
-/**
- * NO: THIS GAME'S CONTRACT DOES NOT JUDGE AN ADVANCE, so the client's mirrored
- * guard is the only one there is.
+ * YES: THIS GAME'S CONTRACT JUDGES AN ADVANCE, so the framework may send a hand
+ * press and let the chain answer.
  *
  * THE EVIDENCE, and it is one function. `UsingGameInternal._moveToNextPhase`
- * checks `CYCLE_POLICY != CyclePolicy.Manual` and nothing else: no `waitedFor`,
- * no `committed`, no `revealed`. Its own source says the unanimity guard is
- * missing, annotated at the line. The template's contract re-checks
- * all four conditions and reverts with a named error for each, which is what
- * `game/core/advance.ts` asks about and what it must NOT be told here.
+ * reads `_attendance` and refuses with a named error unless the push is
+ * unanimous: `NoOneToWaitFor`, `StillWaitingToCommit`, `StillWaitingToReveal`,
+ * the template's own conditions. `contracts/test/js/ManualCycle.test.ts` pins
+ * each one, and removing either check fails it.
  *
- * WHAT IT COSTS TO GET WRONG, in this game specifically: an advance pushed
- * early opens the reveal phase on a player who has not committed, or closes a
- * cycle on one who has not revealed. `lastCycleNumber` falls behind, `numMisses`
- * counts it, and at `numMissesAllowed` the avatar is dead. The game is called
- * reveal-or-die and that is the whole of why this constant is not `true`.
- *
- * IT LIVES HERE, BESIDE THIS GAME'S OWN ADVANCE, and that placement is the
- * point rather than tidiness. The template's `context/game.ts` answers this
- * question inline with `true` and a comment citing its own contract's four
- * guards - and that line merged into this repo CLEANLY on 2026-09-24, leaving
- * every suite green and the type checker satisfied while the repo claimed a
- * property it does not have. A named constant in the game's own module is a
- * line that reads as this repo's answer and is looked at by whoever ports the
- * contract, which is the person who will change it.
- *
- * FLIP IT WHEN THE CONTRACT EARNS IT: add the unanimity guard to
- * `_moveToNextPhase`, then set this to `true` in the same commit, and the hand
- * press goes back to letting the chain answer.
+ * IT WAS `false` UNTIL 2026-09-26, and that history is why this is a named
+ * constant beside the evidence rather than a literal in `context/game.ts`. The
+ * template answers the same question inline with `true`, and that line merged
+ * into this repo CLEANLY on 2026-09-24, leaving every suite green while the
+ * repo claimed a property it did not have. A constant here is read by whoever
+ * changes the contract, which is the person who must change it back if the
+ * guard ever goes.
  */
-export const THIS_CONTRACT_JUDGES_AN_ADVANCE = false;
-
-/**
- * Say who the cycle in a world must wait for, as avatar ids.
- *
- * Called ONCE, by whoever provisioned the world, before anything plays. There
- * is no removal: an avatar that dies stops being waited for by itself (see
- * {@link createAttendanceReader}), which is the same answer the contract would
- * give and needs nobody to remember to call anything.
- */
-export function declareWaitedFor(
-	chainId: number,
-	avatarIDs: readonly bigint[],
-): void {
-	waitedFor.set(chainId, [...avatarIDs]);
-}
-
-/** Who a world is waiting for. Nobody, unless somebody said otherwise. */
-export function waitedForOnChain(chainId: number): readonly bigint[] {
-	return waitedFor.get(chainId) ?? [];
-}
-
-/** Forget a world's table. For tests, and for a world being thrown away. */
-export function forgetWaitedFor(chainId?: number): void {
-	if (chainId === undefined) waitedFor.clear();
-	else waitedFor.delete(chainId);
-}
+export const THIS_CONTRACT_JUDGES_AN_ADVANCE = true;
 
 type ReadDeps = {
 	/**
@@ -224,110 +145,30 @@ export function createCycleReader(deps: ReadDeps): () => Promise<CycleReading> {
 	};
 }
 
-/** What `getCommitment` hands back. `cycleNumber` is the ABI's own component name. */
-type OnChainCommitment = {hash: `0x${string}`; cycleNumber: bigint};
-
-/** What `getAvatar` hands back, of which three fields are read here. */
-type PublicAvatar = {
-	inGame: boolean;
-	lastCycleNumber: bigint;
-	life: number;
-};
-
 /**
- * WHO THE CYCLE IS WAITING FOR AND HOW MANY OF THEM HAVE ACTED, assembled from
- * per-avatar reads because this contract keeps no tally.
+ * Who the cycle waits for and how many of them have acted: `getAttendance`, the
+ * contract's own count, which is also what `_moveToNextPhase` judges by.
  *
- * THE THREE NUMBERS, and each one is read off a different thing:
- *
- * - **`waitedFor` is the LIVING members.** An avatar with no life left cannot
- *   commit - `_makeCommitment` reverts `AvatarIsDead` - so a dead member the
- *   cycle still waited for would block it forever, which under the manual
- *   policy means the world never moves again. Death is not an event and is
- *   never written down: `_getResolvedAvatar` computes it from how far
- *   `lastCycleNumber` has fallen behind the cycle, so the only way to know is to ask,
- *   every time. That is also why nothing has to deregister a member.
- *
- *   An avatar that has never ENTERED is alive by that rule (`life` is forced to
- *   1 while `inGame` is false) and is waited for, which is right: its first
- *   submission is the Enter, and a cycle that did not wait for it would open
- *   the reveal phase before it could make one.
- *
- * - **`revealed` is `lastCycleNumber == cycleNumber`.** The only thing that writes
- *   `lastCycleNumber` is `_resolveActions`, and the only thing that calls
- *   `_resolveActions` is `_reveal`. So that equality means exactly "this member
- *   opened its commitment in this cycle", which is the number the framework
- *   wants and one this contract does not otherwise expose.
- *
- * - **`committed` is that, OR a commitment stamped with this cycle.** Both
- *   halves are needed and the first is the one that is easy to miss: `_reveal`
- *   sets `commitment.cycleNumber = 0` when it is done, so a member that has already
- *   revealed looks exactly like a member that never committed. Counting only
- *   the second half would make `committed` FALL as the reveal phase progressed,
- *   and `advancePermitted` would then refuse to close a cycle everybody had
- *   finished.
- *
- * WHAT IT COSTS, said out loud because the template's version is one call. This
- * is one read per member, plus a second for each member that has not revealed
- * yet, on every poll - so a table of ten is up to twenty reads a second against
- * a chain that is also executing the world's transactions. It is affordable on
- * a chain in a tab (webevm 0.6.0 serialises the node, and a read there is
- * milliseconds) and it is the kind of thing that stops being affordable
- * quietly. The poll is a BACKSTOP - what makes a round quick is being poked at
- * the moment somebody acts - so the first thing to reach for, if this ever
- * shows up in a measurement, is a tally on chain rather than a shorter interval
- * here.
+ * ONE READ, where it used to be one or two per member assembled here, because
+ * the contract kept no membership. The rules it counts by (the LIVING members;
+ * `revealed` from `lastCycleNumber`; `committed` from either half) are written
+ * at `UsingGameInternal._attendance` now, beside the code that enforces them.
  */
 export function createAttendanceReader(
-	deps: ReadDeps & {
-		/** The cycle to measure attendance IN. */
-		cycleNumber: () => number;
-		/** Who this world waits for. See {@link declareWaitedFor}. */
-		waitedFor: () => readonly bigint[];
-	},
+	deps: ReadDeps,
 ): () => Promise<Attendance> {
 	return async () => {
-		const members = deps.waitedFor();
-		const attendance: Attendance = {waitedFor: 0, committed: 0, revealed: 0};
-		if (members.length === 0) return attendance;
-
 		const Game = deps.deployments.get().contracts.Game;
-		const cycleNumber = deps.cycleNumber();
-
-		// IN SEQUENCE rather than in parallel. These share one node, and on the
-		// chain this actually runs against that node is single threaded: a burst
-		// of twenty reads is twenty things the world's own transactions queue
-		// behind. The same argument `offline-players.ts` makes for its writes,
-		// one level down and for reads.
-		for (const avatarID of members) {
-			const avatar = (await deps.publicClient.readContract({
-				address: Game.address,
-				abi: Game.abi,
-				functionName: 'getAvatar',
-				args: [avatarID],
-			})) as PublicAvatar;
-
-			// Dead, so it can no longer commit and the cycle must stop waiting for
-			// it. See the note above: this is why nothing deregisters a member.
-			if (avatar.life === 0) continue;
-			attendance.waitedFor += 1;
-
-			if (Number(avatar.lastCycleNumber) === cycleNumber) {
-				attendance.committed += 1;
-				attendance.revealed += 1;
-				continue;
-			}
-
-			const commitment = (await deps.publicClient.readContract({
-				address: Game.address,
-				abi: Game.abi,
-				functionName: 'getCommitment',
-				args: [avatarID],
-			})) as OnChainCommitment;
-			if (Number(commitment.cycleNumber) === cycleNumber)
-				attendance.committed += 1;
-		}
-		return attendance;
+		const attendance = (await deps.publicClient.readContract({
+			address: Game.address,
+			abi: Game.abi,
+			functionName: 'getAttendance',
+		})) as {waitedFor: bigint; committed: bigint; revealed: bigint};
+		return {
+			waitedFor: Number(attendance.waitedFor),
+			committed: Number(attendance.committed),
+			revealed: Number(attendance.revealed),
+		};
 	};
 }
 

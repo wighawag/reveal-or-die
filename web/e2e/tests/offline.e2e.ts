@@ -55,9 +55,15 @@ import {seatsPlayedByTheWorld, tableOf} from '../../src/lib/game/lobby/seats';
  * poll is a backstop and not the mechanism. Silencing their pass loop outright
  * fails this test at `Committed`: the reveal phase never opens, because
  * unanimity is never reached. That is the property this file exists to assert,
- * and it also proves the three parts that cannot be seen from outside - the
- * world declaring who it waits for, the attendance reader assembling the tally
- * from per-avatar reads, and the advance client refusing until it is unanimous.
+ * and it also proves the parts that cannot be seen from outside - custody
+ * making every seat a member, the CONTRACT counting attendance and refusing a
+ * push until it is unanimous, and the advance client reading that count.
+ * Checked again on 2026-09-26 when the guard moved into the contract: with
+ * enrolment removed from `_deposit`, this test fails at `Committed`. BUT ONLY
+ * WITH `contracts/dist` REBUILT from the mutated source: the offline world
+ * deploys in the browser from the contracts package, which the e2e worktree
+ * resolves to the MAIN checkout's `dist` (its node_modules are linked, not
+ * installed), so a mutation that is only compiled is silently not tested.
  */
 
 /**
@@ -240,9 +246,9 @@ describe('Playing offline', () => {
 		// AND THEY ARE A FAR STRONGER GATE THAN THEY LOOK, because the world
 		// enrols THREE waited-for members and plays two of them. The reveal phase
 		// cannot open until every one of them has committed and the next cycle
-		// cannot start until every commitment has been opened - which here is the
-		// CLIENT's guard rather than the contract's, since this game keeps no
-		// attendance. So both assertions say the other two players ACTED.
+		// cannot start until every commitment has been opened, and the contract
+		// refuses the push otherwise. So both assertions say the other two
+		// players ACTED.
 		await expect
 			.poll(async () => (await boardState(page)).step, {timeout: 120_000})
 			.toBe('Revealed');

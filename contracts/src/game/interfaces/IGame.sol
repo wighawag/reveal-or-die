@@ -58,6 +58,11 @@ interface IGameGetters is UsingGameTypes {
         uint256 avatarID
     ) external view returns (Commitment memory commitment);
 
+    function getAttendance()
+        external
+        view
+        returns (Attendance memory attendance);
+
     function getConfig() external view returns (Config memory config);
 }
 

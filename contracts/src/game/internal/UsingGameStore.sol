@@ -36,6 +36,15 @@ abstract contract UsingGameStore is UsingGameTypes, UsingVirtualTime {
 
     ManualCycle internal _manualCycle;
 
+    /// @notice the avatars a MANUAL cycle waits for: see `_startWaitingFor`
+    uint256[] internal _waitedFor;
+    /// @notice index in `_waitedFor` plus one, so zero means "not a member"
+    mapping(uint256 avatarID => uint256) internal _waitedForIndexPlusOne;
+    /// @notice the most avatars a manual game waits for. Unanimity is counted
+    ///  by looping over them on every advance and every read, so the loop has
+    ///  to be bounded; a quick game's table is at most ten seats.
+    uint256 internal constant MAX_WAITED_FOR = 16;
+
     /// @notice Create an instance of a game
     /// @param config configuration options for the game
     constructor(Config memory config) UsingVirtualTime(config.time) {

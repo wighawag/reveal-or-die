@@ -156,5 +156,17 @@ interface UsingGameTypes {
         uint64 cycleNumber;
     }
 
+    /// @notice Who a manual cycle waits for, and how many of them have acted
+    ///  in the current cycle. The template's shape, so the framework's advance
+    ///  client reads it unchanged.
+    struct Attendance {
+        /// @notice the LIVING members: see `UsingGameInternal._attendance`
+        uint64 waitedFor;
+        /// @notice how many of them have committed in the current cycle
+        uint64 committed;
+        /// @notice how many of those commitments have been revealed
+        uint64 revealed;
+    }
+
     // ------------------------------------------------------------------------
 }

@@ -15,7 +15,7 @@ import {createOfflinePlayers, turnFor} from '$lib/offline-players';
 // rather than an import detail: what a reload has to reproduce is what this
 // world actually committed with.
 import {playedSeatSecret} from '$lib/game/core/secret';
-import {createAttendanceReader, forgetWaitedFor} from '$lib/world/advance';
+import {createAttendanceReader} from '$lib/world/advance';
 import {advancePermitted} from '$lib/game/core/advance';
 import {resolveWorldConfig} from '$lib/world/config';
 
@@ -42,7 +42,6 @@ const CHAIN_ID = 9007199254740321;
 let world: EmbeddedWorld | undefined;
 afterEach(async () => {
 	await world?.dispose();
-	forgetWaitedFor();
 	world = undefined;
 });
 
@@ -133,12 +132,15 @@ function playersOver(w: EmbeddedWorld) {
 	});
 }
 
-function attendanceOver(w: EmbeddedWorld, cycleNumber: number) {
+/**
+ * The CONTRACT's count of who the cycle waits for: every avatar provisioning
+ * put in custody under the manual policy. Nothing here says who the players
+ * are; the three in the assertions below are the chain's own answer.
+ */
+function attendanceOver(w: EmbeddedWorld) {
 	return createAttendanceReader({
 		publicClient: clientFor(w) as never,
 		deployments: w.deployments as never,
-		cycleNumber: () => cycleNumber,
-		waitedFor: () => players.map((p) => p.identity),
 	})();
 }
 
@@ -173,7 +175,7 @@ describe('the world plays a whole round', () => {
 			// ---- COMMIT ------------------------------------------------------
 			await playersOver(w).tick();
 
-			let attendance = await attendanceOver(w, 2);
+			let attendance = await attendanceOver(w);
 			expect(attendance).toEqual({waitedFor: 3, committed: 3, revealed: 0});
 			expect(
 				advancePermitted({
@@ -202,7 +204,7 @@ describe('the world plays a whole round', () => {
 			// ---- REVEAL ------------------------------------------------------
 			await afterReload.tick();
 
-			attendance = await attendanceOver(w, 2);
+			attendance = await attendanceOver(w);
 			expect(attendance).toEqual({waitedFor: 3, committed: 3, revealed: 3});
 			expect(
 				advancePermitted({

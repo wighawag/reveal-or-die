@@ -27,6 +27,8 @@ abstract contract UsingGameInternal is
         _ownedAvatarsIndex[avatarID] = length;
 
         emit AvatarDeposited(avatarID, owner);
+
+        _startWaitingFor(avatarID);
     }
 
     /// @notice The account whose avatar this is, having checked `sender` may
@@ -97,6 +99,8 @@ abstract contract UsingGameInternal is
         }
         delete _ownedAvatarsIndex[avatarID];
         _ownedAvatarsByOwner.pop();
+
+        _stopWaitingFor(avatarID);
         // --------------------------------------------------------------------
 
         AVATARS.safeTransferFrom(address(this), to, avatarID);
@@ -225,31 +229,38 @@ abstract contract UsingGameInternal is
 
     function _moveToNextPhase() internal returns (ManualCycle memory) {
         // TODO add possibility to skip a cycle even if turns are timed
-        // THE UNANIMITY GUARD IS STILL MISSING, and it is the one TODO in this
-        // file with a stake behind it. Nothing here checks that everyone the
-        // cycle is waiting for has acted, so a caller who pushes early opens
-        // the reveal phase on a player who had not committed, or closes a
-        // cycle on one who had not revealed - and in this game the penalty for
-        // missed reveals is the avatar. The framework's client mirrors the
-        // conditions the template's contract enforces
-        // (`web/src/lib/game/core/advance.ts`), which makes the client's copy
-        // the ONLY guard here rather than a prediction, and that is written
-        // down at `web/src/lib/world/advance.ts`, which since 2026-09-24 says so
-        // in code as well as in prose: `THIS_CONTRACT_JUDGES_AN_ADVANCE` is
-        // `false` there, and the framework's advance client takes that answer as
-        // a required parameter, checks a hand press instead of sending it blind,
-        // and re-reads the phase before spending. None of that makes this
-        // function safe - anyone may call it and most callers are not that
-        // client - it only stops the one client this repo ships from being the
-        // thing that fires early. It is bounded today because
-        // the only manual deployment of this game is an offline one, where the
-        // one tab holds every key at the table. It stops being bounded the
-        // moment a manual deployment has a player this client does not control.
+        //
+        // UNANIMOUS, and judged here rather than trusted to a client: anyone
+        // may call this, so a caller who pushed early used to open the reveal
+        // phase on a player who had not committed, or close a cycle on one who
+        // had not revealed, and in this game missed reveals cost the avatar.
+        // The rules are the template's `_advanceCycle`, over the members
+        // `_attendance` counts.
         if (CYCLE_POLICY != CyclePolicy.Manual) {
             revert NextPhaseNotAllowed();
         }
 
         ManualCycle memory currentManualCycle = _getManualCycle();
+        Attendance memory attendance = _attendance(
+            currentManualCycle.cycleNumber
+        );
+        if (attendance.waitedFor == 0) {
+            revert NoOneToWaitFor();
+        }
+        if (currentManualCycle.commiting) {
+            if (attendance.committed < attendance.waitedFor) {
+                revert StillWaitingToCommit(
+                    attendance.committed,
+                    attendance.waitedFor
+                );
+            }
+        } else if (attendance.revealed < attendance.committed) {
+            revert StillWaitingToReveal(
+                attendance.revealed,
+                attendance.committed
+            );
+        }
+
         if (currentManualCycle.commiting) {
             _manualCycle.cycleNumber = currentManualCycle.cycleNumber;
             _manualCycle.commiting = false;
@@ -258,6 +269,85 @@ abstract contract UsingGameInternal is
             _manualCycle.cycleNumber = currentManualCycle.cycleNumber + 1;
         }
         return _manualCycle;
+    }
+
+    //-------------------------------------------------------------------------
+    // WHO THE MANUAL CYCLE WAITS FOR
+    //-------------------------------------------------------------------------
+
+    /// @notice Start waiting for this avatar, under the MANUAL policy only.
+    /// @dev MEMBERSHIP IS DECIDED AT SETUP: an avatar becomes a member when it
+    ///  enters custody, which is when a lobby or an offline world provisions
+    ///  its seats and gives each one what this game puts at stake. A timed
+    ///  game never advances by hand, so it enrols nobody and pays nothing.
+    ///  Idempotent, so a second deposit of the same avatar cannot count it
+    ///  twice and make unanimity unreachable.
+    function _startWaitingFor(uint256 avatarID) internal {
+        if (CYCLE_POLICY != CyclePolicy.Manual) {
+            return;
+        }
+        if (_waitedForIndexPlusOne[avatarID] != 0) {
+            return;
+        }
+        if (_waitedFor.length >= MAX_WAITED_FOR) {
+            revert TooManyToWaitFor(MAX_WAITED_FOR);
+        }
+        _waitedFor.push(avatarID);
+        _waitedForIndexPlusOne[avatarID] = _waitedFor.length;
+        emit WaitedForChanged(avatarID, true, uint64(_waitedFor.length));
+    }
+
+    /// @notice Stop waiting for this avatar: it left custody.
+    function _stopWaitingFor(uint256 avatarID) internal {
+        uint256 indexPlusOne = _waitedForIndexPlusOne[avatarID];
+        if (indexPlusOne == 0) {
+            return;
+        }
+        uint256 last = _waitedFor[_waitedFor.length - 1];
+        _waitedFor[indexPlusOne - 1] = last;
+        _waitedForIndexPlusOne[last] = indexPlusOne;
+        _waitedFor.pop();
+        delete _waitedForIndexPlusOne[avatarID];
+        emit WaitedForChanged(avatarID, false, uint64(_waitedFor.length));
+    }
+
+    /// @notice Who the cycle waits for, and how many of them have acted in it.
+    /// @dev A LOOP OVER THE MEMBERS, bounded by `MAX_WAITED_FOR`, and that is
+    ///  what lets death need no transaction. Death is never written down here:
+    ///  `_getResolvedAvatar` computes it from how far `lastCycleNumber` has
+    ///  fallen behind. A stored tally would go on counting a dead member, who
+    ///  can no longer commit (`AvatarIsDead`), and the cycle would never move
+    ///  again. Counting at the moment of asking skips the dead for free.
+    ///
+    ///  - `waitedFor`: the LIVING members. One that has never entered is alive
+    ///    (`life` is forced to 1 out of the world) and is waited for, because
+    ///    its first submission is the Enter.
+    ///  - `revealed`: `lastCycleNumber == cycleNumber`, which only `_reveal`
+    ///    writes.
+    ///  - `committed`: that, OR a commitment stamped with this cycle. Both
+    ///    halves, because `_reveal` clears the commitment, so a member that has
+    ///    revealed looks like one that never committed.
+    function _attendance(
+        uint64 cycleNumber
+    ) internal view returns (Attendance memory attendance) {
+        uint256 count = _waitedFor.length;
+        for (uint256 i = 0; i < count; i++) {
+            uint256 avatarID = _waitedFor[i];
+            AvatarResolved memory avatar = _getResolvedAvatar(
+                avatarID,
+                cycleNumber
+            );
+            if (avatar.life == 0) {
+                continue;
+            }
+            attendance.waitedFor++;
+            if (_avatars[avatarID].lastCycleNumber == cycleNumber) {
+                attendance.committed++;
+                attendance.revealed++;
+            } else if (_commitments[avatarID].cycleNumber == cycleNumber) {
+                attendance.committed++;
+            }
+        }
     }
 
     function _acknowledgeMissedReveal(uint256 avatarID) internal {
