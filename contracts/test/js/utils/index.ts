@@ -25,8 +25,8 @@ export {CYCLE_POLICY} from '../../../rocketh/config.js';
  * WHY A SECOND DEPLOY EXISTS AT ALL, since every other test here plays the
  * SHIPPED one. Because the shipped one is timed, on every environment, and
  * always has been - so the manual branch of `_epoch()`, `_moveToNextPhase` and
- * `_moveToNextEpoch` was reachable by nothing in this repo and was wrong for as
- * long as it had existed. A suite that can only deploy one configuration can
+ * the since-removed `_moveToNextEpoch` were reachable by nothing in this repo
+ * and were wrong for as long as they had existed. A suite that can only deploy one configuration can
  * only ever test one.
  *
  * THE SAME ROUTES AND THE SAME PROXY as `deploy/010_deploy_game.ts`, because a
@@ -76,7 +76,7 @@ export async function deployGameWith(
 		name,
 		{
 			account: deployer,
-			artifact: (artifactName: string, params: never) =>
+			artifact: (artifactName, params) =>
 				env.deployViaRouter<Abi_IGame>(artifactName, params, routes),
 			args: [full],
 		},
