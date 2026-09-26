@@ -57,6 +57,17 @@ export type KeyOptions = {
 	 * comes off the key.
 	 */
 	repeats?: boolean;
+	/**
+	 * Keys the GAME binds to actions of its own, as `KeyboardEvent.key` to the
+	 * name it will receive in `{type: 'action', name}`.
+	 *
+	 * Consulted BEFORE the default table, so a game can also take a default key
+	 * back (bind `x` and it stops being a spelling of `secondary`). Everything
+	 * else about a keystroke still applies to it: not while typing, not in a
+	 * chord, not on repeat unless `repeats`, and not Enter or Space into a
+	 * focused control.
+	 */
+	actions?: Readonly<Record<string, string>>;
 };
 
 /**
@@ -117,6 +128,8 @@ export function recognizeKey(
 	// the arrows, so those still reach the game.
 	if (sample.intoControl && ACTIVATION_KEYS.has(sample.key)) return undefined;
 	if (sample.repeat && !options.repeats) return undefined;
+	const action = options.actions?.[sample.key];
+	if (action !== undefined) return {type: 'action', name: action};
 	return KEYS[sample.key];
 }
 
