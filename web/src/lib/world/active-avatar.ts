@@ -156,14 +156,49 @@ export function createActiveAvatar(params: {
 	 * is `owner << 96 | subID`, so it cannot appear in a different account's list,
 	 * and `chooseActiveAvatar` drops anything that is not there.
 	 */
+	/**
+	 * The last answer given from a completed read, and for WHOM.
+	 *
+	 * A RE-READ IS NOT A SIGN-OUT. `deposited` passes through `Loading` on every
+	 * refresh, and the submission's storage is keyed by this store, so blinking to
+	 * undefined for the length of a read silently dropped whatever was saved
+	 * inside it - including the commit's `committed: true`, which cost the avatar
+	 * its turn to a missed reveal. So a read in flight (or one that failed) keeps
+	 * the previous answer, but only for the account it was given for: a different
+	 * owner, or nobody, starts from nothing.
+	 *
+	 * "The account it was given for" is the owner when that READ first arrived,
+	 * not the owner now. Switching account recomputes this against the previous
+	 * account's list until the new read lands, and carrying THAT answer across the
+	 * new read would extend a stale avatar into the new account's session.
+	 */
+	let settled: {owner: string | undefined; avatarID: bigint | undefined} = {
+		owner: undefined,
+		avatarID: undefined,
+	};
+	let snapshot: DepositedState | undefined;
+	let snapshotOwner: string | undefined;
+
 	const active = derived(
 		[deposited, chosen, owner],
 		([$deposited, $chosen, $owner]): bigint | undefined => {
-			if ($deposited.step !== 'Loaded') return undefined;
-			return chooseActiveAvatar({
-				avatars: $deposited.avatars,
-				preferred: $chosen ?? preference.read($owner),
-			});
+			if ($deposited !== snapshot) {
+				snapshot = $deposited;
+				snapshotOwner = $owner;
+			}
+			if ($deposited.step === 'Loaded') {
+				const avatarID = chooseActiveAvatar({
+					avatars: $deposited.avatars,
+					preferred: $chosen ?? preference.read($owner),
+				});
+				settled = {owner: snapshotOwner, avatarID};
+				return avatarID;
+			}
+			if ($deposited.step === 'Unloaded') {
+				settled = {owner: undefined, avatarID: undefined};
+				return undefined;
+			}
+			return settled.owner === $owner ? settled.avatarID : undefined;
 		},
 	);
 

@@ -150,6 +150,50 @@ describe('the active-avatar store', () => {
 		expect(store.value).toEqual(7n);
 	});
 
+	/**
+	 * A RE-READ IS NOT A SIGN-OUT. `deposited.update()` passes through `Loading`
+	 * on every refresh (a turnover, a settled transaction), and the submission's
+	 * storage is keyed by this store: an answer that blinked to undefined for the
+	 * length of that read dropped whatever was saved inside it. The one that
+	 * mattered was the commit's own `committed: true`, so the record still said
+	 * uncommitted, `reveal()` declined to open it, and the avatar's turn was lost
+	 * to a missed reveal. Seen as a flaky `board.e2e.ts` on a loaded machine,
+	 * which is only where the read takes long enough to catch the save.
+	 */
+	it('keeps its answer while the avatars are being read again', () => {
+		const {deposited, store} = make(
+			{step: 'Loaded', avatars: [avatar(7n)]},
+			'0xOWNER',
+		);
+		deposited.set({step: 'Loading'});
+		expect(store.value).toEqual(7n);
+		deposited.set({step: 'Error', error: new Error('rpc')});
+		expect(store.value).toEqual(7n);
+		deposited.set({step: 'Loaded', avatars: [avatar(7n), avatar(8n)]});
+		expect(store.value).toEqual(7n);
+	});
+
+	it('does not carry an answer over to a different account', () => {
+		const {deposited, owner, store} = make(
+			{step: 'Loaded', avatars: [avatar(7n)]},
+			'0xA',
+		);
+		owner.set('0xB');
+		deposited.set({step: 'Loading'});
+		expect(store.value).toBeUndefined();
+	});
+
+	it('forgets it on signing out', () => {
+		const {deposited, store} = make(
+			{step: 'Loaded', avatars: [avatar(7n)]},
+			'0xA',
+		);
+		deposited.set({step: 'Unloaded'});
+		expect(store.value).toBeUndefined();
+		deposited.set({step: 'Loading'});
+		expect(store.value).toBeUndefined();
+	});
+
 	it('switches when asked', () => {
 		const {store} = make({
 			step: 'Loaded',
