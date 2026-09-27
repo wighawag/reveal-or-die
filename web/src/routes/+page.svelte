@@ -3,94 +3,64 @@
 	import {url} from '$lib/kit/paths';
 	import Button from '$lib/shadcn/ui/button/button.svelte';
 	import DefaultHead from '../lib/metadata/DefaultHead.svelte';
-	import {name} from '../web-config.json';
-	import {onMount} from 'svelte';
-
-	const words = ['Idea', 'Game', 'App'];
-	let currentWordIndex = $state(0);
-
-	onMount(() => {
-		const interval = setInterval(() => {
-			currentWordIndex = (currentWordIndex + 1) % words.length;
-		}, 2000);
-
-		return () => clearInterval(interval);
-	});
+	import {brand} from '$lib/metadata/brand';
 </script>
+
+<!-- THE GAME MENU, AND THE SAME FILE IN EVERY GAME. What differs between games is
+     the title, and that comes from `src/web-config.json` through
+     `$lib/metadata/brand`: a `logo` if the game has one, its `name` as text if
+     it does not. Rebrand there, not here, so that whatever improves this page
+     reaches every game without a conflict. -->
 
 <DefaultHead />
 
-<div class="container mx-auto max-w-6xl px-4 py-12">
-	<!-- Hero Section -->
-	<div class="mb-16 flex flex-col items-center text-center">
-		<img
-			src={url('/icon.svg')}
-			alt={name}
-			class="mb-8 h-48 w-48 drop-shadow-lg"
-		/>
-		<h1 class="mb-4 text-5xl font-bold tracking-tight text-primary md:text-6xl">
-			{name}
-		</h1>
-		<p class="mb-6 text-xl text-muted-foreground">
+<div
+	class="flex min-h-full flex-col items-center justify-center gap-12 px-4 py-12"
+>
+	<!-- The heading is the title either way, so it is named by `name` in both
+	     cases: the image's `alt` becomes the heading's accessible name. -->
+	<h1 class="text-center">
+		{#if brand.logo}
+			<img
+				src={url(brand.logo)}
+				alt={brand.name}
+				class="mx-auto max-h-64 w-auto max-w-[min(90vw,40rem)] drop-shadow-lg"
+			/>
+		{:else}
 			<span
-				class="bg-linear-to-br from-blue-500 to-cyan-300 box-decoration-clone bg-clip-text text-transparent"
-				>Build</span
+				class="bg-linear-to-br from-pink-500 to-violet-500 box-decoration-clone bg-clip-text text-6xl font-extrabold tracking-tight text-transparent md:text-8xl"
+				>{brand.name}</span
 			>
-			and
-			<span
-				class="bg-linear-to-br from-red-500 to-yellow-500 box-decoration-clone bg-clip-text text-transparent"
-				>Deploy</span
-			>
-			for
-			<span
-				class="bg-linear-to-br from-pink-500 to-violet-500 box-decoration-clone bg-clip-text text-transparent"
-				>Eternity</span
-			>.
-		</p>
-		<p class="mb-8 max-w-2xl text-lg font-semibold">
-			Welcome to your <span
-				class="bg-linear-to-br from-red-500 to-yellow-500 box-decoration-clone bg-clip-text text-transparent"
-				>{words[currentWordIndex]}</span
-			>!
-		</p>
+		{/if}
+	</h1>
 
-		<!-- Action Buttons -->
-		<div class="mb-8 flex flex-wrap justify-center gap-4">
-			<Button
-				href={route('/play/')}
-				size="lg"
-				class="min-w-40 bg-linear-to-r from-pink-600 via-pink-500 to-rose-500 font-semibold text-white shadow-lg transition-all duration-300 hover:from-pink-700 hover:via-pink-600 hover:to-rose-600 hover:shadow-xl"
-				>Play</Button
-			>
-			<!-- OFFLINE IS A WORLD, NOT A DEMO, which is why this links to a route
-			     of this app's own rather than to the `/offline-demo` the stem's home
-			     page points at: this repo deletes the demo routes it inherits, and
-			     the mechanism it keeps (`$lib/embedded`) has no opinion about what a
-			     game does with it.
+	<nav class="flex w-full max-w-sm flex-col gap-4" aria-label="Game menu">
+		<Button
+			href={route('/play/')}
+			size="lg"
+			class="h-16 w-full bg-linear-to-r from-pink-600 via-pink-500 to-rose-500 text-2xl font-bold text-white shadow-lg transition-all duration-300 hover:from-pink-700 hover:via-pink-600 hover:to-rose-600 hover:shadow-xl"
+			>Online</Button
+		>
+		<!-- OFFLINE IS A WORLD, NOT A DEMO: a chain in this tab, which is a route of
+		     the game's own (`routes/offline/` and `$lib/offline.ts`), not the stem's
+		     `/offline-demo`.
 
-			     WHAT THE BUTTON PROMISES IS A CHAIN IN THE TAB, and nothing about
-			     what is at stake in it. This file is byte-identical in every repo
-			     that inherits it, and what a game risks is the one thing they are
-			     guaranteed to disagree about: the framework requires only that
-			     something is lost by not revealing, and each game answers
-			     differently. A sentence naming one answer here would be false
-			     somewhere downstream, which has already happened once.
+		     WHAT THE ENTRY PROMISES IS THAT CHAIN, and nothing about what is at
+		     stake in it. This file is identical in every game, and what a game
+		     risks is the one thing they are guaranteed to disagree about, so a
+		     word here naming one answer would be false somewhere downstream.
 
-			     A DESCENDANT INHERITS THIS BUTTON AND NOT THE WORLD BEHIND IT.
-			     `$lib/embedded` is the mechanism and cascades unchanged;
-			     `$lib/offline.ts` names THIS game's contracts, deploy scripts and
-			     stake, so a game that replaces the game replaces it too. Until it
-			     does, this link goes to a route that either does not exist or
-			     cannot finish a cycle - so delete the button in the same commit as
-			     the route, and put it back with the world. A link to a world this
-			     game cannot play is worse than no link. -->
-			<Button
-				href={route('/offline/')}
-				size="lg"
-				variant="outline"
-				class="min-w-40 font-semibold shadow-lg transition-all duration-300 hover:shadow-xl"
-				>Play Offline</Button
-			>
-		</div>
-	</div>
+		     A GAME INHERITS THIS ENTRY AND NOT THE WORLD BEHIND IT. `$lib/embedded`
+		     is the mechanism and cascades unchanged; `$lib/offline.ts` names the
+		     game's contracts, deploy scripts and stake, so a game that replaces the
+		     game replaces that too, and `offline.e2e.ts` is what says it can still
+		     finish a cycle. -->
+		<Button
+			href={route('/offline/')}
+			size="lg"
+			variant="outline"
+			class="h-16 w-full text-2xl font-bold shadow-lg transition-all duration-300 hover:shadow-xl"
+			>Offline</Button
+		>
+	</nav>
 </div>
