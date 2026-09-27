@@ -242,7 +242,17 @@ export function createPollingOnchainState<TState>(params: {
 				// The contract answers over a block range: see `logRangeStart` for how
 				// it is sized. Re-read per attempt, since the point of retrying is that
 				// the chain moves on.
-				const toBlock = Number(await publicClient.getBlockNumber());
+				//
+				// `cacheTime: 0` IS LOAD-BEARING. viem otherwise answers from a cache
+				// as old as the client's polling interval (four seconds by default),
+				// and this number is the block the reader pins to and ends its log
+				// range at. Where a cycle is shorter than that - the offline world,
+				// where it is under a second - the reveals were outside the range, so
+				// there was no turn to replay and every move drew as a jump. See
+				// test/lib/onchain/block-number.test.ts.
+				const toBlock = Number(
+					await publicClient.getBlockNumber({cacheTime: 0}),
+				);
 				const fromBlock = logRangeStart({
 					toBlock,
 					cycleDuration,
