@@ -14,9 +14,7 @@
 
 <DefaultHead />
 
-<div
-	class="flex min-h-full flex-col items-center justify-center gap-12 px-4 py-12"
->
+<div class="flex flex-col items-center gap-10 px-4 pt-12 pb-12 md:pt-20">
 	<!-- The heading is the title either way, so it is named by `name` in both
 	     cases: the image's `alt` becomes the heading's accessible name. -->
 	<h1 class="text-center">
@@ -24,11 +22,10 @@
 			<img
 				src={url(brand.logo)}
 				alt={brand.name}
-				class="mx-auto max-h-64 w-auto max-w-[min(90vw,40rem)] drop-shadow-lg"
+				class="mx-auto max-h-56 w-auto max-w-[min(90vw,40rem)]"
 			/>
 		{:else}
-			<span
-				class="bg-linear-to-br from-pink-500 to-violet-500 box-decoration-clone bg-clip-text text-6xl font-extrabold tracking-tight text-transparent md:text-8xl"
+			<span class="text-5xl font-bold tracking-tight md:text-7xl"
 				>{brand.name}</span
 			>
 		{/if}
@@ -38,8 +35,7 @@
 		<Button
 			href={route('/play/')}
 			size="lg"
-			class="h-16 w-full bg-linear-to-r from-pink-600 via-pink-500 to-rose-500 text-2xl font-bold text-white shadow-lg transition-all duration-300 hover:from-pink-700 hover:via-pink-600 hover:to-rose-600 hover:shadow-xl"
-			>Online</Button
+			class="h-14 w-full text-xl font-semibold">Online</Button
 		>
 		<!-- OFFLINE IS A WORLD, NOT A DEMO: a chain in this tab, which is a route of
 		     the game's own (`routes/offline/` and `$lib/offline.ts`), not the stem's
@@ -59,8 +55,7 @@
 			href={route('/offline/')}
 			size="lg"
 			variant="outline"
-			class="h-16 w-full text-2xl font-bold shadow-lg transition-all duration-300 hover:shadow-xl"
-			>Offline</Button
+			class="h-14 w-full text-xl font-semibold">Offline</Button
 		>
 	</nav>
 </div>
