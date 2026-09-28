@@ -22,7 +22,10 @@
  */
 export const SMOKE_ROUTES = [
 	'/',
-	'/demo/',
+	// This template deletes jolly-roger's `/demo/` (see .offshoot-omissions) and
+	// ships a game instead, so the game's page stands in for it. Left as
+	// `/demo/`, the smoke pass walked a 404 and passed.
+	'/play/',
 	'/transactions/',
 	'/explorer/',
 ] as const;
