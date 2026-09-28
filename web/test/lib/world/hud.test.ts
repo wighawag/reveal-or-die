@@ -224,6 +224,7 @@ function fakeContext(
 		numMissesAllowed?: number;
 		recovery?: RecoveryState;
 		autoRecovery?: AutoRecoveryState;
+		cycleAdvance?: {step: string; message?: string; error?: unknown};
 	} = {},
 ) {
 	return {
@@ -252,6 +253,7 @@ function fakeContext(
 			missedReveal: writable({step: 'Clear'}),
 			recovery: writable(overrides.recovery ?? {step: 'Idle'}),
 			autoRecovery: writable(overrides.autoRecovery ?? {step: 'Idle'}),
+			cycleAdvance: writable(overrides.cycleAdvance ?? {step: 'Idle'}),
 			setup: writable(overrides.setup),
 			purchase: writable(overrides.purchase ?? {step: 'Idle'}),
 			config: {
@@ -824,5 +826,57 @@ describe('a lost turn the chain still holds', () => {
 		);
 		expect(failed.recovery?.detail).toContain('no signer');
 		expect(failed.recovery?.detail).not.toMatch(/not the moves/i);
+	});
+});
+
+/**
+ * A CYCLE THAT CANNOT BE PUSHED ON, which used to be invisible.
+ *
+ * Under the manual policy this client is what opens the reveal phase and the
+ * next cycle, and it pays for that with the play key. When the key ran dry the
+ * failure lived only in the advance store: every commitment was in, the board
+ * sat still, and nothing on screen said why (offline, cycle 16, measured in
+ * bomber-world 2026-09-27).
+ */
+describe('a cycle this client could not push on', () => {
+	const planning: State = {step: 'Planning'} as unknown as State;
+
+	it('offers the top-up when the push ran out of gas', () => {
+		const model = get(
+			createHud(
+				fakeContext(planning, {
+					cycleAdvance: {
+						step: 'Failed',
+						message: 'Not enough gas to send this move.',
+						error: new SignerOutOfFundsError(new Error('empty')),
+					},
+				}),
+			),
+		);
+		expect(model.outOfGas?.detail).toMatch(/cycle/i);
+		expect(model.outOfGas?.detail).toMatch(/top it up/i);
+		expect(model.advanceFailed).toBeUndefined();
+	});
+
+	it('states any other failure, without offering a top-up that cannot fix it', () => {
+		const model = get(
+			createHud(
+				fakeContext(planning, {
+					cycleAdvance: {
+						step: 'Failed',
+						message: 'execution reverted',
+						error: new Error('execution reverted'),
+					},
+				}),
+			),
+		);
+		expect(model.outOfGas).toBeUndefined();
+		expect(model.advanceFailed?.detail).toMatch(/execution reverted/);
+	});
+
+	it('says nothing while the cycle moves normally', () => {
+		const model = get(createHud(fakeContext(planning)));
+		expect(model.outOfGas).toBeUndefined();
+		expect(model.advanceFailed).toBeUndefined();
 	});
 });

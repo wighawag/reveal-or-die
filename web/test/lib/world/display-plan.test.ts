@@ -266,6 +266,7 @@ function fakeContext(
 			missedReveal: writable({step: 'Clear'}),
 			recovery: writable({step: 'Idle'}),
 			autoRecovery: writable({step: 'Idle'}),
+			cycleAdvance: writable({step: 'Idle'}),
 			setup: writable(undefined),
 			purchase: writable({step: 'Idle'}),
 			config: {sale: {price: 10000000000n}},

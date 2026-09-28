@@ -217,6 +217,14 @@
 					</div>
 				{/if}
 
+				{#if $hud.advanceFailed}
+					<!-- Why the board is standing still. No button: the advance retries
+					     by itself, and nothing the player can press fixes the cause. -->
+					<p class="mt-2 max-w-sm text-xs text-amber-400">
+						{$hud.advanceFailed.detail}
+					</p>
+				{/if}
+
 				<p class="mt-2 text-xs text-muted-foreground">{$hud.instruction}</p>
 
 				<div class="mt-3 flex flex-wrap gap-2">

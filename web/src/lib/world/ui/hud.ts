@@ -21,6 +21,7 @@ import type {Action} from '../commit-reveal';
 import type {DepositedState} from '../deposited';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import type {RecoveryState} from '$lib/game/core/recovery';
+import type {CycleAdvanceState} from '$lib/game/core/advance';
 import type {AutoRecoveryState} from '../recover-submission';
 import {SignerOutOfFundsError} from '../errors';
 import type {CyclePhase, SetupAction, SetupNeeded} from '$lib/context/game';
@@ -178,6 +179,11 @@ export type HudModel = {
 	 * rather than left as a transaction error.
 	 */
 	outOfGas?: {detail: string};
+	/**
+	 * Set when this client could not push the cycle on for a reason a top-up
+	 * does not fix. It retries by itself; this says why the board is still.
+	 */
+	advanceFailed?: {detail: string};
 
 	/**
 	 * Set when an unrevealed commitment is blocking play, with what has to be
@@ -554,6 +560,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.revealOutcome,
 			game.recovery,
 			game.autoRecovery,
+			game.cycleAdvance,
 		],
 		([
 			$phase,
@@ -572,8 +579,13 @@ export function createHud(context: Context): Readable<HudModel> {
 			$revealOutcome,
 			$recovery,
 			$autoRecovery,
+			$advance,
 		]): HudModel => {
 			const deposited = $deposited as DepositedState;
+			const advance = $advance as CycleAdvanceState;
+			const advanceOutOfGas =
+				advance.step === 'Failed' &&
+				advance.error instanceof SignerOutOfFundsError;
 			const blocked = blocksCommitting($missedReveal as MissedRevealState);
 
 			const phase = $phase as CyclePhase;
@@ -754,12 +766,27 @@ export function createHud(context: Context): Readable<HudModel> {
 				canReveal:
 					$submission.step === 'Error' && $submission.during === 'reveal',
 				canClear: $submission.step === 'Planning' && plannedCount > 0,
+				// Two things spend the play key: the player's own move, and (under a
+				// manual cycle) pushing the cycle on. Either can run it dry, and the
+				// remedy is the same top-up, so they share the notice; the wording
+				// says which one stopped. A move's failure wins, being the player's.
 				outOfGas:
 					$submission.step === 'Error' &&
 					$submission.error instanceof SignerOutOfFundsError
 						? {
 								detail:
 									'Moves are signed by a key held for you, and it has run out of gas. Top it up and this turn carries on by itself.',
+							}
+						: advanceOutOfGas
+							? {
+									detail:
+										'The cycle is moved on by a key held for you, and it has run out of gas, so nothing can happen until it has more. Top it up and the cycle carries on by itself.',
+								}
+							: undefined,
+				advanceFailed:
+					advance.step === 'Failed' && !advanceOutOfGas
+						? {
+								detail: `The cycle could not be moved on, and this client will keep trying: ${advance.message}`,
 							}
 						: undefined,
 			};
