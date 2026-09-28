@@ -1,4 +1,4 @@
-import {writable, type Readable} from 'svelte/store';
+import {get, writable, type Readable} from 'svelte/store';
 import {
 	config,
 	extensions,
@@ -342,6 +342,31 @@ async function buildOfflineWorld(table: Table): Promise<OfflineWorldStatus> {
 			"the offline world could not authorise this browser's key",
 			err,
 		);
+	}
+
+	/**
+	 * AND GIVES THAT KEY PLAY MONEY, the same as every other seat.
+	 *
+	 * The authorisation funds it with ONE TOP-UP, which is the online amount and
+	 * the wrong one here. Offline the key pays for more than the player's turns:
+	 * it also pushes the manual cycle forward twice a cycle, which nothing online
+	 * asks of it. Measured (bomber-world, 2026-09-27): four seats froze at cycle
+	 * 16 with every commitment in and nobody able to open the reveal phase,
+	 * because the only client that pushes had "Not enough gas to send this move".
+	 *
+	 * Gas is free here (see the note on refills in provisioning), so this is set
+	 * on every boot, restore included, and a world never runs dry.
+	 */
+	try {
+		const signer = get(context.context.signerExecutor);
+		if (signer.status === 'ready') {
+			await world.provider.request({
+				method: 'evm_setBalance',
+				params: [signer.address, `0x${PLAY_MONEY.toString(16)}`],
+			} as never);
+		}
+	} catch (err) {
+		console.error("the offline world could not fund this browser's key", err);
 	}
 
 	/**

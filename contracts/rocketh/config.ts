@@ -11,6 +11,7 @@ import type {
 import {privateKey} from '@rocketh/signer';
 
 import {parseEther} from 'viem';
+import {COMMIT_GAS, REVEAL_GAS} from '../js/gas.js';
 
 /**
  * How the cycle advances, as the contract's enum numbers them.
@@ -58,6 +59,11 @@ export const config = {
 				// player always gets, rather than one that drifts down with the
 				// mempool while they sit still.
 				expectedWorstGasPrice: parseEther('1', 'gwei'), // TODO use same value from hardhat config
+				// One turn, as `COMMIT_GAS + REVEAL_GAS` (js/gas.ts). It was in the
+				// comment at the top of `config` and not here, so the local chain
+				// (and the offline world, which copies these properties) had no
+				// credit price at all.
+				creditsGasMultiplier: COMMIT_GAS + REVEAL_GAS,
 				supportsSendRawTransactionSync: false,
 			},
 			tags: ['local', 'memory', 'testnet'],

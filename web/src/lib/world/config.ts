@@ -7,6 +7,9 @@
  * the UI describing a different game from the one on chain.
  */
 import type {TypedDeployments} from '$lib/core/connection/types';
+// Gas to allow for one turn: set once in the contracts package, which prices
+// the chain's credits from the same two figures. See the note there.
+import {COMMIT_GAS, REVEAL_GAS} from 'reveal-or-die-contracts';
 import {resolveCycleConfig, type CycleConfig} from '$lib/game/core/cycle';
 import {
 	optionalBigInt,
@@ -108,18 +111,6 @@ type GameLinkedData = DeclaredValues & {
 	commitPhaseDuration: unknown;
 	revealPhaseDuration: unknown;
 };
-
-/**
- * Gas to allow for one turn: a commit and the reveal that must follow it.
- *
- * Deliberately generous, and the reveal far more so than the commit. A commit
- * writes one hash; a reveal walks up to `numMoves` actions, each of which can
- * touch a zone index. Running out of gas mid-cycle is not a slow turn, it is a
- * missed reveal, which loses the turn AND blocks the next cycle until it is
- * acknowledged. Over-reserving costs a slightly larger first payment.
- */
-const COMMIT_GAS = 100_000n;
-const REVEAL_GAS = 5_000_000n;
 
 /**
  * How many turns of gas a new player is given.
