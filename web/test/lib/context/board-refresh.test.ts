@@ -1,12 +1,12 @@
 import {describe, expect, it, vi, afterEach} from 'vitest';
 import {get, writable} from 'svelte/store';
-import {canTakeTurnNow, onEachNewCycle} from '$lib/context/game';
+import {canTakeTurnNow, onEachNewCycle} from '$lib/world/context';
 
 /**
  * What is left of this file after `refreshDuringReveal` and
  * `settleBoardWhenCycleStarts` went back to being the framework's.
  *
- * Both were COPIED into `context/game.ts` at some point and were being
+ * Both were COPIED into `context/game.ts` (now `world/context.ts`) at some point and were being
  * maintained here as well as in `game/core/refresh.ts`, identical in every
  * executable line and differing only in doc comments - the same failure the
  * input recognisers had, undetected because nothing in this tree diffs a

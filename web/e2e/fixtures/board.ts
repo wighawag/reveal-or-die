@@ -272,7 +272,7 @@ export async function skipTutorial(page: Page): Promise<void> {
  * Plan a turn by clicking the board, in a phase where the click counts.
  *
  * A click is only a click to the canvas; the game decides what it MEANS (see
- * `context/game.ts`): out of the world it chooses where to appear and replaces
+ * `world/context.ts`): out of the world it chooses where to appear and replaces
  * the whole plan, in the world it appends one step. So this is the entry
  * planner, and the caller says how far from the middle to aim.
  *

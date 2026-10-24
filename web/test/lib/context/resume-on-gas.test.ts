@@ -1,6 +1,6 @@
 import {describe, it, expect, vi} from 'vitest';
 import {writable} from 'svelte/store';
-import {resumeWhenGasArrives} from '$lib/context/game';
+import {resumeWhenGasArrives} from '$lib/world/context';
 import {SignerOutOfFundsError} from '$lib/world/errors';
 import type {SubmissionState} from '$lib/game/core/submission';
 import type {Action} from '$lib/world/commit-reveal';

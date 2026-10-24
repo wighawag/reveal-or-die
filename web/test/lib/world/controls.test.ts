@@ -84,7 +84,7 @@ describe('what a press does to this game', () => {
 
 describe('the two things it refuses', () => {
 	it('does nothing at all until the player could take a turn', () => {
-		// The same gate a click passes in `context/game.ts`. Letting someone plan a
+		// The same gate a click passes in `world/context.ts`. Letting someone plan a
 		// whole turn they cannot commit is worse than not letting them start: the
 		// moves look accepted, and the failure arrives when the cycle is closing.
 		const {controls, planning, submission} = setup({ready: false});

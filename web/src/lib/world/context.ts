@@ -12,7 +12,7 @@
  * starts IO, which belongs to `start()`. See ADR-0002.
  */
 import {derived, get, type Readable} from 'svelte/store';
-import type {CoreServices} from './core';
+import type {CoreServices} from '$lib/context/core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import {createChainTime, type ChainTimeStore} from '$lib/game/core/chain-time';
 import {
@@ -611,13 +611,14 @@ export function createGameContext(core: CoreServices): GameContext {
 
 	const onchainState = createPollingOnchainState<WorldState>({
 		publicClient: core.publicClient,
-		deployments,
 		camera,
 		cycleInfo,
 		chainTime,
 		// A turn's worth of travel beyond the camera, because the same zones scope
 		// the reveal logs and an avatar's log is filed under the zone it ended in.
 		zonesForCamera: createZonesForCamera({reach: config.numMoves}),
+		cycleDuration:
+			config.cycle.commitPhaseDuration + config.cycle.revealPhaseDuration,
 		read: createWorldReader({publicClient: core.publicClient, deployments}),
 		emptyState: emptyWorld,
 		fetchGate: core.chainFetchGate,

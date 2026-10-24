@@ -24,7 +24,7 @@ import type {RecoveryState} from '$lib/game/core/recovery';
 import type {CycleAdvanceState} from '$lib/game/core/advance';
 import type {AutoRecoveryState} from '../recover-submission';
 import {SignerOutOfFundsError} from '../errors';
-import type {CyclePhase, SetupAction, SetupNeeded} from '$lib/context/game';
+import type {CyclePhase, SetupAction, SetupNeeded} from '$lib/world/context';
 import type {RevealOutcome} from '../reveal-outcome';
 import {causeOfDeath, explainDeath, type DeathCause} from '../death';
 import {opensAWallet, type AcquisitionState} from '$lib/game/acquire';
@@ -49,7 +49,7 @@ export type HudModel = {
 	 * The old model folded the commit lock and the reveal into one "wait",
 	 * which was fine to play on and useless to debug against, and had no word
 	 * at all for the catch-up at the boundary. See `CyclePhase` in
-	 * `$lib/context/game` for the reasoning.
+	 * `$lib/world/context` for the reasoning.
 	 */
 	phase: CyclePhase;
 	/**

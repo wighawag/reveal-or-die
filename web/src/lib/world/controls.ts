@@ -6,7 +6,7 @@
  * says that a direction is a step from the end of the plan, that the secondary
  * action is leaving the world, and that cancel takes back the last thing
  * planned. Same split as the pointer's: `game/render/gestures.ts` emits a click
- * and `context/game.ts` decides which cell it is.
+ * and `world/context.ts` decides which cell it is.
  *
  * The recognisers used to be a copy of the template's, in `$lib/input/`,
  * written here first and re-written upstream instead of moved. They were
@@ -85,7 +85,7 @@ export function createControls(params: {
 	/**
 	 * Whether the player could actually take a turn.
 	 *
-	 * The same gate a click passes through in `context/game.ts`, and for the same
+	 * The same gate a click passes through in `world/context.ts`, and for the same
 	 * reason: letting someone plan a whole turn they cannot commit is worse than
 	 * not letting them start, because the failure only arrives when the cycle is
 	 * already closing.

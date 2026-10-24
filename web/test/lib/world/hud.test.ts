@@ -15,7 +15,7 @@ import type {DepositedAvatar} from '$lib/world/deposited';
 import type {RecoveryState} from '$lib/game/core/recovery';
 import type {AutoRecoveryState} from '$lib/world/recover-submission';
 import type {RevealOutcome} from '$lib/world/reveal-outcome';
-import type {CyclePhase} from '$lib/context/game';
+import type {CyclePhase} from '$lib/world/context';
 
 /**
  * What the player is TOLD, which is the only part of a failure they can act on.

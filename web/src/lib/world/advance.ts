@@ -86,7 +86,7 @@ export type AdvanceDeps = Pick<
  * each one, and removing either check fails it.
  *
  * IT WAS `false` UNTIL 2026-09-26, and that history is why this is a named
- * constant beside the evidence rather than a literal in `context/game.ts`. The
+ * constant beside the evidence rather than a literal in `world/context.ts`. The
  * template answers the same question inline with `true`, and that line merged
  * into this repo CLEANLY on 2026-09-24, leaving every suite green while the
  * repo claimed a property it did not have. A constant here is read by whoever
