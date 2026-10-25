@@ -1,5 +1,6 @@
 import {describe, it, expect} from 'vitest';
-import {setupNeeded} from '$lib/world/context';
+import {setupNeeded as frameworkSetupNeeded} from '$lib/game/core/commit-reveal-game';
+import {depositNeeded} from '$lib/world/context';
 import type {DelegationValue} from '$lib/onchain/delegation';
 import type {DepositedState} from '$lib/world/deposited';
 
@@ -45,6 +46,22 @@ const withAvatar: DepositedState = {
 };
 
 const noAvatar: DepositedState = {step: 'Loaded', avatars: []};
+
+/**
+ * The gate as this game composes it: the framework's two ends (signed in,
+ * authorised) with the game's own deposit step between them.
+ */
+function setupNeeded(params: {
+	identity: `0x${string}` | undefined;
+	delegation: DelegationValue;
+	deposited: DepositedState;
+}) {
+	return frameworkSetupNeeded({
+		account: params.identity,
+		delegation: params.delegation,
+		stake: depositNeeded(params.deposited),
+	});
+}
 
 describe('what stands between a player and their first move', () => {
 	it('asks to sign in before anything else', () => {

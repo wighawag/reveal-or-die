@@ -1,6 +1,18 @@
 import {describe, expect, it, vi, afterEach} from 'vitest';
 import {get, writable} from 'svelte/store';
-import {canTakeTurnNow, onEachNewCycle} from '$lib/world/context';
+import {
+	canTakeTurnNow as frameworkCanTakeTurnNow,
+	onEachNewCycle,
+} from '$lib/game/core/commit-reveal-game';
+import type {CyclePhase} from '$lib/world/context';
+
+/**
+ * The turn gate as this game composes it: the framework's, told that this game
+ * only plans in the play window (`onlyInPlayPhase: true` in `world/context.ts`).
+ */
+function canTakeTurnNow(setup: unknown, phase: CyclePhase): boolean {
+	return frameworkCanTakeTurnNow({setup, phase, onlyInPlayPhase: true});
+}
 
 /**
  * What is left of this file after `refreshDuringReveal` and
