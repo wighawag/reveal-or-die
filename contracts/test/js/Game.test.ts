@@ -370,9 +370,20 @@ describe('Game', function () {
 		const {cycleNumber} = getCycleNumber(await getTimestamp());
 		await advanceToCycleNumber(cycleNumber + 1, true);
 
+		// WITHOUT THE CHUNKS ONLY THE PLAYER MAY SETTLE: it takes the whole
+		// bond, and a stranger could otherwise take a surplus the player could
+		// have recovered by showing the chunks.
+		await expect(
+			env.execute(Game, {
+				account: unnamedAccounts[1],
+				functionName: 'forfeitMissedReveal',
+				args: [identity],
+			}),
+		).toBeRejectedWith('NotDelegate');
+
 		await env.execute(Game, {
-			account: unnamedAccounts[1],
-			functionName: 'acknowledgeMissedReveal',
+			account: player,
+			functionName: 'forfeitMissedReveal',
 			args: [identity],
 		});
 
@@ -391,12 +402,73 @@ describe('Game', function () {
 		).toBeRejected();
 	});
 
+	it('seizes the avatar even when the missed reveal is settled shown its chunks', async function () {
+		// THE CUSTODY STAKE LOSES ON BOTH ROUTES. This branch bonds ZERO, so
+		// "only the penalty for what was committed" would cost nothing here, and
+		// a player who disliked their turn could let the window shut and then
+		// settle with their own chunks for free. The penalty is the game's, and
+		// this game's `_forfeit` seizes the avatar whichever route calls it.
+		const {
+			env,
+			Game,
+			GameAvatarSale,
+			actionsPerReveal,
+			unnamedAccounts,
+			advanceToCycleNumber,
+			getCycleNumber,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
+
+		const player = unnamedAccounts[0];
+		const stranger = unnamedAccounts[1];
+		const {cycleNumber: startCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
+		await advanceToCycleNumber(startCycleNumber + 2, true);
+
+		const identity = await enterGame({env, Game, GameAvatarSale}, player);
+
+		const placements: Placement[] = [{cellID: cellAt(2, 2)}];
+		const {head, chunks} = commitmentChain(
+			placements,
+			SECRET_A,
+			actionsPerReveal,
+		);
+		await env.execute(Game, {
+			account: player,
+			functionName: 'makeCommitment',
+			args: [identity, head, 0n, zeroAddress],
+		});
+
+		const {cycleNumber} = getCycleNumber(await getTimestamp());
+		await advanceToCycleNumber(cycleNumber + 1, true);
+
+		// Anyone may settle shown the chunks: a stranger here.
+		await env.execute(Game, {
+			account: stranger,
+			functionName: 'acknowledgeMissedReveal',
+			args: [
+				identity,
+				chunks[0].placements,
+				SECRET_A,
+				chunks[0].furtherActions,
+			],
+		});
+
+		const settled = (await env.read(Game, {
+			functionName: 'getCommitment',
+			args: [identity],
+		})) as {cycleNumber: bigint};
+		expect(settled.cycleNumber).toEqual(0n);
+		expect(await avatarOwner(env, Game, identity)).toEqual(zeroAddress);
+	});
+
 	it('will not let a player walk away from a commitment', async function () {
 		// THE COSTLESS EXIT, refused. Custody is only a stake while the game
 		// holds the avatar, so a player who dislikes what they have committed to
 		// must not be able to take it home before the reveal window shuts - and
 		// must not be able to rescue it afterwards either, because by then it is
-		// forfeit and `acknowledgeMissedReveal` is what makes that so.
+		// forfeit and settling the missed reveal is what makes that so.
 		//
 		// Reading `ownerOf` instead of holding the token would have exactly this
 		// hole with an extra step: sell the avatar inside the window and let the
@@ -964,22 +1036,21 @@ describe('a turn bigger than a transaction', function () {
 		});
 	});
 
-	it('settles a half-revealed turn in ONE call, and frees the next cycle', async function () {
+	it('lets the player settle a half-revealed turn in ONE call without its chunks, and frees the next cycle', async function () {
 		// THE PART WITH A PLAYER'S STAKE IN IT. A commitment left open with its
 		// head pointing at a chunk nobody will ever submit blocks every later
 		// commitment that player makes, forever, and nothing else can resolve it.
 		//
-		// It settles here without the secret and without the chunk, which is a
-		// deliberate departure from the design this chaining is ported from. There
-		// the penalty is computed FROM the revealed moves, so the settlement has
-		// to walk the chain too; here the penalty is whatever this game puts at
-		// stake, the contract already knows what that is, and requiring the secret
-		// would make settling depend on the very thing that failed.
+		// The player can always settle it WITHOUT the secret and without the
+		// chunks, which is what makes it a settlement rather than a dependency on
+		// the very thing that failed: what is left of the bond is forfeited, all
+		// of it, because without the chunks the contract cannot tell the stake
+		// from a surplus the bond may have been hiding the turn's length with.
 		//
 		// WHAT IS LOST IS DIFFERENT ON THIS BRANCH, and the difference is worth
 		// reading before trusting the assertions below. `main` forfeits the bond,
 		// which falls as each chunk lands, so a half-revealed turn there loses
-		// exactly the part that was never opened. The stake here is CUSTODY OF THE
+		// at most the part that was never opened. The stake here is CUSTODY OF THE
 		// AVATAR, which is indivisible: half a turn revealed loses the whole
 		// avatar just as no turn revealed would. That is not the chunk being
 		// unfair, it is what a stake that cannot be divided means, and a game that
@@ -1003,10 +1074,18 @@ describe('a turn bigger than a transaction', function () {
 		// The rest of the turn never arrives and the cycle passes.
 		await advanceToCycleNumber(game.cycleNumber + 1, true);
 
-		// ONE call, by anybody, with nothing but the identity.
+		// ONE call, by the player, with nothing but the identity. Not by anybody:
+		// a stranger may only settle shown the chunks.
+		await expect(
+			env.execute(Game, {
+				account: unnamedAccounts[1],
+				functionName: 'forfeitMissedReveal',
+				args: [identity],
+			}),
+		).toBeRejectedWith('NotDelegate');
 		await env.execute(Game, {
-			account: unnamedAccounts[1],
-			functionName: 'acknowledgeMissedReveal',
+			account: player,
+			functionName: 'forfeitMissedReveal',
 			args: [identity],
 		});
 

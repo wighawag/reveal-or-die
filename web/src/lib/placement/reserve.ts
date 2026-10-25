@@ -4,8 +4,8 @@
  * This is the branch's answer to the second commit-reveal rule - something
  * must be at stake, or nobody has to reveal. A player who dislikes what they
  * committed to can always go quiet; here that costs them the avatar itself,
- * seized by `acknowledgeMissedReveal`, rather than a bond taken out of a
- * reserve of tokens.
+ * seized when the missed reveal is settled (by either route, shown the chunks
+ * or not), rather than a bond taken out of a reserve of tokens.
  *
  * ON `main` THIS FILE READS AN ERC20 RESERVE, and it says in as many words
  * that "a game that gates differently (holding custody of an item the player
