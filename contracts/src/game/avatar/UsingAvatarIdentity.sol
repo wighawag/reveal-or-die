@@ -94,7 +94,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
     // THE TWO OVERRIDES
     //-------------------------------------------------------------------------
 
-    /// @inheritdoc UsingGameInternal
+    /// @inheritdoc UsingCommitReveal
     /// @dev THE IDENTITY IS THE TOKEN, so there is nothing to widen and
     ///      nothing to truncate: the id the client sent IS the key the round is
     ///      filed under. What has to be established is that this avatar is
@@ -123,12 +123,19 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
         return id;
     }
 
-    /// @inheritdoc UsingGameInternal
+    /// @inheritdoc UsingCommitReveal
     /// @dev WHAT NOT REVEALING COSTS, and here it is the whole avatar rather
     ///      than a bond. `bond` is always zero on this branch, so nothing is
     ///      returned and `CommitmentVoid` reports a forfeit of zero: the
     ///      framework's only requirement is that SOMETHING is lost, and the
     ///      event that says what is {AvatarSeized}.
+    ///
+    ///      ON BOTH SETTLEMENT ROUTES, and that is the reason this seam takes
+    ///      no notice of which one called it. Shown the chunks, the base hands
+    ///      over the game's penalty for what was committed; a bond of zero
+    ///      makes that zero too, so a seizure that waited for a non-zero
+    ///      amount would let a player escape a turn they disliked by settling
+    ///      with their own chunks once the window shut.
     ///
     ///      The NFT stays in this contract forever. Sending it somewhere would
     ///      need a recipient, which is a policy decision (burn it? give it to
@@ -203,7 +210,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
         if (owner != msg.sender) {
             revert NotAvatarOwner(avatarID, owner);
         }
-        Commitment storage commitment = _commitments[avatarID];
+        Commitment memory commitment = _commitmentOf(avatarID);
         if (commitment.cycleNumber != 0) {
             revert AvatarIsCommitted(avatarID, commitment.cycleNumber);
         }

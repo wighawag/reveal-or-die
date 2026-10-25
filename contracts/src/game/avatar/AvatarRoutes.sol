@@ -30,8 +30,8 @@ contract AvatarGameCommit is UsingAvatarIdentity, GameCommit {
 
     // THE PRICE OF NOT EDITING A SHARED FILE, and it is four lines a route.
     //
-    // `main`'s route and {UsingAvatarIdentity} both descend from
-    // {UsingGameInternal}, so a leaf that inherits both sees two definitions of
+    // `main`'s route and {UsingAvatarIdentity} both descend from the
+    // commit-reveal base ({UsingCommitReveal}), which declares the seams, so a leaf that inherits both sees two definitions of
     // each seam and Solidity requires it to say which one wins. It is spelled
     // out rather than left to `super`, whose answer depends on the ORDER of the
     // base list and would therefore change silently if someone tidied it.
@@ -46,7 +46,7 @@ contract AvatarGameCommit is UsingAvatarIdentity, GameCommit {
     )
         internal
         view
-        override(UsingGameInternal, UsingAvatarIdentity)
+        override(UsingCommitReveal, UsingAvatarIdentity)
         returns (uint256)
     {
         return UsingAvatarIdentity._playerOf(sender, id);
@@ -57,7 +57,7 @@ contract AvatarGameCommit is UsingAvatarIdentity, GameCommit {
         uint256 bond
     )
         internal
-        override(UsingGameInternal, UsingAvatarIdentity)
+        override(UsingCommitReveal, UsingAvatarIdentity)
         returns (uint256)
     {
         return UsingAvatarIdentity._forfeit(player, bond);
@@ -77,7 +77,7 @@ contract AvatarGameReveal is UsingAvatarIdentity, GameReveal {
     )
         internal
         view
-        override(UsingGameInternal, UsingAvatarIdentity)
+        override(UsingCommitReveal, UsingAvatarIdentity)
         returns (uint256)
     {
         return UsingAvatarIdentity._playerOf(sender, id);
@@ -88,7 +88,7 @@ contract AvatarGameReveal is UsingAvatarIdentity, GameReveal {
         uint256 bond
     )
         internal
-        override(UsingGameInternal, UsingAvatarIdentity)
+        override(UsingCommitReveal, UsingAvatarIdentity)
         returns (uint256)
     {
         return UsingAvatarIdentity._forfeit(player, bond);
