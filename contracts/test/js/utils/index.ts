@@ -2,6 +2,7 @@ import {Abi_GameToken} from '../../../generated/abis/GameToken.js';
 import {Abi_IGame} from '../../../generated/abis/IGame.js';
 import {Abi_GameAvatarSale} from '../../../generated/abis/GameAvatarSale.js';
 import {Abi_GameAvatars} from '../../../generated/abis/GameAvatars.js';
+import {Abi_AvatarGameCustody} from '../../../generated/abis/AvatarGameCustody.js';
 import {
 	artifacts,
 	loadAndExecuteDeploymentsFromFiles,
@@ -23,6 +24,22 @@ import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
 type DeploymentEnvironment = Awaited<
 	ReturnType<typeof loadAndExecuteDeploymentsFromFiles>
 >;
+
+/**
+ * THE GAME THIS BRANCH DEPLOYS, as a type: `main`'s `IGame` plus the entry
+ * points of the custody route (`withdrawAvatar`, `getAvatarOwner`,
+ * `getAvatarsOf`, `onERC721Received`) and its errors.
+ *
+ * `IGame` is the template's interface and knows nothing of avatars, so typing
+ * the deployment with it alone made every `withdrawAvatar` call a type error
+ * while the suites, run through tsx, passed. The router serves the custody
+ * route's selectors on the same address, so this union is what the deployed
+ * `Game` really answers. Its constructor is left out: the proxy has its own.
+ */
+export type Abi_AvatarGame = [
+	...Abi_IGame,
+	...Exclude<Abi_AvatarGameCustody[number], {type: 'constructor'}>[],
+];
 
 /** One placement, matching the contract's `Placement` struct. */
 export type Placement = {cellID: bigint};
@@ -296,12 +313,12 @@ export async function deployGameWith(
 	];
 
 	deploymentSequence++;
-	return await env.deployViaProxy<Abi_IGame>(
+	return await env.deployViaProxy<Abi_AvatarGame>(
 		`${options.name}_${deploymentSequence}`,
 		{
 			account: env.namedAccounts.deployer,
 			artifact: (name: string, params: any) =>
-				env.deployViaRouter<Abi_IGame>(name, params, routes),
+				env.deployViaRouter<Abi_AvatarGame>(name, params, routes),
 			args: [config],
 		},
 		{owner: env.namedAccounts.admin, linkedData: config},
@@ -395,7 +412,7 @@ export async function leaveGame(
 }
 
 export async function enterGame(
-	fixtures: {env: any; Game: any; GameAvatarSale: any},
+	fixtures: {env: DeploymentEnvironment; Game: any; GameAvatarSale: any},
 	account: `0x${string}`,
 	options?: {payer?: `0x${string}`},
 ): Promise<bigint> {
@@ -448,7 +465,7 @@ export function setupFixtures(provider: EthereumProvider) {
 				provider: provider,
 			});
 
-			const Game = env.get<Abi_IGame>('Game');
+			const Game = env.get<Abi_AvatarGame>('Game');
 			const GameToken = env.get<Abi_GameToken>('GameToken');
 			const GameAvatarSale = env.get<Abi_GameAvatarSale>('GameAvatarSale');
 			const GameAvatars = env.get<Abi_GameAvatars>('GameAvatars');
