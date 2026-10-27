@@ -15,7 +15,7 @@ import {encodeAbiParameters, keccak256, parseEther, zeroAddress} from 'viem';
  *
  * NAMED rather than left as `any`, and it is the difference between a helper
  * that type-checks and one that only runs: `deployGameWith` passes an explicit
- * `<Abi_IGame>` to `deployViaProxy`, and a type argument on an UNTYPED call is
+ * `<Abi_AvatarGame>` to `deployViaProxy`, and a type argument on an UNTYPED call is
  * an error (TS2347) rather than a hint. The suites run through tsx, which does
  * not type-check, so `pnpm --filter ./contracts typescript` was the only thing
  * that could see it - and nothing ran that until `dist` became a build input
@@ -28,7 +28,7 @@ type DeploymentEnvironment = Awaited<
 /**
  * THE GAME THIS BRANCH DEPLOYS, as a type: `main`'s `IGame` plus the entry
  * points of the custody route (`withdrawAvatar`, `getAvatarOwner`,
- * `getAvatarsOf`, `onERC721Received`) and its errors.
+ * `getAvatarsOf`, `onERC721Received`), errors and events.
  *
  * `IGame` is the template's interface and knows nothing of avatars, so typing
  * the deployment with it alone made every `withdrawAvatar` call a type error
@@ -440,7 +440,7 @@ export async function enterGame(
 	// route rather than a test-only one, so what this exercises is something a
 	// player could do. A second SALE is not available at all: `GameAvatars` has
 	// one minter on purpose, so two live sales cannot coexist.
-	const deployed = env.get('Game');
+	const deployed = env.get<Abi_AvatarGame>('Game');
 	if (Game.address.toLowerCase() !== deployed.address.toLowerCase()) {
 		const GameAvatars = env.get<Abi_GameAvatars>('GameAvatars');
 		await env.execute(deployed, {
