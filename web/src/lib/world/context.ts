@@ -50,10 +50,7 @@ import {
 	createWorldCommitReveal,
 	type Action,
 } from '$lib/world/commit-reveal';
-import {
-	createSubmissionStorage,
-	submissionStorageKey,
-} from '$lib/world/storage';
+import {createSubmissionStorage} from '$lib/world/storage';
 import {createPlanning, type PlanningStore} from '$lib/world/planning';
 import {createControls, type Controls} from '$lib/world/controls';
 import {holdResolvingCycle} from '$lib/world/hold';
@@ -239,7 +236,6 @@ export type Game = {
 	setup: Readable<SetupNeeded | undefined>;
 };
 
-
 /**
  * What stands between the player and their first move, in the order it has to
  * happen. `deposit` is where the template says `stake`: the same gate asked
@@ -417,16 +413,17 @@ export function createGameContext(core: CoreServices): GameContext {
 				onSettled: () => void deposited.update(),
 			}),
 		blocksCommitting,
-		adapter: ({beforeCommit}) => createWorldCommitReveal({deps: core, beforeCommit}),
+		adapter: ({beforeCommit}) =>
+			createWorldCommitReveal({deps: core, beforeCommit}),
 		buildCommitment: buildWorldCommitment,
-		// See `submissionStorageKey` for why the avatar is part of the key at all.
+		// In the account data, keyed by the AVATAR: see `createSubmissionStorage`
+		// for why the avatar is part of the key at all.
 		storageFor: (avatarID) =>
 			createSubmissionStorage({
-				key: submissionStorageKey({
-					chainID: deployments.chain.id,
-					gameAddress: deployments.contracts.Game.address,
-					avatarID,
-				}),
+				accountData: core.accountData,
+				chainId: deployments.chain.id,
+				contract: deployments.contracts.Game.address,
+				avatarID,
 			}),
 		submission: {
 			/**
@@ -479,7 +476,8 @@ export function createGameContext(core: CoreServices): GameContext {
 		 */
 		onlyInPlayPhase: true,
 		start: () => {
-			const {missedReveal, twoPhase, currentCycleNumber, cycleInfo} = world.game;
+			const {missedReveal, twoPhase, currentCycleNumber, cycleInfo} =
+				world.game;
 			void deposited.update();
 			// The deposited avatars are the ACCOUNT's, so they follow the account.
 			const unsubscribeAccount = account.subscribe(() => {
