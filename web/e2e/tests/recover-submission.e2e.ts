@@ -4,9 +4,11 @@ import {
 	boardState,
 	clearAnyMissedReveal,
 	currentPhase,
+	forgetSubmissionAndReload,
 	planOnCanvas,
 	stakeAnAvatar,
 	stepInAnyDirection,
+	storedSubmissionRecords,
 } from '../fixtures/board';
 
 /**
@@ -108,18 +110,15 @@ describe('A turn the chain holds and this browser has lost', () => {
 		// burner wallet generates its accounts per browser and the signer is
 		// derived from those, so the secret would not come back and the test would
 		// prove nothing.
-		const cleared = await page.evaluate(() => {
-			const keys = Object.keys(localStorage).filter((k) =>
-				k.startsWith('__world_submission_'),
-			);
-			for (const k of keys) localStorage.removeItem(k);
-			return keys.length;
-		});
-		expect(cleared, 'there was a stored submission to destroy').toBeGreaterThan(
-			0,
-		);
+		//
+		// The turn lives in the ACCOUNT DATA (its `submissions` and
+		// `committedTurns` fields), so that is what is emptied.
+		expect(
+			await storedSubmissionRecords(page),
+			'there was a stored submission to destroy',
+		).toBeGreaterThan(0);
 
-		await page.reload();
+		await forgetSubmissionAndReload(page);
 		await expect(page.locator('canvas')).toBeVisible({timeout: 30_000});
 
 		// THE WHOLE POINT. Nothing below touches the page: no click, no key, no

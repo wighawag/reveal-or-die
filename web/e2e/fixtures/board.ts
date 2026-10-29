@@ -362,3 +362,71 @@ export async function stepInAnyDirection(
 	}
 	throw new Error('no direction was walkable from here');
 }
+
+/**
+ * How many submission records (plans and committed turns) the account data
+ * holds on disk: the `submissions` and `committedTurns` fields of every
+ * `__private__` record. The submission lives there since step 8 (P8).
+ */
+export async function storedSubmissionRecords(page: Page): Promise<number> {
+	return page.evaluate(() => {
+		let count = 0;
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i);
+			if (!key?.startsWith('__private__')) continue;
+			try {
+				const blob = JSON.parse(localStorage.getItem(key) ?? '') as {
+					data?: {
+						submissions?: Record<string, {turn?: unknown}>;
+						committedTurns?: Record<string, unknown>;
+					};
+				};
+				count += Object.values(blob?.data?.submissions ?? {}).filter(
+					(slot) => slot?.turn,
+				).length;
+				count += Object.keys(blob?.data?.committedTurns ?? {}).length;
+			} catch {
+				// Other things share the prefix; only account data parses this way.
+			}
+		}
+		return count;
+	});
+}
+
+/**
+ * Lose everything this browser knows about the submission, without losing WHO
+ * the player is, and reload: the template's `forgetSubmissionAndReload`, which
+ * this game omits with the rest of the template's e2e fixtures.
+ *
+ * The two fields are emptied by a script that runs BEFORE the app on the
+ * reload, once: emptied from the running page instead, the account data still
+ * holds them in memory and its next save would write them back.
+ */
+export async function forgetSubmissionAndReload(page: Page): Promise<void> {
+	const once = `__e2e_forget_submission_${Date.now()}`;
+	await page.addInitScript((flag) => {
+		if (sessionStorage.getItem(flag)) return;
+		sessionStorage.setItem(flag, '1');
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i);
+			if (!key?.startsWith('__private__')) continue;
+			try {
+				const blob = JSON.parse(localStorage.getItem(key) ?? '') as {
+					data?: Record<string, unknown>;
+					$itemTimestamps?: Record<string, unknown>;
+				};
+				if (!blob?.data) continue;
+				blob.data.submissions = {};
+				blob.data.committedTurns = {};
+				if (blob.$itemTimestamps) {
+					blob.$itemTimestamps.submissions = {};
+					blob.$itemTimestamps.committedTurns = {};
+				}
+				localStorage.setItem(key, JSON.stringify(blob));
+			} catch {
+				// Other things share the prefix; only account data parses this way.
+			}
+		}
+	}, once);
+	await page.reload();
+}
