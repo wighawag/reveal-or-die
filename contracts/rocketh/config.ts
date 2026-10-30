@@ -71,6 +71,7 @@ export const CYCLE_POLICY = {
  *
  *   first commit (cold slots)                 99,102
  *   later commit (warm slots)                 64,902
+ *   first commit PAYING A FRESH PAYEE        134,358
  *   full fresh chunk, four zones, final      374,085
  *   the same chunk, non-final                368,480
  *
@@ -83,20 +84,35 @@ export const CYCLE_POLICY = {
  * exactly what used to happen, in a client file whose text does not differ
  * between branches. That is the whole reason these moved here.
  *
+ * THE COMMIT'S WORST CASE IS A PAID ONE. A game that hands the skeleton a
+ * reveal scheduler (`RevealScheduler`, stratagems' plan step 8, P3) makes the
+ * commit carry the scheduler's payment, which `makeCommitment` forwards to
+ * `payee`; the first payment goes to an account that holds nothing, which
+ * costs the value transfer, the cold account and creating it. Measured on
+ * THIS branch 2026-10-30 at 134,358 against the 125,000 it declared (on
+ * `main`, 152,154 against 150,000, found by `with/fuzd`'s e2e), so a scheduled
+ * player's first commit would run out of gas. It is now 155,000: the paid case
+ * plus 15%, and the GasBudget test measures it.
+ *
  * Both carry a margin over the reading, because they size a RESERVATION: over
  * reserving costs a slightly larger first payment, under reserving costs a
  * player their gas mid-turn. `contracts/test/js/GasBudget.test.ts` fails if a
  * contract change outgrows either, which is what stops the margin being a
  * guess that rots.
  *
- * THEY ARE STILL NOT PASSED AS GAS LIMITS. A limit that is too low is not a slow
- * turn, it is a missed reveal, which takes the stake and blocks the next cycle
- * until it is acknowledged. Declaring them per deployment and pinning them with
- * a test is the half of that work which makes a limit possible later; the other
- * half is an explicit EXPECTATION of actions per turn, because a limit bounds a
- * transaction and nothing bounds a turn wherever an action is free.
+ * THEY ARE THE GAS LIMITS. The client passes `commitGas` as the limit of every
+ * commit and `revealGas` as the limit of every reveal step (the base's adapter,
+ * `web/src/lib/game/core/commit-reveal/adapter.ts`: "THE LIMIT, DECLARED BY THE
+ * DEPLOYMENT"), rather than estimating. So a figure that is too low is not a
+ * slow turn or a smaller stipend: it is a transaction that runs out of gas. On a
+ * commit that is a turn not taken; on a reveal it is a missed reveal, which
+ * takes the stake and blocks the next cycle until it is acknowledged. That is
+ * why each covers the WORST case of its transaction, the paid commit included,
+ * with headroom, and why `GasBudget.test.ts` pins both. A turn of several chunks
+ * is bounded per transaction by this, and as a whole by `expectedActionsPerTurn`
+ * below.
  */
-const COMMIT_GAS = 125_000n;
+const COMMIT_GAS = 155_000n;
 const REVEAL_GAS = 425_000n;
 
 /**
@@ -185,7 +201,11 @@ export const config = {
 				//
 				// So one commit plus one reveal step is 473,187 worst case, and this
 				// is that plus about 15%, kept a round number because it is a policy
-				// figure with a margin rather than a reading.
+				// figure with a margin rather than a reading. (Since 2026-10-30 the
+				// commit's share is sized for a PAID first commit, 134,358: see
+				// COMMIT_GAS. A player with a reveal scheduler pays the reveal's gas
+				// to the scheduler in the commit instead of sending the reveal, so
+				// a credit still prices one action.)
 				//
 				// EVERY ONE OF THOSE FIGURES IS LOWER THAN `main`'s, which measured
 				// 116,898 and 535,561 for the same two transactions, and the reason
