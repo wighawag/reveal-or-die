@@ -196,6 +196,16 @@ contracts/src/tokens
 # `GameIdentity` is a bigint declared in `web/src/lib/game/identity.ts`.
 contracts/src/game/avatar
 
+# The template game's SIMULATION ROUTE and its suite: the placement rule exposed
+# as a pure function for the client's bytecode sandbox (`web/src/lib/game/
+# simulation/`, which this repo keeps). It is built on the template's own
+# `UsingGameInternal` (`PlayerCell`, `_placementOutcome`), which this repo's
+# contracts replace with its game, so it cannot compile here. A simulation of
+# this game would be its own route over its own pure core, as the module's
+# README describes.
+contracts/src/game/routes/GameSimulation.sol
+contracts/test/js/Simulation.test.ts
+
 # The deploys for all of the above. Ours are `001_deploy_avatars.ts`,
 # `010_deploy_game.ts` and `020_deploy_sale.ts`: no token to deploy, and the sale
 # sells avatars rather than stake.
