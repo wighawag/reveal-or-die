@@ -253,3 +253,19 @@ web/test/lib/game/render/canvas2d.svelte.test.ts
 # behavioural suite; the stem's three states, the stale list most of all, are the
 # ones to steal when it does.
 web/test/lib/game/identity.test.ts
+
+# ---------------------------------------------------------------------------
+# THE STEM'S TABLES ARE ITS REFERENCE GAME'S (stratagems' step L1, 2026-11-01).
+# A table is a clone of a lobby implementation built from the GAME's routes, so
+# the stem's lobby deploy, its `GameLobby` route, its contracts suite and its
+# two-browser e2e are all about the reference game and cannot build here: this
+# repo's contracts do not stand on the commit-reveal base yet (the stem's
+# backlog task `reveal-or-die-adopts-the-commit-reveal-base`). The framework's
+# half (the base's roster, `CommitRevealGameFactory`, `$lib/game/lobby/table`,
+# the lobby route) arrives and stays unused: this game exports no `lobby` from
+# its `$app-specific` module, so its menu offers no tables. When it wants them,
+# it writes its own four of these.
+contracts/deploy/030_deploy_lobby.ts
+contracts/src/game/routes/GameLobby.sol
+contracts/test/js/Lobby.test.ts
+web/e2e/tests/table.e2e.ts

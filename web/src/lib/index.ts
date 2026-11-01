@@ -60,6 +60,9 @@ export const {isParentRoute, isSameRoute, route, params} = createRouteHandler(
 			// so the title art can be looked at (and screenshotted) rather than
 			// flashing past. See lib/ui/loading/splash.ts.
 			'logo',
+			// The table the app is at, kept on every link so the whole app stays
+			// at it: see `$lib/game/lobby/table`.
+			'game',
 		] as const,
 		// Dynamic routes that need hash-based URLs on path-based IPFS gateways
 		dynamicRoutes: [
