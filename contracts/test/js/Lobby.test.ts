@@ -1,11 +1,10 @@
 import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
-import {parseEventLogs, type Abi} from 'viem';
+import {parseEventLogs, zeroAddress, type Abi} from 'viem';
 import {
 	commitmentHashFor,
 	enterGame,
-	idOf,
 	revealTurn,
 	setupFixtures,
 	TURN_BOND,
@@ -60,6 +59,32 @@ async function createTable(seats: number) {
 	const Table = {address: created.args.game, abi: Implementation.abi};
 
 	const tableFixtures = {...fixtures, Game: Table};
+
+	// ON THIS BRANCH A PLAYER IS AN AVATAR, so who sits where is the avatar
+	// each account bought at the table, remembered as they join.
+	const identities = new Map<string, bigint>();
+	const id = (account: `0x${string}`) => {
+		const identity = identities.get(account.toLowerCase());
+		if (identity === undefined)
+			throw new Error(`${account} has no avatar here`);
+		return identity;
+	};
+	async function join(account: `0x${string}`) {
+		const price = BigInt(
+			(fixtures.GameAvatarSale.linkedData as {price: string}).price,
+		);
+		const before = (await env.read(fixtures.GameAvatarSale, {
+			functionName: 'lastAvatarID',
+		})) as bigint;
+		await env.execute(fixtures.GameAvatarSale, {
+			account,
+			functionName: 'purchaseAt',
+			args: [Table.address, account, zeroAddress, 0n],
+			value: price,
+		});
+		identities.set(account.toLowerCase(), before + 1n);
+		return before + 1n;
+	}
 	const read = {
 		cycle: async () =>
 			(await env.read(Table, {functionName: 'getCycle'})) as Cycle,
@@ -86,7 +111,7 @@ async function createTable(seats: number) {
 			account,
 			functionName: 'makeCommitment',
 			args: [
-				idOf(account),
+				id(account),
 				commitmentHashFor(placements, SECRET, fixtures.actionsPerReveal),
 				TURN_BOND,
 				'0x0000000000000000000000000000000000000000',
@@ -97,7 +122,7 @@ async function createTable(seats: number) {
 	async function reveal(account: `0x${string}`, placements: Placement[]) {
 		await revealTurn(tableFixtures, {
 			account,
-			identity: idOf(account),
+			identity: id(account),
 			placements,
 			secret: SECRET,
 			actionsPerReveal: fixtures.actionsPerReveal,
@@ -122,14 +147,15 @@ async function createTable(seats: number) {
 		commit,
 		reveal,
 		advance,
-		join: (account: `0x${string}`) => enterGame(tableFixtures, account),
+		join,
+		id,
 		start: (account: `0x${string}`) =>
 			env.execute(Table, {account, functionName: 'start'}),
 		forfeit: (member: `0x${string}`) =>
 			env.execute(Table, {
 				account: creator,
 				functionName: 'forfeitMember',
-				args: [idOf(member)],
+				args: [id(member)],
 			}),
 	};
 }
@@ -169,27 +195,23 @@ describe('games for a fixed set of players', function () {
 		).toBeRejectedWith(/RosterAlreadyOpened/);
 	});
 
-	it("seats a player who buys a stake at the table through the world's sale", async function () {
+	it("seats a player who buys an avatar at the table through the world's sale", async function () {
 		const table = await createTable(2);
-		const price = BigInt((table.StakeSale.linkedData as {price: string}).price);
-		await table.env.execute(table.StakeSale, {
-			account: table.alice,
-			functionName: 'purchaseAt',
-			args: [
-				table.Table.address,
-				table.alice,
-				'0x0000000000000000000000000000000000000000',
-				0n,
-			],
-			value: price,
-		});
+		const avatar = await table.join(table.alice);
 		const [, members] = await table.read.roster();
-		expect(members).toEqual([idOf(table.alice)]);
-		const worldReserve = (await table.env.read(table.Game, {
-			functionName: 'getReserve',
-			args: [idOf(table.alice)],
-		})) as bigint;
-		expect(worldReserve).toEqual(0n);
+		expect(members).toEqual([avatar]);
+		// The avatar is in the TABLE's custody, owned by Alice there; the world
+		// holds nothing of hers.
+		const owner = (await table.env.read(table.Table, {
+			functionName: 'getAvatarOwner',
+			args: [avatar],
+		})) as string;
+		expect(owner.toLowerCase()).toEqual(table.alice.toLowerCase());
+		const worldOwner = (await table.env.read(table.Game, {
+			functionName: 'getAvatarOwner',
+			args: [avatar],
+		})) as string;
+		expect(worldOwner).toEqual(zeroAddress);
 	});
 
 	it('leaves the persistent world with open entry and no lobby route', async function () {
@@ -212,9 +234,9 @@ describe('games for a fixed set of players', function () {
 			functionName: 'getAttendance',
 		})) as {waitedFor: bigint};
 		expect(attendance.waitedFor).toEqual(1n);
-		// The table's seat is its own: the world's stake seated nobody there.
+		// The table's seat is its own: the world's avatar seated nobody there.
 		const [, members] = await table.read.roster();
-		expect(members).toEqual([idOf(table.alice)]);
+		expect(members).toEqual([table.id(table.alice)]);
 	});
 
 	it('plays a three-seat table from its creation to a forfeit: a cycle advanced early, one by the clock', async function () {
@@ -319,7 +341,7 @@ describe('games for a fixed set of players', function () {
 			account: table.creator,
 			functionName: 'makeCommitment',
 			args: [
-				idOf(table.creator),
+				table.id(table.creator),
 				commitmentHashFor(placements, SECRET, table.actionsPerReveal),
 				TURN_BOND,
 				'0x0000000000000000000000000000000000000000',
@@ -331,7 +353,7 @@ describe('games for a fixed set of players', function () {
 			account: table.creator,
 			functionName: 'reveal',
 			args: [
-				idOf(table.creator),
+				table.id(table.creator),
 				placements,
 				SECRET,
 				'0x000000000000000000000000000000000000000000000000',
