@@ -1,8 +1,9 @@
 import {Abi_GameToken} from '../generated/abis/GameToken.js';
+import {Abi_GameAvatars} from '../generated/abis/GameAvatars.js';
 import {Abi_IGameLobby} from '../generated/abis/IGameLobby.js';
 import {Abi_CommitRevealGameFactory} from '../generated/abis/CommitRevealGameFactory.js';
 import {deployScript, artifacts} from '../rocketh/deploy.js';
-import {parseEther, zeroAddress} from 'viem';
+import {zeroAddress} from 'viem';
 
 /**
  * GAMES FOR A FIXED SET OF PLAYERS, beside the persistent world.
@@ -21,6 +22,7 @@ export default deployScript(
 		const {deployer} = namedAccounts;
 
 		const GameToken = get<Abi_GameToken>('GameToken');
+		const GameAvatars = get<Abi_GameAvatars>('GameAvatars');
 
 		const config = {
 			startTime: 0n,
@@ -28,7 +30,8 @@ export default deployScript(
 			revealPhaseDuration: data.Lobby.revealPhaseDuration,
 			time: zeroAddress,
 			tokens: GameToken.address,
-			placementCost: parseEther('1'),
+			// Custody instead of the bond, as for the world (010_deploy_game.ts).
+			placementCost: 0n,
 			actionsPerReveal: data.Lobby.actionsPerReveal,
 			cyclePolicy: data.Lobby.cyclePolicy,
 		};
@@ -45,8 +48,23 @@ export default deployScript(
 			{account: deployer},
 			[
 				{name: 'Getters', artifact: artifacts.GameGetters, args: [config]},
-				{name: 'Commit', artifact: artifacts.GameCommit, args: [config]},
-				{name: 'Reveal', artifact: artifacts.GameReveal, args: [config]},
+				// The world's avatar routes: on this branch a seat is custody of
+				// an avatar, as a membership of the world is.
+				{
+					name: 'Commit',
+					artifact: artifacts.AvatarGameCommit,
+					args: [config, GameAvatars.address],
+				},
+				{
+					name: 'Reveal',
+					artifact: artifacts.AvatarGameReveal,
+					args: [config, GameAvatars.address],
+				},
+				{
+					name: 'Custody',
+					artifact: artifacts.AvatarGameCustody,
+					args: [config, GameAvatars.address],
+				},
 				{
 					name: 'Simulation',
 					artifact: artifacts.GameSimulation,
@@ -74,6 +92,6 @@ export default deployScript(
 	},
 	{
 		tags: ['Lobby', 'Lobby_deploy'],
-		dependencies: ['GameToken_deploy'],
+		dependencies: ['GameToken_deploy', 'GameAvatars_deploy'],
 	},
 );

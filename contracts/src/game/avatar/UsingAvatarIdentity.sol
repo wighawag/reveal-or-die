@@ -154,7 +154,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
             // a denominator nobody can ever answer, and a game with no clock
             // would be frozen by the very act of punishing the player who
             // froze it.
-            _stopWaitingFor(player);
+            _leaveSeat(player);
             emit AvatarSeized(player, owner);
         }
         // Nothing is settled in tokens. Keeping the bond arithmetic would be
@@ -186,7 +186,11 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
         // what the cycle waits for. An avatar in the game is a player who can
         // commit, so the round blocks on it under a policy that advances on
         // unanimity, and stops blocking the moment it leaves.
-        _startWaitingFor(avatarID);
+        //
+        // UNDER A CLOSED ROSTER custody is a SEAT (`_takeSeat`), refused once
+        // the table has started or when every seat is taken, as a funded
+        // reserve is on `main`. Under open entry it is exactly the wait it was.
+        _takeSeat(avatarID);
         emit AvatarDeposited(avatarID, owner);
     }
 
@@ -215,7 +219,7 @@ abstract contract UsingAvatarIdentity is UsingGameInternal {
             revert AvatarIsCommitted(avatarID, commitment.cycleNumber);
         }
         _avatarOwner[avatarID] = address(0);
-        _stopWaitingFor(avatarID);
+        _leaveSeat(avatarID);
         emit AvatarWithdrawn(avatarID, owner);
         AVATARS.transferFrom(address(this), to, avatarID);
     }
