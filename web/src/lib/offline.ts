@@ -27,7 +27,6 @@ import type {Context} from '$lib/context/types';
 import {createOfflinePlayers, type OfflinePlayer} from '$lib/offline-players';
 import {pokeWhenTheHumanActs} from '$lib/game/core/played';
 import {
-	MOST_SEATS,
 	humansAtThisDevice,
 	localRevealerKey,
 	seatsPlayedByTheWorld,
@@ -135,13 +134,13 @@ const ADMIN_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
 export const CHAIN_ID_STORAGE_KEY = 'offline-world:chain-id';
 
 /**
- * HOTSEAT: how many people at this device this world can play, each their own
- * account in the world's wallet, passing the device between them
- * (`$lib/game/lobby/hotseat`). Every seat may be one. Read by the
- * byte-identical lobby off this module (`$lib/offline-lobby`); a game whose
- * world does not export it offers no hotseat.
+ * HOTSEAT: NOT ON THIS BRANCH YET. A person here plays as an avatar in the
+ * game's custody, and this world's hotseat has not been measured with an
+ * avatar per person (stratagems' port plan, H1-10: the reference game's e2e
+ * stalled after the first cycle here, with the active identity a selection of
+ * its own). One person, as before; the lobby offers no hotseat.
  */
-export const LOCAL_HUMANS_AT_MOST = MOST_SEATS;
+export const LOCAL_HUMANS_AT_MOST = 1;
 const PLAY_MONEY = 10n ** 24n;
 
 /**
