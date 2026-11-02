@@ -13,7 +13,7 @@
  * to plan it is the only place that can be prevented.
  */
 import type {GameIdentity} from '$lib/game/identity';
-import {derived, type Readable} from 'svelte/store';
+import {derived, get, type Readable} from 'svelte/store';
 import type {SubmissionState, SubmissionStore} from '$lib/game/core/submission';
 import {
 	cellTypeAt,
@@ -159,9 +159,16 @@ export function createPlanning(params: {
 		($planned): readonly Action[] => $planned,
 	);
 
-	const canPlan = derived(submission, ($submission) =>
-		isPlannable($submission),
+	// AND ONLY ONCE THE SUBMISSION CAN TAKE A PLAN: after an account switch (a
+	// hotseat handover's included) the new account's data loads, and until it
+	// has the submission drops every plan (`SubmissionStore.ready`). Every
+	// action below asks this, so none of them answers `true` for a plan that was
+	// dropped, and the HUD reads it to say why a click did nothing.
+	const canPlan = derived(
+		[submission, submission.ready],
+		([$submission, $ready]) => $ready && isPlannable($submission),
 	);
+	const plannableNow = () => get(canPlan);
 
 	const movesLeft = derived(plannedStore, ($planned) => {
 		const moves = $planned.filter(
@@ -196,10 +203,11 @@ export function createPlanning(params: {
 	 */
 	function exitAllowed(
 		state: SubmissionState<Action>,
+		ready: boolean,
 		planned: readonly Action[],
 		onchain: Position | undefined,
 	): Position | undefined {
-		if (!isPlannable(state)) return undefined;
+		if (!ready || !isPlannable(state)) return undefined;
 		if (planned.some(endsTheTurn)) return undefined;
 		if (onchain === undefined) return undefined;
 		// Where the avatar will be STANDING when the exit resolves, which is the
@@ -212,13 +220,13 @@ export function createPlanning(params: {
 	}
 
 	const canExit = derived(
-		[submission, plannedStore, currentPosition],
-		([$submission, $planned, $onchain]) =>
-			exitAllowed($submission, $planned, $onchain) !== undefined,
+		[submission, submission.ready, plannedStore, currentPosition],
+		([$submission, $ready, $planned, $onchain]) =>
+			exitAllowed($submission, $ready, $planned, $onchain) !== undefined,
 	);
 
 	function enterAt(position: Position): boolean {
-		if (!isPlannable(submission.value)) return false;
+		if (!plannableNow()) return false;
 
 		let onchain: Position | undefined;
 		currentPosition.subscribe((v) => (onchain = v))();
@@ -240,7 +248,7 @@ export function createPlanning(params: {
 	}
 
 	function stepTo(position: Position): boolean {
-		if (!isPlannable(submission.value)) return false;
+		if (!plannableNow()) return false;
 
 		const planned = currentPlan();
 		// An Enter or an Exit ends the reveal, so nothing can follow either.
@@ -282,7 +290,12 @@ export function createPlanning(params: {
 		let onchain: Position | undefined;
 		currentPosition.subscribe((v) => (onchain = v))();
 
-		const from = exitAllowed(submission.value, planned, onchain);
+		const from = exitAllowed(
+			submission.value,
+			get(submission.ready),
+			planned,
+			onchain,
+		);
 		if (!from) return false;
 
 		// The position is carried for DISPLAY only: `_exit` ignores its action data
@@ -296,14 +309,14 @@ export function createPlanning(params: {
 	}
 
 	function undo() {
-		if (!isPlannable(submission.value)) return;
+		if (!plannableNow()) return;
 		const planned = currentPlan();
 		if (planned.length === 0) return;
 		submission.plan(planned.slice(0, -1));
 	}
 
 	function clear() {
-		if (!isPlannable(submission.value)) return;
+		if (!plannableNow()) return;
 		submission.plan([]);
 	}
 

@@ -225,6 +225,8 @@ function fakeContext(
 		recovery?: RecoveryState;
 		autoRecovery?: AutoRecoveryState;
 		cycleAdvance?: {step: string; message?: string; error?: unknown};
+		/** Whether the account's data has loaded (`SubmissionStore.ready`). */
+		ready?: boolean;
 	} = {},
 ) {
 	return {
@@ -234,7 +236,9 @@ function fakeContext(
 				overrides.twoPhase ?? {phase: 'play', timeLeft: 10, duration: 20},
 			),
 			phase: writable(overrides.phase ?? 'play'),
-			submission: writable(submission),
+			submission: Object.assign(writable(submission), {
+				ready: writable(overrides.ready ?? true),
+			}),
 			planning: {
 				movesLeft: writable(10),
 				plan: writable({planned: []}),
@@ -299,6 +303,14 @@ describe('the remedy the HUD offers', () => {
 });
 
 describe('what a click will do', () => {
+	it("says a click plans nothing while the account's data loads", () => {
+		// After every account switch, a hotseat handover's included: the
+		// submission drops every plan until the new account's data has loaded.
+		const model = get(createHud(fakeContext({step: 'Idle'}, {ready: false})));
+		expect(model.instruction).toMatch(/loading your account/i);
+		expect(model.instruction).toMatch(/not planned/i);
+	});
+
 	it('tells an avatar that is out of the world to pick a spawn, and says it ends the turn', () => {
 		// `_enter` sets `stopProcessing`, so anything planned after an Enter is
 		// silently dropped by the reveal. The player has no way to discover that

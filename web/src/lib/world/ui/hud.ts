@@ -539,6 +539,13 @@ export function phaseLabelOf(phase: CyclePhase): string {
 	}
 }
 
+/**
+ * The instruction while the account's data loads: the submission takes no plan
+ * until it has (`SubmissionStore.ready`, stratagems' port plan, step H1b).
+ */
+export const LOADING_ACCOUNT =
+	"Loading your account's data: a move clicked now is not planned. A moment.";
+
 export function createHud(context: Context): Readable<HudModel> {
 	const {game} = context;
 
@@ -561,6 +568,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.recovery,
 			game.autoRecovery,
 			game.cycleAdvance,
+			game.submission.ready,
 		],
 		([
 			$phase,
@@ -580,6 +588,7 @@ export function createHud(context: Context): Readable<HudModel> {
 			$recovery,
 			$autoRecovery,
 			$advance,
+			$ready,
 		]): HudModel => {
 			const deposited = $deposited as DepositedState;
 			const advance = $advance as CycleAdvanceState;
@@ -724,20 +733,25 @@ export function createHud(context: Context): Readable<HudModel> {
 					? ''
 					: phase !== 'play'
 						? instructionOutsidePlay(phase)
-						: !inWorld
-							? 'Click anywhere to choose where to appear. Entering is the whole turn, so nothing can follow it.'
-							: canLeave
-								? // Standing on the way out. Said here because the button that
-									// does it is enabled for the first time at this exact moment,
-									// and nothing else on screen marks the difference.
-									'Your turn ends on the exit tile, so you can leave the world from here. Or keep stepping: a click, the arrow keys, or the pad.'
-								: // Says the arrow keys exist, because nothing else on screen
-									// does: the d-pad shows what can be pressed but not what can be
-									// typed, and a player who never discovers the keyboard plays a
-									// slower game than the one that was built. And says where the
-									// way out is, because leaving is the one action with no cell to
-									// click on and the exit tile is otherwise just scenery.
-									'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn. To leave the world, walk onto the exit tile.',
+						: !$ready
+							? // After an account switch (a hotseat handover's included),
+								// until the new account's data has loaded the submission
+								// drops every plan: said, so a click does not look broken.
+								LOADING_ACCOUNT
+							: !inWorld
+								? 'Click anywhere to choose where to appear. Entering is the whole turn, so nothing can follow it.'
+								: canLeave
+									? // Standing on the way out. Said here because the button that
+										// does it is enabled for the first time at this exact moment,
+										// and nothing else on screen marks the difference.
+										'Your turn ends on the exit tile, so you can leave the world from here. Or keep stepping: a click, the arrow keys, or the pad.'
+									: // Says the arrow keys exist, because nothing else on screen
+										// does: the d-pad shows what can be pressed but not what can be
+										// typed, and a player who never discovers the keyboard plays a
+										// slower game than the one that was built. And says where the
+										// way out is, because leaving is the one action with no cell to
+										// click on and the exit tile is otherwise just scenery.
+										'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn. To leave the world, walk onto the exit tile.',
 
 				submissionLabel: submission.label,
 				submissionTone: submission.tone,

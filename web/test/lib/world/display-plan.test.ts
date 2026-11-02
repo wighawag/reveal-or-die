@@ -83,6 +83,8 @@ function fakeSubmission(initial: SubmissionState<Action> = {step: 'Idle'}) {
 		reveal: async () => {},
 		dismiss: () => {},
 		start: () => () => {},
+		// the account's data loaded (`SubmissionStore.ready`)
+		ready: writable(true),
 	} as unknown as SubmissionStore<GameIdentity, Action>;
 	return {submission, state};
 }
@@ -239,7 +241,8 @@ function fakeContext(
 		game: {
 			twoPhase: writable({phase: 'wait', timeLeft: 5, duration: 20}),
 			phase: writable('reveal'),
-			submission,
+			// with its readiness, which the HUD reads (`SubmissionStore.ready`)
+			submission: {subscribe: submission.subscribe, ready: writable(true)},
 			// THE LIVE PLAN, which is the wiring under test as much as the values
 			// are: the HUD is given what controls a turn, never the display copy.
 			planning: {

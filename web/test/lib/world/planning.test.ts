@@ -53,6 +53,7 @@ function fakeSubmission(initial: Action[] = []) {
 	} as SubmissionState<Action>);
 	let value: SubmissionState<Action> = get(state);
 	state.subscribe((v) => (value = v));
+	const ready = writable(true);
 
 	const submission = {
 		subscribe: state.subscribe,
@@ -70,15 +71,17 @@ function fakeSubmission(initial: Action[] = []) {
 		reveal: async () => {},
 		dismiss: () => {},
 		start: () => () => {},
+		// the account's data loaded (`SubmissionStore.ready`)
+		ready,
 	} as unknown as SubmissionStore<GameIdentity, Action>;
 
-	return {submission, state};
+	return {submission, state, ready};
 }
 
 const config = {numMoves: 3} as WorldConfig;
 
 function setup(opts: {at?: Position; actions?: Action[]} = {}) {
-	const {submission, state} = fakeSubmission(opts.actions ?? []);
+	const {submission, state, ready} = fakeSubmission(opts.actions ?? []);
 	const currentPosition: Readable<Position | undefined> = writable(
 		'at' in opts ? opts.at : START,
 	);
@@ -89,11 +92,45 @@ function setup(opts: {at?: Position; actions?: Action[]} = {}) {
 		activeIdentity: writable(7n),
 		player: writable('0x1111111111111111111111111111111111111111'),
 	});
-	return {planning, submission, state};
+	return {planning, submission, state, ready};
 }
 
 const positionsOf = (actions: readonly Action[]) =>
 	actions.map((a) => bigIntIDToXY(a.data));
+
+/**
+ * After every account switch (a hotseat handover's included) the submission
+ * reads its state as `Idle` or a plan and DROPS any plan until the new account's
+ * data has loaded (`SubmissionStore.ready`), so planning takes nothing then and
+ * `canPlan` says so, for the HUD to explain the click.
+ */
+describe("planning: while the account's data loads", () => {
+	it('plans nothing and says it cannot, then plans once loaded', () => {
+		const {planning, submission, ready} = setup({at: undefined});
+		ready.set(false);
+		expect(get(planning.canPlan)).toBe(false);
+		expect(planning.enterAt({x: 1, y: 1})).toBe(false);
+		expect(
+			'actions' in submission.value ? submission.value.actions : [],
+		).toEqual([]);
+		ready.set(true);
+		expect(get(planning.canPlan)).toBe(true);
+		expect(planning.enterAt({x: 1, y: 1})).toBe(true);
+	});
+
+	it('neither steps, undoes, clears nor leaves', () => {
+		const {planning, submission, ready} = setup();
+		expect(planning.stepBy({x: 1, y: 0})).toBe(true);
+		const before = submission.value;
+		ready.set(false);
+		expect(planning.stepBy({x: 1, y: 0})).toBe(false);
+		planning.undo();
+		planning.clear();
+		expect(planning.exitAt()).toBe(false);
+		expect(get(planning.canExit)).toBe(false);
+		expect(submission.value).toBe(before);
+	});
+});
 
 describe('planning: entering', () => {
 	it('plans an entry for an avatar that is not in the world', () => {
