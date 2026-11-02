@@ -448,6 +448,7 @@ async function buildOfflineWorld(table: Table): Promise<OfflineWorldStatus> {
 					revealer,
 					submission: context.context.game.submission,
 					signedIn: signedInAs(context.context.connection),
+					accountData: context.context.accountData,
 				})
 			: undefined;
 
