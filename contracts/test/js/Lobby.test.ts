@@ -396,11 +396,11 @@ describe('games for a fixed set of players', function () {
 		await table.env.execute(table.Table, {
 			account: table.alice,
 			functionName: 'forfeitMissedReveal',
-			args: [idOf(table.alice)],
+			args: [table.id(table.alice)],
 		});
 		const commitment = (await table.env.read(table.Table, {
 			functionName: 'getCommitment',
-			args: [idOf(table.alice)],
+			args: [table.id(table.alice)],
 		})) as {cycleNumber: bigint};
 		expect(commitment.cycleNumber).toEqual(0n);
 		// The persistent world beside it never ends.
