@@ -1,7 +1,8 @@
 <!--
 	TABLES: games for a fixed set of players, beside the world.
 
-	Anyone creates one, with the number of seats; anyone with its link takes a
+	Anyone creates one, with the number of seats and of cycles it plays (it ends
+	after the last); anyone with its link takes a
 	free seat by staking at it; its creator starts it once two are seated. Each
 	table is an address of its own, and the game at a table is the same page as
 	the world's (`/play/?game=<address>`), so opening one is a page load: the app
@@ -18,8 +19,14 @@
 	import Button from '$lib/shadcn/ui/button/button.svelte';
 	import {lobby} from '$lib/context/index';
 	import {
+		clampTableCycles,
 		createTablesLobby,
+		DEFAULT_TABLE_CYCLES,
+		defaultOptionValues,
+		encodeTableOptions,
+		FEWEST_TABLE_CYCLES,
 		FEWEST_TABLE_SEATS,
+		MOST_TABLE_CYCLES,
 		MOST_TABLE_SEATS,
 	} from '$lib/game/lobby/table';
 
@@ -35,13 +42,24 @@
 		(_, i) => FEWEST_TABLE_SEATS + i,
 	);
 	let seats = $state(3);
+	let cycles = $state(DEFAULT_TABLE_CYCLES);
+	// the game's own choices, if it has any (`TableLobby.options`)
+	const gameOptions = lobby?.options;
+	let optionValues = $state<Record<string, number>>(
+		gameOptions ? defaultOptionValues(gameOptions) : {},
+	);
 
 	const linkTo = (table: string) => route(`/play/?game=${table}`);
 	const short = (address: string) =>
 		`${address.slice(0, 6)}...${address.slice(-4)}`;
 
 	async function create() {
-		const table = await tablesLobby?.create(seats);
+		const table = await tablesLobby?.create(seats, {
+			cycles: clampTableCycles(cycles),
+			...(gameOptions
+				? {gameOptions: encodeTableOptions(gameOptions, optionValues)}
+				: {}),
+		});
 		// A table is a context of its own: a page load, not a navigation.
 		if (table) location.assign(linkTo(table));
 	}
@@ -78,8 +96,46 @@
 					>
 				{/each}
 			</div>
+			<label class="mt-4 block text-sm font-medium" for="table-cycles"
+				>How many cycles? <span class="font-normal text-muted-foreground"
+					>({FEWEST_TABLE_CYCLES} to {MOST_TABLE_CYCLES}; the game ends after
+					the last)</span
+				></label
+			>
+			<input
+				id="table-cycles"
+				class="mt-2 w-24 rounded-md border bg-background px-2 py-1 text-sm"
+				type="number"
+				min={FEWEST_TABLE_CYCLES}
+				max={MOST_TABLE_CYCLES}
+				data-testid="table-cycles"
+				bind:value={cycles}
+			/>
+			{#if gameOptions}
+				{#each gameOptions.fields as field (field.id)}
+					<label
+						class="mt-4 block text-sm font-medium"
+						for={`table-option-${field.id}`}
+						>{field.label}
+						<span class="font-normal text-muted-foreground"
+							>({field.min} to {field.max}{field.unit
+								? ` ${field.unit}`
+								: ''})</span
+						></label
+					>
+					<input
+						id={`table-option-${field.id}`}
+						class="mt-2 w-24 rounded-md border bg-background px-2 py-1 text-sm"
+						type="number"
+						min={field.min}
+						max={field.max}
+						data-testid={`table-option-${field.id}`}
+						bind:value={optionValues[field.id]}
+					/>
+				{/each}
+			{/if}
 			<Button
-				class="mt-4"
+				class="mt-4 block"
 				data-testid="table-create"
 				disabled={$creating?.step === 'Creating'}
 				onclick={() => void create()}
@@ -108,7 +164,11 @@
 								{short(table.address)}
 								<span class="text-muted-foreground">
 									by {short(table.creator)}, {table.members.length} of {table.seats}
-									seats{table.started ? ', started' : ''}
+									seats, {table.cycles} cycles{table.ended
+										? ', ended'
+										: table.started
+											? ', started'
+											: ''}
 								</span>
 							</span>
 							<Button
