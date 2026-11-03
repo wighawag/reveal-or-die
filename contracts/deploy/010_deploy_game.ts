@@ -72,8 +72,9 @@ export default deployScript(
 		const routes = [
 			// Two of these are `main`'s route plus one override each, and the third
 			// is new. See `src/game/avatar/UsingAvatarIdentity.sol`: the identity
-			// model varies by overriding a virtual internal (N4), so the getters and
-			// the delegation route below are the ones `main` deploys, unchanged.
+			// model varies by overriding a virtual internal (N4), so the getters, the
+			// simulation and the delegation route below are the ones `main` deploys,
+			// unchanged.
 			{name: 'Getters', artifact: artifacts.GameGetters, args: [config]},
 			{
 				name: 'Commit',
@@ -92,6 +93,11 @@ export default deployScript(
 				artifact: artifacts.AvatarGameCustody,
 				args: [config, GameAvatars.address],
 			},
+			// The game's rule, runnable without a chain: the client reads THIS
+			// route's code and runs it in its own sandbox to preview a turn
+			// (`web/src/lib/game/simulation/`). Its own route so that the code a
+			// client fetches holds the rule and nothing that needs storage.
+			{name: 'Simulation', artifact: artifacts.GameSimulation, args: [config]},
 			// Who may play as whom. Its own route because a router maps one
 			// selector to one route, and UsingDelegation carries six. Takes no
 			// config: the delegation record is namespaced storage shared across

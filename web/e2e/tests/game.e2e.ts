@@ -3,11 +3,13 @@ import {
 	actionsPerReveal,
 	authoriseToPlay,
 	clearAnyMissedReveal,
+	claimantsOnCell,
 	clickCanvas,
 	forgetSubmissionAndReload,
 	planManyOnCanvas,
 	plannedCellIDs,
 	planOnCanvas,
+	previewOfCell,
 	submissionStep,
 	stake,
 	stakeOnCell,
@@ -139,6 +141,21 @@ describe('Commit-reveal submission', () => {
 		// What the cell already holds, from this run or any earlier one.
 		const stakeBefore = BigInt(await stakeOnCell(page, cellID));
 
+		// WHAT THE PLAN LEADS TO, before anything is sent: the contract's own rule,
+		// its Simulation route's bytecode read off this chain and run in the
+		// browser's sandbox. Held to the reveal below, which is the point: the
+		// preview is what the chain then does, not a guess beside it. On this
+		// branch placements are free, so the quantity it moves is the claimant
+		// count, as it is for the reveal's own assertion below.
+		await expect
+			.poll(async () => (await previewOfCell(page, cellID))?.numClaimants, {
+				message: 'the planned cell should show what it will hold',
+				timeout: 30_000,
+			})
+			.toBe(Number(stakeBefore) + 1);
+		const preview = await previewOfCell(page, cellID);
+		if (!preview) throw new Error('the preview went away');
+
 		// Commit. Pressing the button if it is still live keeps the test short, but
 		// the submission commits by itself as the phase closes, so this deliberately
 		// does not REQUIRE the button: waiting for it to be enabled would race the
@@ -192,6 +209,10 @@ describe('Commit-reveal submission', () => {
 			BigInt(await stakeOnCell(page, cellID)),
 			'the reveal should add exactly one claim',
 		).toBe(stakeBefore + 1n);
+		expect(
+			await claimantsOnCell(page, cellID),
+			'the reveal should do what the preview said it would',
+		).toBe(preview.numClaimants);
 
 		expect(
 			(await submissionStep(page)).planned,

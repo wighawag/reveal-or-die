@@ -86,6 +86,31 @@ contract GameAvatarSale {
         address payable stipendTo,
         uint256 stipend
     ) external payable returns (uint256 avatarID) {
+        return _purchase(GAME, owner, stipendTo, stipend);
+    }
+
+    /// @notice {purchase}, for another game played with the same avatars: a
+    ///         table for a fixed set of players, cloned per game by a factory,
+    ///         which no immutable here could name in advance.
+    /// @dev Open to any address on purpose, as `StakeSale.purchaseAt` on
+    ///      `main` is. The avatar is minted for this purchase alone and into
+    ///      `game` alone, so a `game` that is not one only ever holds what its
+    ///      own buyer paid for.
+    function purchaseAt(
+        address game,
+        address owner,
+        address payable stipendTo,
+        uint256 stipend
+    ) external payable returns (uint256 avatarID) {
+        return _purchase(game, owner, stipendTo, stipend);
+    }
+
+    function _purchase(
+        address game,
+        address owner,
+        address payable stipendTo,
+        uint256 stipend
+    ) internal returns (uint256 avatarID) {
         uint256 paymentAmount = msg.value;
         if (stipendTo != address(0)) {
             // Underflows, and so reverts, when the value does not even cover
@@ -104,7 +129,7 @@ contract GameAvatarSale {
         avatarID = ++lastAvatarID;
         // Effects before the transfers. The mint reaches the game's
         // `onERC721Received`, which records `owner` as whose avatar it is.
-        AVATARS.mint(GAME, avatarID, abi.encode(owner));
+        AVATARS.mint(game, avatarID, abi.encode(owner));
 
         if (stipendTo != address(0) && stipend != 0) {
             _send(stipendTo, stipend);
