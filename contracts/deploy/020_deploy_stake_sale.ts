@@ -50,6 +50,9 @@ export default deployScript(
 				// it by name from whichever sale a node deploys, which is what keeps
 				// that file identical on both branches.
 				linkedData: {...config, amount: 1n},
+				// Deterministic (CREATE2), like every contract here: see
+				// "Deterministic deployments" in README.md.
+				deterministic: true,
 			},
 		);
 
