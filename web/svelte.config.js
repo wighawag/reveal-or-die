@@ -1,19 +1,28 @@
 import adapter from '@sveltejs/adapter-static';
+import {execSync} from 'node:child_process';
 import {vitePreprocess} from '@sveltejs/vite-plugin-svelte';
-import {execSync} from 'child_process';
 
-export function getVersion() {
+let VERSION = `timestamp_${Date.now()}`;
+try {
+	VERSION = execSync('git rev-parse --short HEAD', {
+		stdio: ['ignore', 'pipe', 'ignore'],
+	})
+		.toString()
+		.trim();
 	try {
-		return execSync('git rev-parse --short HEAD').toString().trim();
-	} catch {
-		const timestamp = Date.now().toString();
-		console.error(
-			`could not get commit-hash to set a version id, falling back on timestamp ${timestamp}`,
-		);
-		return timestamp;
+		// This command returns empty string if no changes
+		const output = execSync('git status --porcelain', {encoding: 'utf8'});
+		if (output.trim().length > 0) {
+			VERSION += '-dirty';
+			console.warn(`[!] repo has some uncommited changes...`);
+		}
+	} catch (error) {
+		console.error('Error checking git status:', error);
+		process.exit(1);
 	}
+} catch (e) {
+	console.error(e);
 }
-const VERSION = getVersion();
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {

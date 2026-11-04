@@ -9,11 +9,18 @@ export default deployScript(
 		// Wiring the sale itself happens in 020, because the sale does not exist
 		// yet at this point - Avatars has to be deployed first for the sale's
 		// constructor to take it.
-		await deploy('Avatars', {
-			account: deployer,
-			artifact: artifacts.Avatars,
-			args: [admin],
-		});
+		// Deterministic (CREATE2), like every contract here: see "Deterministic
+		// deployments" in README.md. The minter admin is passed, never taken
+		// from msg.sender, which under CREATE2 is the factory.
+		await deploy(
+			'Avatars',
+			{
+				account: deployer,
+				artifact: artifacts.Avatars,
+				args: [admin],
+			},
+			{deterministic: true},
+		);
 	},
 	{tags: ['Avatars', 'Avatars_deploy']},
 );

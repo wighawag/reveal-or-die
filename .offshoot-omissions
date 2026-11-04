@@ -258,9 +258,10 @@ web/test/lib/game/identity.test.ts
 # THE STEM'S TABLES ARE ITS REFERENCE GAME'S (stratagems' step L1, 2026-11-01).
 # A table is a clone of a lobby implementation built from the GAME's routes, so
 # the stem's lobby deploy, its contracts suite and its two-browser e2e are all
-# about the reference game and cannot build here: this repo's contracts do not
-# stand on the commit-reveal base yet (the stem's backlog task
-# `reveal-or-die-adopts-the-commit-reveal-base`). The framework's half (the
+# about the reference game and cannot build here. This repo's contracts stand
+# on the commit-reveal base since 2026-11-05 (main 4aaa00bd), but its own lobby
+# is reveal-or-die `work`'s `tables-for-reveal-or-die`, not written yet. The
+# framework's half (the
 # base's roster, `CommitRevealGameFactory`, the base's `CommitRevealLobby`
 # route, `$lib/game/lobby/table`, the lobby route) arrives and stays unused:
 # this game exports no `lobby` from its `$app-specific` module, so its menu
@@ -268,3 +269,11 @@ web/test/lib/game/identity.test.ts
 contracts/deploy/030_deploy_lobby.ts
 contracts/test/js/Lobby.test.ts
 web/e2e/tests/table.e2e.ts
+
+# ---------------------------------------------------------------------------
+# THE GAME'S OWN CLOCK, RETIRED BY THE BASE (2026-11-05, main 4aaa00bd). This
+# repo's contracts stand on the commit-reveal base, whose `UsingCommitReveal`
+# holds the time source (`TIME`, `_timestamp`), so nothing here inherits
+# `UsingVirtualTime` any more; keeping it would be a second, unused copy of the
+# same immutable. The stem keeps it for now, and nothing there uses it either.
+contracts/src/game/internal/UsingVirtualTime.sol
