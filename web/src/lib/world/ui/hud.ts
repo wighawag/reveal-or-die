@@ -122,7 +122,7 @@ export type HudModel = {
 	 * be: `chooseActiveAvatar` refuses a dead avatar, so by the time the death is
 	 * readable the active one has already moved on and the question answers itself
 	 * negatively forever. Asked about the ACCOUNT instead, which is the fact that
-	 * is actually true and stays true until the body is withdrawn.
+	 * is actually true and stays true for good: a dead avatar cannot be withdrawn.
 	 *
 	 * Read from the account's own avatars rather than off the board, which is
 	 * camera-scoped: a player who panned away would not be told.

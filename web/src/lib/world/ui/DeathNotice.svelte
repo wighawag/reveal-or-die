@@ -8,7 +8,7 @@
 	would answer no from the moment it became true).
 
 	THE ACKNOWLEDGEMENT IS RECORDED, not just remembered for the session: the
-	death is a fact on chain until the body is withdrawn, so a dismissal that
+	death is a fact on chain for good (a dead avatar cannot be withdrawn), so a dismissal that
 	lived only in this component made the news repeat on every reload, and the
 	only escape was buying another avatar. It is kept per DEATH (see
 	`./death-ack.ts`), so an avatar that is re-bought and dies again is news
@@ -70,8 +70,7 @@
 	-->
 	<p class="mt-2 text-sm text-muted-foreground">{$hud.died?.explanation}</p>
 	<p class="mt-2 text-sm text-muted-foreground">
-		Play on with another one, or withdraw this one from the game contract to get
-		the avatar back.
+		A dead avatar stays in the game for good. Play on with another one.
 	</p>
 	<Button size="sm" class="mt-4" onclick={() => acknowledge()}>
 		Acknowledge

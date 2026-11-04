@@ -59,30 +59,25 @@ abstract contract UsingGameInternal is
             revert UsingGameErrors.NotAuthorizedOwner(owner);
         }
 
+        // ONLY AN AVATAR OUT OF THE WORLD COMES HOME: one that left by the exit
+        // alive, or one that never entered. One in the world is refused, and a
+        // DEAD one is refused for good, which is the stake this game is named
+        // for: the avatar is lost, the token with it.
+        //
+        // That reverses 9aaf42cd (2026-09-03), which let a dead avatar be
+        // collected on the grounds that losing the token as well was a second
+        // penalty nobody chose. The maintainer chose it (2026-11-05), and the
+        // collection had a hole: out of the world an avatar reads as alive, so
+        // withdraw, deposit and enter brought a dead one back. Kept in the
+        // world, a dead avatar stays dead with no flag to maintain, because
+        // death is computed from a clock that only moves forward
+        // (`_getResolvedAvatar`), and the body stays where it fell.
         if (_avatars[avatarID].inGame) {
-            // A DEAD AVATAR CAN BE COLLECTED, and until this existed it could
-            // not be: the body stays where it fell, so `inGame` stays true;
-            // `inGame` is otherwise cleared only by an Exit; an Exit needs a
-            // commitment; and `_makeCommitment` refuses one for a dead avatar.
-            // The NFT was therefore locked in this contract permanently, which
-            // is a far larger penalty than the game intends - the avatar is the
-            // stake, and losing it is the loss, not losing it AND the token.
             (uint64 cycleNumber, ) = _cycleNumber();
-            if (_getResolvedAvatar(avatarID, cycleNumber).life > 0) {
-                revert UsingGameErrors.AvatarStillInGame(avatarID);
+            if (_getResolvedAvatar(avatarID, cycleNumber).life == 0) {
+                revert UsingGameErrors.AvatarIsDead(avatarID);
             }
-
-            // Off the board, so nobody keeps seeing a corpse that has been
-            // taken home. Same bookkeeping an Exit does, and it must happen
-            // HERE rather than when the avatar died: death is computed from the
-            // clock (`_getResolvedAvatar`) with no transaction to hang it on,
-            // so there is no moment at which the contract could have done it.
-            (int32 x, int32 y) = PositionUtils.toXY(_avatars[avatarID].position);
-            uint64 zone = PositionUtils.getZone(x, y);
-            _removeFromZone(zone, avatarID);
-            _avatars[avatarID].inGame = false;
-            emit LeftTheGame(avatarID, cycleNumber, zone, _avatars[avatarID].position);
-            _avatars[avatarID].position = 0;
+            revert UsingGameErrors.AvatarStillInGame(avatarID);
         }
 
         // --------------------------------------------------------------------
@@ -492,6 +487,19 @@ abstract contract UsingGameInternal is
         ActionResolution memory resolution,
         uint128 actionData
     ) internal pure {
+        // ONLY FROM OUTSIDE THE WORLD. Nothing checked this, so an avatar
+        // already standing somewhere could commit an Enter and be put wherever
+        // it named: a teleport past every wall, which also left its old entry
+        // in the zone listing (the entering branch of `_resolveActions` adds to
+        // the new zone and removes from none). Dropped, not reverted, like any
+        // other action the rules refuse: the commitment is already fixed.
+        //
+        // A DEAD avatar never gets here: it is still in the world (it cannot
+        // leave, see `_withdraw`), and `_makeCommitment` refuses it anyway.
+        if (resolution.inGame) {
+            resolution.stopProcessing = true;
+            return;
+        }
         uint64 entryPosition = uint64(actionData);
         (int32 moveToX, int32 moveToY) = PositionUtils.toXY(entryPosition);
         // TODO check valid entry

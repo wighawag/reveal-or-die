@@ -1,16 +1,16 @@
 /**
  * Remembering that a death has been acknowledged.
  *
- * The death itself is a fact on chain and stays one until the body is
- * withdrawn; the ACKNOWLEDGEMENT is a fact about this browser's UI and exists
+ * The death itself is a fact on chain and stays one for good (a dead avatar
+ * cannot be withdrawn); the ACKNOWLEDGEMENT is a fact about this browser's UI and exists
  * nowhere on chain at all. So it is kept here, in local storage, scoped like
  * the submission storage (chain + game), and the distinction matters: the rule
  * repo keeps is "never persist a second copy of what the operations ledger
  * holds", and the ledger holds transactions. This holds a dismissal.
  *
  * ONE ENTRY PER AVATAR, holding the death it was last acknowledged for, rather
- * than one entry per death: a dead avatar that is withdrawn never comes back,
- * and one that is re-bought and dies AGAIN has a strictly later `lastCycleNumber`
+ * than one entry per death: a dead avatar never comes back (it cannot leave
+ * the game), and one that is re-bought and dies AGAIN has a strictly later `lastCycleNumber`
  * (it only advances on reveals), so "stored >= this death" re-opens the notice
  * for the new death while keeping the old acknowledgement forever settled.
  */

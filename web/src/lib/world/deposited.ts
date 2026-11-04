@@ -113,7 +113,7 @@ export function createDeposited(params: {
  *
  * A DEAD AVATAR DOES NOT COUNT, and getting that wrong was a dead end rather
  * than a cosmetic slip. The contract keeps holding an avatar after it is killed
- * (the body stays where it fell until it is withdrawn), so counting what the
+ * (the body stays where it fell, for good), so counting what the
  * game holds answered "yes, they are set up" for a player who could do nothing
  * at all: `chooseActiveAvatar` refuses to select a dead avatar, so the setup
  * gate said ready, no avatar was active, the board ignored every click, and the

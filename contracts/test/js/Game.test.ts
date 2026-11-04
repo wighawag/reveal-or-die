@@ -633,20 +633,13 @@ describe('Game', function () {
 		expect(inZone.some((a) => a.avatarID === onTheExit)).toEqual(false);
 	});
 
-	it('lets a dead avatar be collected, which was a dead end', async function () {
-		/**
-		 * The avatar IS the stake, so losing it to a few missed reveals is the
-		 * loss the game intends. Losing the TOKEN as well was not: `_withdraw`
-		 * refused while `inGame` was true, `inGame` was cleared only by an Exit,
-		 * an Exit needs a commitment, and `_makeCommitment` refuses one for a
-		 * dead avatar. The NFT was locked in this contract permanently, and the
-		 * client cheerfully told the player to go and withdraw it.
-		 *
-		 * Death is computed rather than recorded - `_getResolvedAvatar` reads how
-		 * far `lastCycleNumber` has fallen behind the cycle being asked about, and no
-		 * transaction marks the moment - which is why the body is taken off the
-		 * board HERE and not when it died.
-		 */
+	/**
+	 * One avatar's life, driven through the public routes: buy it, put it in
+	 * the world, take a turn, let the clock run, take it home, bring it back (if it may).
+	 * The tests below are the ways that story can end.
+	 */
+	async function oneAvatar(secretByte: string) {
+		const fixture = await networkHelpers.loadFixture(deployAll);
 		const {
 			env,
 			Game,
@@ -657,11 +650,9 @@ describe('Game', function () {
 			advanceToRevealPhase,
 			getCycleNumber,
 			getTimestamp,
-		} = await networkHelpers.loadFixture(deployAll);
-
+		} = fixture;
 		const player = unnamedAccounts[0];
-		const secret =
-			'0x00000000000000000000000000000000000000000000000000000000000000ef' as const;
+		const secret = `0x${secretByte.padStart(64, '0')}` as const;
 
 		await env.execute(AvatarsSale, {
 			account: player,
@@ -670,68 +661,160 @@ describe('Game', function () {
 			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
 		});
 		const avatarID = avatarIDFor(player, 0n);
-		const {cycleNumber: start} = getCycleNumber(await getTimestamp());
+		let {cycleNumber} = getCycleNumber(await getTimestamp());
 
-		const enter: Action[] = [{actionType: 0, data: pos(0n, 1n)}];
-		await advanceToCycle(start + 2);
-		await env.execute(Game, {
-			account: player,
-			functionName: 'commit',
-			args: [avatarID, commitmentHash(secret, enter), zeroAddress],
-		});
-		await advanceToRevealPhase(start + 2);
-		await env.execute(Game, {
-			account: player,
-			functionName: 'reveal',
-			args: [avatarID, enter, secret, zeroAddress],
-		});
-
-		// ALIVE: still refused, and that half matters as much. A check that only
-		// ever allows is as broken as one that only ever refuses.
-		await expect(
+		const commit = (actions: Action[]) =>
 			env.execute(Game, {
 				account: player,
-				functionName: 'withdraw',
-				args: [avatarID, player],
-			}),
-		).toBeRejected();
+				functionName: 'commit',
+				args: [avatarID, commitmentHash(secret, actions), zeroAddress],
+			});
+		return {
+			...fixture,
+			player,
+			avatarID,
+			commit,
+			/** Commit and reveal `actions` as the next cycle's whole turn. */
+			async turn(actions: Action[]) {
+				cycleNumber += 1;
+				await advanceToCycle(cycleNumber);
+				await commit(actions);
+				await advanceToRevealPhase(cycleNumber);
+				await env.execute(Game, {
+					account: player,
+					functionName: 'reveal',
+					args: [avatarID, actions, secret, zeroAddress],
+				});
+			},
+			/** Go quiet until the misses allowed have run out, and one more. */
+			async goQuietUntilDead() {
+				cycleNumber += Number(Game.linkedData!.numMissesAllowed) + 2;
+				await advanceToCycle(cycleNumber, true);
+			},
+			/** Into the commit phase of the next cycle, mined. */
+			async nextCycle() {
+				cycleNumber += 1;
+				await advanceToCycle(cycleNumber, true);
+			},
+			avatar: () => env.read(Game, {functionName: 'getAvatar', args: [avatarID]}),
+			withdraw: () =>
+				env.execute(Game, {
+					account: player,
+					functionName: 'withdraw',
+					args: [avatarID, player],
+				}),
+			async depositAgain() {
+				await env.execute(Avatars, {
+					account: player,
+					functionName: 'approve',
+					args: [Game.address, avatarID],
+				});
+				await env.execute(Game, {
+					account: player,
+					functionName: 'deposit',
+					args: [avatarID, zeroAddress],
+				});
+			},
+		};
+	}
 
-		// Now go quiet. It dies one round after the misses it is allowed, which
-		// is the number the deployment configures and the client explains.
-		const numMissesAllowed = Number(Game.linkedData!.numMissesAllowed);
-		// MINED, not merely scheduled: `advanceToCycle` sets the next block's
-		// timestamp, so a READ that follows it without a transaction in between
-		// still evaluates against the old block. Every other test here happens to
-		// send something next; this one asks a question.
-		await advanceToCycle(start + 2 + numMissesAllowed + 2, true);
-		const dead = await env.read(Game, {
-			functionName: 'getAvatar',
-			args: [avatarID],
-		});
+	it('keeps a dead avatar in the game, for good', async function () {
+		/**
+		 * The avatar is the stake, and losing it means losing the token too
+		 * (the maintainer, 2026-11-05). This reverses 9aaf42cd, which let a dead
+		 * avatar be withdrawn so the NFT would not be locked in here forever, and
+		 * which had a hole: out of the world an avatar reads as alive, so
+		 * withdraw, deposit and enter brought a dead one back.
+		 *
+		 * Both halves are asserted, because a check that only ever refuses is
+		 * as broken as one that only ever allows: refused while alive in the
+		 * world, refused once dead, and the body is still where it fell.
+		 */
+		const a = await oneAvatar('e0');
+		await a.turn([{actionType: 0, data: pos(0n, 1n)}]);
+		await expect(a.withdraw()).toBeRejectedWith('AvatarStillInGame');
+
+		await a.goQuietUntilDead();
+		const dead = await a.avatar();
 		expect(dead.life).toEqual(0);
 		expect(dead.inGame).toEqual(true);
+		await expect(a.withdraw()).toBeRejectedWith('AvatarIsDead');
 
-		await env.execute(Game, {
-			account: player,
-			functionName: 'withdraw',
-			args: [avatarID, player],
-		});
-
-		// The token is the player's again. Compared case-insensitively: `ownerOf`
-		// answers with a checksummed address and the account is held lowercase.
-		const owner = await env.read(Avatars, {
+		// Still the game's, and still lying where it fell.
+		const holder = await a.env.read(a.Avatars, {
 			functionName: 'ownerOf',
-			args: [avatarID],
+			args: [a.avatarID],
 		});
-		expect(owner.toLowerCase()).toEqual(player.toLowerCase());
-
-		// ...and the body is off the board rather than left standing in the zone
-		// for everyone else to keep seeing.
-		const [inZone] = await env.read(Game, {
+		expect(holder.toLowerCase()).toEqual(a.Game.address.toLowerCase());
+		const [inZone] = await a.env.read(a.Game, {
 			functionName: 'getAvatarsInZone',
 			args: [zoneID(0, 1), 0n, 100n],
 		});
-		expect(inZone.some((a) => a.avatarID === avatarID)).toEqual(false);
+		expect(inZone.some((x) => x.avatarID === a.avatarID)).toEqual(true);
+
+		// And it cannot act: no commitment, so no exit and no way out.
+		await expect(a.commit([{actionType: 2, data: pos(0n, 1n)}])).toBeRejectedWith(
+			'AvatarIsDead',
+		);
+	});
+
+	it('lets an avatar that never entered be withdrawn', async function () {
+		/**
+		 * Bought, never put in the world, so never at risk: taking it home costs
+		 * the game nothing.
+		 */
+		const a = await oneAvatar('e3');
+		await a.withdraw();
+		const holder = await a.env.read(a.Avatars, {
+			functionName: 'ownerOf',
+			args: [a.avatarID],
+		});
+		expect(holder.toLowerCase()).toEqual(a.player.toLowerCase());
+	});
+
+	it('lets an avatar that LEFT alive come back, as it always could', async function () {
+		/**
+		 * The other half of the rule above. Leaving by the exit is the way home
+		 * the game offers, so retiring has to be about dying, not about having
+		 * been withdrawn.
+		 */
+		const a = await oneAvatar('e1');
+		await a.turn([{actionType: 0, data: pos(3n, 5n)}]); // onto the exit
+		await a.turn([{actionType: 2, data: pos(3n, 5n)}]); // and out
+		await a.withdraw();
+		await a.depositAgain();
+		expect((await a.avatar()).life).toEqual(1);
+
+		await a.turn([{actionType: 0, data: pos(0n, 1n)}]);
+		const back = await a.avatar();
+		expect(back.inGame).toEqual(true);
+		expect(back.life).toEqual(1);
+		expect(back.position).toEqual(pos(0n, 1n));
+	});
+
+	it('refuses an Enter from an avatar already in the world', async function () {
+		/**
+		 * `_enter` checked nothing about the avatar, so one already standing in
+		 * the world could commit an Enter and be put wherever it named: a
+		 * teleport past every wall (and, in bomber-world, out of any blast),
+		 * which also left its old entry behind in the zone it came from. An
+		 * Enter is for an avatar outside the world, and from one inside it is
+		 * dropped like any other action the rules refuse, without a revert.
+		 */
+		const a = await oneAvatar('e2');
+		await a.turn([{actionType: 0, data: pos(0n, 1n)}]);
+		await a.turn([{actionType: 0, data: pos(3n, 5n)}]);
+
+		const stayed = await a.avatar();
+		expect(stayed.inGame).toEqual(true);
+		expect(stayed.position).toEqual(pos(0n, 1n));
+
+		// Listed once in its zone (both cells are in zone (0, 0)), not twice.
+		const [inZone] = await a.env.read(a.Game, {
+			functionName: 'getAvatarsInZone',
+			args: [zoneID(0, 1), 0n, 100n],
+		});
+		expect(inZone.filter((x) => x.avatarID === a.avatarID).length).toEqual(1);
 	});
 });
 
