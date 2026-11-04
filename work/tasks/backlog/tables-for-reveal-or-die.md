@@ -56,3 +56,9 @@ bomber-world's contracts are this repo's plus bombs: `BombLogic.sol`, the `Place
 - **Spawn**: anywhere on chain for now; the client limits entry to the centre zone (bomber-world `world/spawn.ts`, landed 2026-11-04). Bounding the map on chain comes later.
 - **A table has a winner, by loot, and so does the open world** (bomber-world's part, after its port): a dead avatar leaves a skull worth one unit (a fixed unit now; the avatar's purchase price minus a fee, later, possibly both); a move over a skull claims it, everyone claiming in the first cycle it is claimed splits it, later claims get nothing; a dead carrier's skull carries its claims; exiting mints the loot carried out (claims from finished cycles, through a separate `cashOut`), only exited skulls count, nothing mints for exiting empty. At a table the winner is who cashed out the most; a table keeps a tally rather than minting the world's token, for now.
 - **Prerequisite: `a-dead-avatar-stays-dead`** (this branch): without it a skull of one's own second avatar is free loot.
+
+## Decisions, the maintainer, 2026-11-05
+
+- **A dead avatar stays in the game for good** (`a-dead-avatar-stays-dead`, landed main 64a5ed00): no withdraw of a dead one; withdraw only out of the world and alive (exited, or never entered). On the base this is custody: a dead avatar never leaves, as a seized one does not on template-commit-reveal `with/nft-identity`.
+- **A collected skull clears its body**, after the claim cycle has finished (not in a reveal), and **the NFT is burned**, with the sale refusing an id that has existed before.
+- **The claim share is computed after the cycle, not in the reveal**: a reveal records the claim and counts claimants for (skull, cycle) in O(1), reading the skull's first-claim cycle (same answer in any order, the `_place` exemption, to be argued in code and tested in two orders); `cashOut` divides, over finished cycles only.

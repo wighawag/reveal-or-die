@@ -27,3 +27,13 @@ Do it with, or before, `reveal-or-die-adopts-the-commit-reveal-base` (template-c
 - A dead avatar, withdrawn and deposited again, cannot enter; a test shows it.
 - An avatar that EXITED (alive) can still come back, as today.
 - The order of reveals still never changes the outcome.
+
+## Landed, 2026-11-05 (main 64a5ed00)
+
+Not as written above: the maintainer chose the simpler rule. **A dead avatar stays in the game for good**: `_withdraw` refuses any avatar in the world (`AvatarIsDead` when dead, `AvatarStillInGame` when alive), which reverses 9aaf42cd (2026-09-03). Withdrawal is for an avatar out of the world and alive: one that left by the exit, or one that never entered. No retirement flag: death is computed from a clock that only moves forward, so kept in the world a dead avatar stays dead. A first version with a `retired` flag set by the withdraw was prepared and dropped.
+
+Also found and fixed: `_enter` did not check `inGame`, so a living avatar could commit an Enter naming any cell and teleport there (listed twice in its zone). It is now dropped like any refused action.
+
+Contracts 49 passing (46, minus the old collect test, plus 4); check 0/0, unit 2168 + 75, e2e 53 + 2 skipped. The death notice no longer tells the player to withdraw the body.
+
+Left for the skulls (bomber-world): bodies pile up in the zone listings. Agreed direction: clear the body once its skull's claim cycle has finished (never inside a reveal: a second claimer in the same cycle must still find it), and burn the NFT, with a used-id guard in the sale, because an id is derived from (buyer, subID) and a burned one could otherwise be bought again.
