@@ -13,11 +13,18 @@ export default deployScript(
 	async ({deploy, namedAccounts}) => {
 		const {deployer, admin} = namedAccounts;
 
-		await deploy('GameAvatars', {
-			account: deployer,
-			artifact: artifacts.GameAvatars,
-			args: [admin],
-		});
+		// Deterministic (CREATE2), like every contract here: see "Deterministic
+		// deployments" in README.md. The minter admin is passed, never taken
+		// from msg.sender, which under CREATE2 is the factory.
+		await deploy(
+			'GameAvatars',
+			{
+				account: deployer,
+				artifact: artifacts.GameAvatars,
+				args: [admin],
+			},
+			{deterministic: true},
+		);
 	},
 	{tags: ['GameAvatars', 'GameAvatars_deploy']},
 );
