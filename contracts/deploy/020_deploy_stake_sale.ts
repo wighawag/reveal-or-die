@@ -60,10 +60,20 @@ export default deployScript(
 		// than a wiring step: `GameAvatars.minter` is zero until set, so a
 		// deployment that stopped here would mint nothing at all instead of
 		// minting for free. A stake that costs nothing to acquire is not a stake.
+		//
+		// GUARDED, so it is sent only while the minter is not the sale already:
+		// a redeploy repeats nothing, and a LAN box, which replays this deploy
+		// on every boot, reads the same guard before sending it (see
+		// "Deterministic deployments" in README.md).
 		await execute(GameAvatars, {
 			account: admin,
 			functionName: 'setMinter',
 			args: [GameAvatarSale.address],
+			guard: {
+				kind: 'call',
+				functionName: 'minter',
+				equals: GameAvatarSale.address,
+			},
 		});
 	},
 	{
