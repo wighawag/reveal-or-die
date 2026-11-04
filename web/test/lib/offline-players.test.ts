@@ -2,7 +2,13 @@ import {describe, it, expect, afterEach} from 'vitest';
 import {createPublicClient, custom} from 'viem';
 import {createEmbeddedWorld, type EmbeddedWorld} from '$lib/embedded';
 import {config, extensions} from 'reveal-or-die-contracts/rocketh/config.js';
-import {ActionType, bigIntIDToXY, isObstacle} from 'reveal-or-die-contracts';
+import {
+	ActionType,
+	bigIntIDToXY,
+	isObstacle,
+	xyToBigIntID,
+	type Action,
+} from 'reveal-or-die-contracts';
 import {
 	OFFLINE_DEPLOYMENT,
 	offlineIdentityOf,
@@ -18,6 +24,8 @@ import {playedSeatSecret} from '$lib/game/core/secret';
 import {createAttendanceReader} from '$lib/world/advance';
 import {advancePermitted} from '$lib/game/core/advance';
 import {resolveWorldConfig} from '$lib/world/config';
+import {createPlayedTurnStore} from '$lib/game/core/strategy';
+import {WORLD_STORAGE} from '$lib/world/storage';
 
 /**
  * THE PLAYERS THE WORLD PLAYS, DRIVEN THROUGH A WHOLE ROUND ON A REAL CHAIN.
@@ -396,4 +404,87 @@ describe('the secret a played seat commits with', () => {
 			}),
 		).not.toBe(playedSeatSecret(base));
 	});
+});
+
+describe('a seat with a level', () => {
+	// THE SEAM, adopted (`$lib/world/strategy`): a seat whose level is not
+	// `random` commits the turn the game's strategy decides, STORED before it
+	// is sent, and reveals it from the store, because a turn decided from the
+	// board cannot be re-derived once the board has moved. reveal-or-die offers
+	// no level itself; a scripted strategy stands in for a game's.
+	function memoryStorage() {
+		const items = new Map<string, string>();
+		return {
+			getItem: (key: string) => items.get(key) ?? null,
+			setItem: (key: string, value: string) => void items.set(key, value),
+		};
+	}
+
+	/** A free cell well away from the derived entries, one per seat. */
+	function scriptedEntry(seat: number): {x: number; y: number} {
+		for (let y = 20; y < 40; y++) {
+			for (let x = 20 + seat * 4; x < 60; x++) {
+				if (!isObstacle(x, y)) return {x, y};
+			}
+		}
+		throw new Error('no free cell to script an entry at');
+	}
+
+	it(
+		'commits the strategy\u2019s turn, keeps it, and reveals it after a reload',
+		{timeout: 120_000},
+		async () => {
+			world = await buildWorld();
+			const w = world;
+			const storage = memoryStorage();
+			const seats = players.map((player) => ({...player, level: 'scripted'}));
+			const turnsOver = () =>
+				createPlayedTurnStore<Action>({
+					storage,
+					key: 'test:played-turns',
+					chainId: w.deployments.get().chain.id,
+					contract: w.deployments.get().contracts.Game.address,
+					format: WORLD_STORAGE,
+				});
+			let asked = 0;
+			const scripted =
+				(answer: 'entry' | 'nothing') =>
+				() =>
+				async ({identity}: {identity: bigint}) => {
+					asked++;
+					if (answer === 'nothing') return [];
+					const seat = seats.findIndex((p) => p.identity === identity);
+					const at = scriptedEntry(seat);
+					return [
+						{actionType: ActionType.Enter, data: xyToBigIntID(at.x, at.y)},
+					];
+				};
+			const passOver = (answer: 'entry' | 'nothing') =>
+				createOfflinePlayers({
+					provider: w.provider,
+					deployments: w.deployments,
+					config: resolveWorldConfig(w.deployments.get()),
+					players: seats,
+					createStrategy: scripted(answer),
+					turns: turnsOver(),
+				});
+
+			await passOver('entry').tick();
+			expect(asked).toBe(seats.length);
+			expect(storage.getItem('test:played-turns')).not.toBeNull();
+			await push(w);
+
+			// THE RELOAD, with a strategy that would now answer differently: the
+			// reveal must open what was COMMITTED, which only the store knows.
+			await passOver('nothing').tick();
+			expect(asked).toBe(seats.length);
+			await push(w);
+
+			for (const [seat, player] of seats.entries()) {
+				const avatar = await avatarOf(w, player.identity);
+				expect(avatar.inGame).toBe(true);
+				expect(bigIntIDToXY(avatar.position)).toEqual(scriptedEntry(seat));
+			}
+		},
+	);
 });

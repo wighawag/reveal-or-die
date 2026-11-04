@@ -21,6 +21,17 @@ import {createIndexedDBDeploymentStore} from '@rocketh/web';
 import {createContext} from '$lib/context/index';
 import type {Context} from '$lib/context/types';
 import {createOfflinePlayers, type OfflinePlayer} from '$lib/offline-players';
+import {
+	createPlayedTurnStore,
+	RANDOM_LEVEL,
+	type AiLevel,
+} from '$lib/game/core/strategy';
+import {
+	WORLD_SEAT_DEFAULT_LEVEL,
+	WORLD_SEAT_LEVELS,
+	createWorldSeatStrategy,
+} from '$lib/world/strategy';
+import {WORLD_STORAGE} from '$lib/world/storage';
 import {pokeWhenTheHumanActs} from '$lib/game/core/played';
 import {seatsPlayedByTheWorld, type Table} from '$lib/game/lobby/seats';
 import {authoriseTheBrowsersKey} from '$lib/game/acquire';
@@ -130,6 +141,32 @@ const ADMIN_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const;
  */
 export const CHAIN_ID_STORAGE_KEY = 'offline-world:chain-id';
 const PLAY_MONEY = 10n ** 24n;
+
+/**
+ * THE LEVELS THIS WORLD'S SEATS MAY PLAY AT, which the offline lobby offers
+ * (it reads this export off the module; see `$lib/offline-lobby`). The game's
+ * own (`$lib/world/strategy`): none in reveal-or-die.
+ */
+export const AI_LEVELS: readonly AiLevel[] | undefined =
+	// UNDEFINED, not empty, when the game offers none: a game that offers
+	// levels offers `random` among them (offline-lobby.test.ts holds every
+	// game to it), and the lobby reads an absent list as no choice.
+	WORLD_SEAT_LEVELS.length > 0 ? WORLD_SEAT_LEVELS : undefined;
+
+/**
+ * The level a world seat starts at in a fresh lobby choice (`$lib/offline-lobby`
+ * reads it off the module): the game's own, `random` when it names none.
+ */
+export const AI_DEFAULT_LEVEL: string | undefined = WORLD_SEAT_DEFAULT_LEVEL;
+
+/**
+ * Where a played seat's decided turn is kept, beside this world's other keys:
+ * a storage that lost it has lost the chain id too, and so the world. A WIRE
+ * from its first build, like the record it holds (`$lib/game/core/strategy`):
+ * the same key the template's reference game uses, because it is the same
+ * framework record.
+ */
+export const PLAYED_TURNS_STORAGE_KEY = 'offline-world:played-turns';
 
 /**
  * WHICH AVATAR AN ADDRESS PLAYS IN THIS WORLD, and it needs no chain read.
@@ -378,11 +415,26 @@ async function buildOfflineWorld(table: Table): Promise<OfflineWorldStatus> {
 	 * while nothing is on screen. The WORLD still outlives the page (the chain
 	 * is not disposed when a router navigates away); what stops is the playing.
 	 */
+	const played = withLevels(playedByTheWorld(table), table);
 	const players = createOfflinePlayers({
 		provider: world.provider,
 		deployments: world.deployments,
 		config: resolveWorldConfig(world.deployments.get()),
-		players: playedByTheWorld(table),
+		players: played,
+		// A SEAT WITH A LEVEL decides its turn with the game's strategy and
+		// keeps it in this world's storage (see `PLAYED_TURNS_STORAGE_KEY`).
+		...(played.some((seat) => (seat.level ?? RANDOM_LEVEL) !== RANDOM_LEVEL)
+			? {
+					createStrategy: createWorldSeatStrategy,
+					turns: createPlayedTurnStore({
+						storage: localStorage,
+						key: PLAYED_TURNS_STORAGE_KEY,
+						chainId: world.deployments.get().chain.id,
+						contract: world.deployments.get().contracts.Game.address,
+						format: WORLD_STORAGE,
+					}),
+				}
+			: {}),
 		// A played commit can complete unanimity just as the human's can, and the
 		// advance client would otherwise find out on its own one-second poll.
 		onActed: () => void context.context.game.cycleAdvance.check(),
@@ -691,6 +743,24 @@ export async function stakeForOfflinePlayer(params: {
 		// to equal `PAYMENT_AMOUNT` exactly, so a value computed anywhere else is
 		// a value that can drift into reverting every purchase.
 		value: config.data.sale.default.price,
+	});
+}
+
+/**
+ * Each world seat's level, from the table, beside the keys
+ * {@link playedByTheWorld} derives. Kept apart from it because a game may
+ * rewrite how a seat's identity is derived (bomber-world gives each seat its
+ * character), while the levels are the lobby's and the same everywhere: both
+ * walk the world's seats in table order.
+ */
+function withLevels(
+	players: readonly OfflinePlayer[],
+	table: Table,
+): readonly OfflinePlayer[] {
+	const levels = seatsPlayedByTheWorld(table).map((seat) => seat.level);
+	return players.map((player, index) => {
+		const level = levels[index];
+		return level !== undefined ? {...player, level} : player;
 	});
 }
 

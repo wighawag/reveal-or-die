@@ -7,7 +7,15 @@ import {
 	type SerialisedLoop,
 } from '$lib/game/core/played';
 import {playedSeatSecret} from '$lib/game/core/secret';
+import {
+	RANDOM_LEVEL,
+	decidePlayedTurn,
+	seededRandom,
+	type PlayedTurnStore,
+	type Strategy,
+} from '$lib/game/core/strategy';
 import {createCycleReader} from '$lib/world/advance';
+import type {WorldSeatStrategyFactory} from '$lib/world/strategy';
 import type {WorldConfig} from '$lib/world/config';
 import {
 	ActionType,
@@ -51,6 +59,12 @@ import {
  * COSTS (here nothing at all).
  *
  * ## They hold nothing in memory, and here that is HARDER than upstream
+ *
+ * (A seat WITH A LEVEL is the exception, by design: its turn is decided from
+ * the board by the game's strategy, which cannot be re-derived once the board
+ * moves, so it is STORED before it is committed and opened from the store;
+ * see `$lib/game/core/strategy`. The secret stays derived even then. What
+ * follows is the `random` seat, which is every seat in this game.)
  *
  * Both the secret and the actions are DERIVED rather than stored, so a reload
  * reconstructs them exactly. The alternative bricks the world: a player that
@@ -113,6 +127,12 @@ import {
 
 /** One player the world plays: a key it holds, and who that key plays as. */
 export type OfflinePlayer = {
+	/**
+	 * How this seat plays: absent or `random` is the derived walk below;
+	 * anything else is the game's strategy (`$lib/world/strategy`), its turn
+	 * decided at commit and stored before it is sent.
+	 */
+	level?: string;
 	privateKey: `0x${string}`;
 	/** The avatar id. Derived from the address; see `$lib/offline`. */
 	identity: bigint;
@@ -292,8 +312,16 @@ export function createOfflinePlayers(params: {
 	 * advance client only finds out on its own one-second poll.
 	 */
 	onActed?: () => void;
+	/**
+	 * What plays a seat whose level is not `random` (`$lib/world/strategy`,
+	 * built here on this pass's own client), and where its decided turns are
+	 * kept. Both or neither: without them every seat plays the derived walk, as
+	 * before levels.
+	 */
+	createStrategy?: WorldSeatStrategyFactory;
+	turns?: PlayedTurnStore<Action>;
 }): SerialisedLoop {
-	const {provider, deployments, config, players} = params;
+	const {provider, deployments, config, players, turns} = params;
 
 	const records = deployments.get();
 	const game = {
@@ -317,6 +345,11 @@ export function createOfflinePlayers(params: {
 	// against the same provider.
 	const keys = createPlayedKeys({provider, chain, contract: game});
 	const publicClient = keys.publicClient;
+	const strategy: Strategy<Action> | undefined = players.some(
+		(player) => (player.level ?? RANDOM_LEVEL) !== RANDOM_LEVEL,
+	)
+		? params.createStrategy?.({publicClient, deployments, config})
+		: undefined;
 
 	// THE SEAM SITTING BESIDE THIS FILE, rather than a second copy of the same
 	// read. This is the one line where this file and the template's differed -
@@ -367,17 +400,75 @@ export function createOfflinePlayers(params: {
 		player: OfflinePlayer,
 		cycleNumber: number,
 		avatar: PublicAvatar,
-	): Action[][] {
-		return [
-			turnFor({
-				game: game.address,
+	): (readonly Action[])[] {
+		const derived = turnFor({
+			game: game.address,
+			identity: player.identity,
+			cycleNumber,
+			avatar,
+			numMoves: config.numMoves,
+		});
+		// A SEAT WITH A STRATEGY committed the turn it STORED, so that is tried
+		// first; the derived walk and the empty turn stay candidates, and the
+		// hash decides, as it always has.
+		const stored = decides(player)
+			? turns?.get(player.identity, cycleNumber)
+			: undefined;
+		return stored ? [stored, derived, []] : [derived, []];
+	}
+
+	function decides(player: OfflinePlayer): boolean {
+		return (
+			strategy !== undefined &&
+			turns !== undefined &&
+			player.level !== undefined &&
+			player.level !== RANDOM_LEVEL
+		);
+	}
+
+	/**
+	 * The turn to COMMIT: the derived walk for a `random` seat, the strategy's
+	 * for any other, decided once per cycle and stored before it is returned
+	 * (`decidePlayedTurn`). A strategy that throws plays the derived walk: a
+	 * seat must always commit something, or the manual cycle waits for ever.
+	 */
+	async function wantedTurn(
+		player: OfflinePlayer,
+		cycleNumber: number,
+		avatar: PublicAvatar,
+	): Promise<readonly Action[]> {
+		const derived = turnFor({
+			game: game.address,
+			identity: player.identity,
+			cycleNumber,
+			avatar,
+			numMoves: config.numMoves,
+		});
+		if (!decides(player) || !strategy || !turns) return derived;
+		return decidePlayedTurn({
+			store: turns,
+			strategy: async (input) => {
+				try {
+					return await strategy(input);
+				} catch (err) {
+					console.warn(
+						'an offline player could not decide its turn, and plays the derived one',
+						err,
+					);
+					return derived;
+				}
+			},
+			identity: player.identity,
+			cycleNumber,
+			level: player.level ?? RANDOM_LEVEL,
+			random: seededRandom({
+				chainId: records.chain.id,
+				contract: game.address,
 				identity: player.identity,
 				cycleNumber,
-				avatar,
-				numMoves: config.numMoves,
 			}),
-			[],
-		];
+			budget: {actionsAtMost: config.numMoves},
+		});
 	}
 
 	async function commit(
@@ -392,7 +483,7 @@ export function createOfflinePlayers(params: {
 			identity: player.identity,
 			cycleNumber,
 		});
-		const [actions] = candidateTurns(player, cycleNumber, avatar);
+		const actions = await wantedTurn(player, cycleNumber, avatar);
 		const hash = commitmentHash(secret, actions);
 
 		// ALREADY DONE, OR DONE WRONG, and the second case is why this compares
