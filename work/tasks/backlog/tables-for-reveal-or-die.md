@@ -28,6 +28,10 @@ A table is a clone of a lobby implementation (`CommitRevealGameFactory.createGam
 
 bomber-world's contracts are this repo's plus bombs: `BombLogic.sol`, the `PlaceBomb`/`PlaceBombDelayed` actions, `_bombs`/`_explosions`, `MAX_BOMBS_PER_SUBMISSION`, `BOMB_REACH`, and death by blast in `_getResolvedAvatar` (some 369 lines). Landing the base adoption here and cascading it does not port bomber-world: the cascade will conflict in exactly the files that carry the bombs, and the port there must carry the bomb logic onto the base too, with the order-independence argument (`BombLogic` writes only cycles after the revealing one) re-checked against the base's chunked reveal. Plan the two ports together.
 
+## The base adoption landed, 2026-11-05
+
+reveal-or-die main 4aaa00bd, bomber-world main c2d706d9 (template-commit-reveal `work`: `work/tasks/done/reveal-or-die-adopts-the-commit-reveal-base.md`). What a table builds on now: custody is a seat (`_takeSeat`, so a closed roster refuses a deposit once started), `_forfeit` is the place a missed reveal would kill, `releaseDeadAvatar` stops the cycle waiting for the dead (a table can drive it from `members()` rather than from the board), and `actionsPerReveal` is immutable per deployment, so a table's `numMoves` option must not exceed the deployment's.
+
 ## The steps (after the base adoption)
 
 1. Contracts: a lobby implementation of this game (its routes plus the lobby route, as the reference game's 030 does), a factory, `030_deploy_lobby.ts`. Decide what a table's avatars are: today an avatar lives in the one open world; at a table the roster is the avatars seated at creation. Game options worth asking at creation: number of cycles (the base's end rule), and one game option to prove the path (e.g. bombs per turn).
