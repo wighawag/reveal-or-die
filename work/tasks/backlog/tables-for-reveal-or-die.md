@@ -46,3 +46,13 @@ bomber-world's contracts are this repo's plus bombs: `BombLogic.sol`, the `Place
 1. Avatars at a table: the same NFT moved into the table (custody), or a per-table avatar? This decides the contract shape.
 2. Who pays gas and stake at a table, and what a forfeit costs there (the base makes it configurable).
 3. Hotseat at a table (play-modes PRD, open question 1, needs an ADR) is not part of this task.
+
+## Decisions, the maintainer, 2026-11-04 (answers to the questions above and to the plan)
+
+- **A missed reveal does NOT kill yet**: keep today's allowance (`numMissesAllowed`, 3) until the game's front end is well tested; later, kill. On the base this is the game's `_forfeit`, so the switch is configuration.
+- **A dead avatar stops blocking the cycle** through a permissionless game route that checks it is dead and calls `_stopWaitingFor`; the advance client and the world's seats call it before advancing. The base is unchanged (its attendance is an O(1) tally by design).
+- **One chunk per turn**: `ACTIONS_PER_REVEAL` covers the longest turn that can resolve (moves + 2 bombs + an exit), `furtherActions` is zero, the hash is the base's one encoding, the client keeps one reveal.
+- **A table's game option is `numMoves`** (the number of cycles is already the base's).
+- **Spawn**: anywhere on chain for now; the client limits entry to the centre zone (bomber-world `world/spawn.ts`, landed 2026-11-04). Bounding the map on chain comes later.
+- **A table has a winner, by loot, and so does the open world** (bomber-world's part, after its port): a dead avatar leaves a skull worth one unit (a fixed unit now; the avatar's purchase price minus a fee, later, possibly both); a move over a skull claims it, everyone claiming in the first cycle it is claimed splits it, later claims get nothing; a dead carrier's skull carries its claims; exiting mints the loot carried out (claims from finished cycles, through a separate `cashOut`), only exited skulls count, nothing mints for exiting empty. At a table the winner is who cashed out the most; a table keeps a tally rather than minting the world's token, for now.
+- **Prerequisite: `a-dead-avatar-stays-dead`** (this branch): without it a skull of one's own second avatar is free loot.
