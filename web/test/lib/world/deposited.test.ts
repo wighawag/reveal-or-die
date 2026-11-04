@@ -1,5 +1,7 @@
 import {describe, expect, it} from 'vitest';
+import {writable} from 'svelte/store';
 import {
+	createDeposited,
 	hasAvatarInGame,
 	isAtRisk,
 	type DepositedAvatar,
@@ -70,5 +72,74 @@ describe('whether an avatar has anything to lose by going quiet', () => {
 		expect(isAtRisk(dead, 1n)).toBe(false);
 		// And the setup gate says the same thing a third time.
 		expect(hasAvatarInGame(dead)).toBe(false);
+	});
+});
+
+/**
+ * ONLY THE LATEST READ MAY ANSWER, and only for the account still signed in.
+ * Every account change starts a read, and on a busy chain they finish in any
+ * order: a hotseat switch (and the wallet's own auto-connect landing after it)
+ * starts several within milliseconds, and the first person's avatars arriving
+ * after the second person's would put them under the second person's account.
+ * The template found this in its own identity store (template-commit-reveal
+ * 36fb7140); this game reads custody here instead.
+ */
+describe('reading custody while the account changes', () => {
+	const A = '0x000000000000000000000000000000000000000a' as const;
+	const B = '0x000000000000000000000000000000000000000b' as const;
+
+	function fakeChain() {
+		const pending: {owner: string; resolve: (v: unknown) => void}[] = [];
+		return {
+			pending,
+			deps: {
+				deployments: writable({
+					contracts: {Game: {address: '0x1', abi: []}},
+				}),
+				publicClient: {
+					readContract: (request: {args: [string, bigint, bigint]}) =>
+						new Promise((resolve) =>
+							pending.push({owner: request.args[0], resolve}),
+						),
+				},
+			} as never,
+		};
+	}
+	const page = (...ids: bigint[]) => [
+		ids.map((id) => avatar({avatarID: id})),
+		false,
+	];
+	const flush = () => new Promise((r) => setTimeout(r, 0));
+
+	it('drops an older read that lands after a newer one', async () => {
+		const chain = fakeChain();
+		const owner = writable<`0x${string}` | undefined>(A);
+		const deposited = createDeposited({deps: chain.deps, owner});
+
+		const first = deposited.update();
+		owner.set(B);
+		const second = deposited.update();
+		await flush();
+		const [forA, forB] = chain.pending;
+		expect(forA.owner).toBe(A);
+		expect(forB.owner).toBe(B);
+
+		// B's custody lands first and is complete (the next page is empty)...
+		forB.resolve(page(2n));
+		await flush();
+		chain.pending[2].resolve(page());
+		await second;
+		expect(deposited.value).toMatchObject({step: 'Loaded'});
+
+		// ...then A's arrives, late. It must not replace B's.
+		forA.resolve(page(1n));
+		await flush();
+		chain.pending[3]?.resolve(page());
+		await first;
+		const value = deposited.value;
+		expect(value.step).toBe('Loaded');
+		if (value.step === 'Loaded') {
+			expect(value.avatars.map((a) => a.avatarID)).toEqual([2n]);
+		}
 	});
 });

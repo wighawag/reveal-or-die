@@ -56,8 +56,22 @@ export function createDeposited(params: {
 	let value: DepositedState = {step: 'Unloaded'};
 	state.subscribe((v) => (value = v));
 
+	/**
+	 * ONLY THE LATEST READ MAY ANSWER, and only for the account still signed
+	 * in. Every account change starts a read, and on a busy chain they finish
+	 * in any order: a hotseat switch (and the wallet's own auto-connect landing
+	 * after it) starts several within milliseconds, and the first person's
+	 * avatars arriving after the second person's would put them under the
+	 * second person's account, where `active-avatar.ts` would choose one this
+	 * account has no authority over. The template fixed the same race in its
+	 * own identity store (template-commit-reveal 36fb7140).
+	 */
+	let latest = 0;
+
 	async function update() {
 		const $owner = get(owner);
+		const read = ++latest;
+		const current = () => read === latest && get(owner) === $owner;
 		if (!$owner) {
 			state.set({step: 'Unloaded'});
 			return;
@@ -76,6 +90,7 @@ export function createDeposited(params: {
 					functionName: 'avatarsPerOwner',
 					args: [$owner, startIndex, PAGE_SIZE],
 				})) as unknown as [readonly DepositedAvatar[], boolean];
+				if (!current()) return;
 
 				// The contract's `more` is IGNORED, deliberately. GameDeposit computes
 				// it as `actualLimit != limit`, which is wrong in both directions: a
@@ -90,6 +105,7 @@ export function createDeposited(params: {
 
 			state.set({step: 'Loaded', avatars: collected});
 		} catch (error) {
+			if (!current()) return;
 			state.set({step: 'Error', error});
 		}
 	}
