@@ -2,8 +2,9 @@
 pragma solidity ^0.8.0;
 
 import "./UsingGameTypes.sol";
+import {UsingCommitRevealEvents} from "../../commit-reveal/interfaces/UsingCommitRevealEvents.sol";
 
-interface UsingGameEvents is UsingGameTypes {
+interface UsingGameEvents is UsingGameTypes, UsingCommitRevealEvents {
     /// @notice An avatar has been deposited, ready to enter
     /// @param avatarID the id of the NFT being deposited
     /// @param owner the account that owns the avatar: the only one that can
@@ -38,53 +39,33 @@ interface UsingGameEvents is UsingGameTypes {
         uint64 positionWhenLeaving
     );
 
-    /// @notice A player has commited to make a move and reveal it on the reveal phase
-    /// @param avatarID avatar whose commitment is made
-    /// @param cycleNumber the cycle this commitment belongs to
-    /// @param commitmentHash the hash of moves
-    event CommitmentMade(
-        uint256 indexed avatarID,
-        uint64 indexed cycleNumber,
-        bytes24 commitmentHash
-    );
-
-    /// @notice A player has cancelled its current commitment (before it reached the reveal phase)
-    /// @param avatarID avatar whose commitment is cancelled
-    /// @param cycleNumber the cycle this commitment belongs to
-    event CommitmentCancelled(uint256 indexed avatarID, uint64 indexed cycleNumber);
-
-    /// @notice A player has acknowledged its failure to reveal its previous commitment
-    /// @param avatarID the account that made the commitment
-    /// @param cycleNumber the cycle this commitment belongs to
-    event CommitmentVoid(uint256 indexed avatarID, uint64 indexed cycleNumber);
-
-    /// @notice Player has revealed its previous commitment
-    /// @param avatarID avatar id whose action is commited
-    /// @param cycleNumber the cycle this commitment belongs to
-    /// @param commitmentHash the hash of the moves
-    /// @param actions the actions
-    event CommitmentRevealed(
+    /// @notice What a revealed turn did, as the game resolved it.
+    /// @dev THE BASE SAYS THAT A COMMITMENT WAS OPENED (`CommitmentRevealed`,
+    ///  `UsingCommitRevealEvents`) and cannot say what was in it: it is shown a
+    ///  digest and a count, never this game's actions. So the actions are this
+    ///  game's own event, as the reference game's `Placed` is. Its own NAME
+    ///  because the base took `CommitmentRevealed`: an overloaded event would
+    ///  put two entries of one name in the ABI, and the client asks for this
+    ///  one by name with an indexed `zone` the base's does not have.
+    ///
+    ///  `actions` is what RESOLVED, a prefix of what was committed: the first
+    ///  action the rules refuse ends the turn, and it and every action after it
+    ///  are left out.
+    /// @param avatarID avatar whose turn it was
+    /// @param cycleNumber the cycle this turn belongs to
+    /// @param zone the avatar's zone once the turn resolved
+    /// @param actions the actions that resolved
+    event ActionsResolved(
         uint256 indexed avatarID,
         uint64 indexed cycleNumber,
         uint64 indexed zone,
-        bytes24 commitmentHash,
         Action[] actions
     );
 
-    /// @notice a new phase has been opened by hand
-    /// @param cycleNumber the cycle the new phase belongs to
-    /// @param commiting whether we are in the commiting phase or not
-    event NewPhase(uint64 indexed cycleNumber, bool commiting);
-
-    /// @notice an avatar started or stopped being one the manual cycle waits for
-    /// @param avatarID the avatar
-    /// @param waitedFor whether it is waited for now
-    /// @param count how many avatars are waited for now
-    event WaitedForChanged(
-        uint256 indexed avatarID,
-        bool waitedFor,
-        uint64 count
-    );
+    // The commitment events (`CommitmentMade`, `CommitmentCancelled`,
+    // `CommitmentRevealed`, `CommitmentVoid`), the advance (`CycleAdvanced`, in
+    // place of this game's `NewPhase`) and `WaitedForChanged` are the base's,
+    // inherited above.
 
     // allow to easily inspect errors, instead of revert
     event Error(bytes4 selector, bytes data);

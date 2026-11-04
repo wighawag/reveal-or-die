@@ -8,7 +8,18 @@ import "../../utils/PositionUtils.sol";
 import "../../utils/StringUtils.sol";
 import "./GameUtils.sol";
 import {Delegation} from "@etherplay/delegation/contracts/Delegation.sol";
+import {CommitReveal} from "../../commit-reveal/CommitReveal.sol";
 
+/// @dev THIS GAME, ON THE COMMIT-REVEAL BASE. Everything that is mechanism -
+///  the commitment, the chunk, the cycle policies and the advance, who the
+///  cycle waits for, delegation and both settlements of a missed reveal - is
+///  {UsingCommitReveal}'s (`src/commit-reveal/`), which this game keeps rather
+///  than writes. What is left is what an avatar is: custody, its actions, its
+///  life, and the hash its turn is committed under.
+///
+///  TWO OF THE BASE'S THREE SEAMS ARE OVERRIDDEN HERE, and the third ({_cycle})
+///  is left alone: {_playerOf} resolves an avatar through custody, and
+///  {_forfeit} says what a missed reveal costs.
 abstract contract UsingGameInternal is
     UsingGameStore,
     UsingGameEvents,
@@ -28,17 +39,20 @@ abstract contract UsingGameInternal is
 
         emit AvatarDeposited(avatarID, owner);
 
-        _startWaitingFor(avatarID);
+        // CUSTODY IS MEMBERSHIP, under every policy: on the base only a member
+        // may commit, so an avatar in custody is one the cycle waits for. Under
+        // a closed roster (a table, later) it is a seat, refused once the table
+        // has started. Before the port this game enrolled only under the manual
+        // policy; a timed cycle never reads the count, so it costs one word.
+        _takeSeat(avatarID);
     }
 
-    /// @notice The account whose avatar this is, having checked `sender` may
-    ///         act for it.
-    /// @dev The delegation LIBRARY rather than inheriting {UsingDelegation}: a
-    ///      router maps one selector to one route, and that contract carries
-    ///      six external functions which belong to {GameDelegation}. Having
-    ///      them on a second route would collide at deploy time. The library
-    ///      reads no `msg.sender` of its own, which is what makes it usable
-    ///      here.
+    /// @inheritdoc UsingCommitReveal
+    /// @dev THE IDENTITY IS THE AVATAR, resolved through custody: the account
+    ///      that deposited it, and `sender` must be that account or a delegate
+    ///      of it. An avatar the game has never held resolves to nobody and is
+    ///      refused, rather than read as "the caller" the way a zero account is
+    ///      by the delegation library.
     ///
     ///      Authority is ACCOUNT-WIDE: a delegate authorised by the owner may
     ///      do anything at this game that the owner could, for every avatar
@@ -46,12 +60,40 @@ abstract contract UsingGameInternal is
     ///      it is worthless at any other game. Withdrawal is deliberately NOT
     ///      routed through here (see {_withdraw}): a local signer may play with
     ///      the stake, never take it.
-    function _requireAccountForAvatar(
+    ///
+    ///      The delegation LIBRARY rather than inheriting {UsingDelegation}: a
+    ///      router maps one selector to one route, and that contract carries
+    ///      six external functions which belong to {GameDelegation}.
+    function _playerOf(
         address sender,
         uint256 avatarID
-    ) internal view returns (address owner) {
-        owner = _players[avatarID].owner;
+    ) internal view override returns (uint256 player) {
+        address owner = _players[avatarID].owner;
+        if (owner == address(0)) {
+            revert InvalidPlayer(avatarID);
+        }
         Delegation.requireAccountFor(sender, owner);
+        return avatarID;
+    }
+
+    /// @inheritdoc UsingCommitReveal
+    /// @dev WHAT A MISSED REVEAL COSTS HERE IS THE MISS, and the miss is already
+    ///      counted: `lastCycleNumber` moves only on a reveal, and
+    ///      {_getResolvedAvatar} kills an avatar that has fallen more than
+    ///      `numMissesAllowed` cycles behind it. So the settlement takes
+    ///      nothing more, on either route, and only clears the slot so the
+    ///      avatar can commit again. Nothing is bonded (the stake is the
+    ///      avatar), so `amount` is always zero.
+    ///
+    ///      KILLING ON A MISSED REVEAL IS THIS FUNCTION, when it is wanted (the
+    ///      maintainer, 2026-11-04: not until the front end is well tested).
+    ///      It would run outside any reveal, in a later cycle, so it cannot
+    ///      make one reveal's outcome depend on another's.
+    function _forfeit(
+        uint256,
+        uint256
+    ) internal pure override returns (uint256 forfeited) {
+        return 0;
     }
 
     function _withdraw(address owner, uint256 avatarID, address to) internal {
@@ -72,6 +114,16 @@ abstract contract UsingGameInternal is
         // world, a dead avatar stays dead with no flag to maintain, because
         // death is computed from a clock that only moves forward
         // (`_getResolvedAvatar`), and the body stays where it fell.
+        // AND NOT WITH A COMMITMENT OPEN, in any cycle. One in the current cycle
+        // is counted in the base's tally the moment it is made, so leaving with
+        // it would leave a commit counted for a member who is no longer one,
+        // and a SUBSET could then reach unanimity. One from a past cycle is a
+        // missed reveal nobody has settled.
+        Commitment memory commitment = _commitmentOf(avatarID);
+        if (commitment.cycleNumber != 0) {
+            revert CommitmentStillOpen(commitment.cycleNumber);
+        }
+
         if (_avatars[avatarID].inGame) {
             (uint64 cycleNumber, ) = _cycleNumber();
             if (_getResolvedAvatar(avatarID, cycleNumber).life == 0) {
@@ -95,277 +147,133 @@ abstract contract UsingGameInternal is
         delete _ownedAvatarsIndex[avatarID];
         _ownedAvatarsByOwner.pop();
 
-        _stopWaitingFor(avatarID);
+        _leaveSeat(avatarID);
         // --------------------------------------------------------------------
 
         AVATARS.safeTransferFrom(address(this), to, avatarID);
     }
 
-    function _makeCommitment(
+    /// @notice Commit a turn for an avatar, if it is alive.
+    /// @dev The base checks the phase, membership, and that no earlier
+    ///      commitment is left unsettled (`PreviousCommitmentNotRevealed`: a
+    ///      player who dislikes what they committed to must not walk away by
+    ///      going quiet and committing again). What only this game can check is
+    ///      that the avatar is alive, and it is checked FIRST, so a dead avatar
+    ///      is told it is dead rather than whatever else is wrong with it.
+    ///
+    ///      Nothing is bonded: the stake is the avatar, already in custody.
+    function _commitTurn(
         address sender,
         uint256 avatarID,
         bytes24 commitmentHash
     ) internal {
-        _requireAccountForAvatar(sender, avatarID);
-
-        (uint64 cycleNumber, bool commiting) = _cycleNumber();
-
-        if (!commiting) {
-            revert InRevealPhase(cycleNumber);
+        uint256 player = _playerOf(sender, avatarID);
+        (uint64 cycleNumber, ) = _cycleNumber();
+        if (_getResolvedAvatar(player, cycleNumber).life == 0) {
+            revert AvatarIsDead(player);
         }
-
-        Commitment storage commitment = _commitments[avatarID];
-
-        // A player who dislikes what they committed to must not be able to walk
-        // away by going quiet and simply committing again next cycle. Leaving an
-        // unrevealed commitment behind has to cost something, so it must be
-        // acknowledged first (`acknowledgeMissedReveal`, GameReveal.sol), which
-        // clears the slot and voids the commitment.
-        if (commitment.cycleNumber != 0 && commitment.cycleNumber != cycleNumber) {
-            revert PreviousCommitmentNotRevealed();
-        }
-
-        AvatarResolved memory avatar = _getResolvedAvatar(avatarID, cycleNumber);
-        if (avatar.life == 0) {
-            revert AvatarIsDead(avatarID);
-        }
-
-        commitment.hash = commitmentHash;
-        commitment.cycleNumber = cycleNumber;
-
-        emit CommitmentMade(avatarID, cycleNumber, commitmentHash);
+        _makeCommitment(player, commitmentHash, 0);
     }
 
-    function _cancelCommitment(address sender, uint256 avatarID) internal {
-        _requireAccountForAvatar(sender, avatarID);
-
-        (uint64 cycleNumber, bool commiting) = _cycleNumber();
-        if (!commiting) {
-            revert InRevealPhase(cycleNumber);
-        }
-
-        Commitment storage commitment = _commitments[avatarID];
-        if (commitment.cycleNumber == 0) {
-            revert NoCommitmentToCancel();
-        }
-
-        if (commitment.cycleNumber != cycleNumber) {
-            revert PreviousCommitmentNotRevealed();
-        }
-
-        // Note that we do not reset the hash
-        // This ensure the slot do not get reset and keep the gas cost consistent across execution
-        commitment.cycleNumber = 0;
-
-        emit CommitmentCancelled(avatarID, cycleNumber);
+    function _cancelTurn(address sender, uint256 avatarID) internal {
+        _cancelCommitment(_playerOf(sender, avatarID));
     }
 
+    /// @notice Open a turn and resolve it.
+    /// @dev ONE CHUNK PER TURN (the maintainer, 2026-11-04): the commitment is
+    ///      the head of a chain one link long, hashed with `furtherActions`
+    ///      zero in the base's one encoding, and `ACTIONS_PER_REVEAL` holds the
+    ///      longest turn that can resolve. There is no `furtherActions` to pass
+    ///      because the move budget is counted per call: a chained turn would
+    ///      get `numMoves` moves per link. Chunking needs those counters kept
+    ///      per turn first.
+    ///
+    ///      ANYONE MAY REVEAL: the hash is the check, and accepting it from
+    ///      anyone is what lets a player's reveal be sent for them.
+    ///
+    ///      ORDER INDEPENDENCE. The base writes only this avatar's commitment
+    ///      and adds one to the cycle's tally of reveals; the resolution moves
+    ///      only this avatar and never reads another's position. See
+    ///      `AGENTS.md`, "Commit-reveal rules", and the test replaying a cycle
+    ///      in two orders.
     function _reveal(
         uint256 avatarID,
         Action[] calldata actions,
         bytes32 secret
     ) internal {
-        (uint64 cycleNumber, bool commiting) = _cycleNumber();
-
-        if (commiting) {
-            revert InCommitmentPhase(cycleNumber);
-        }
-        Commitment storage commitment = _commitments[avatarID];
-
-        if (commitment.cycleNumber == 0) {
-            revert NothingToReveal();
-        }
-
-        if (commitment.cycleNumber != cycleNumber) {
-            revert InvalidCycle(cycleNumber, commitment.cycleNumber);
-        }
-
-        bytes24 hashRevealed = commitment.hash;
-        _checkHash(hashRevealed, actions, secret);
+        CommitReveal.Chunk memory chunk = _openChunk(
+            avatarID,
+            _digest(actions, secret),
+            actions.length,
+            bytes24(0)
+        );
 
         (uint64 newPosition, uint256 numActionsResolved) = _resolveActions(
             avatarID,
-            cycleNumber,
+            chunk.cycleNumber,
             actions
         );
 
-        emit CommitmentRevealed(
+        emit ActionsResolved(
             avatarID,
-            cycleNumber,
+            chunk.cycleNumber,
             PositionUtils.getZone(newPosition),
-            hashRevealed,
             actions[0:numActionsResolved]
         );
 
-        commitment.cycleNumber = 0; // used
+        _closeChunk(chunk, 0);
     }
 
-    function _getManualCycle() internal view returns (ManualCycle memory) {
-        if (_manualCycle.cycleNumber == 0) {
-            // we start at 2 like the timed cycle, to make the hypothetical previous cycle be 1
-            // AND IN THE COMMIT PHASE, unconditionally. This was `!SKIP_COMMIT`,
-            // which was derived from the same two zero durations that selected
-            // this branch in the first place - so it was always false here, and
-            // a manual cycle opened in a reveal phase it could never have
-            // committed into.
-            return ManualCycle({cycleNumber: 2, commiting: true});
-        }
-        return _manualCycle;
-    }
-
-    // `_moveToNextEpoch` WAS HERE, and it is gone on purpose. It opened the
-    // next cycle's commit phase from wherever the cycle was, so called during a
-    // commit phase it skipped the reveal phase and stranded every commitment in
-    // it: `_reveal` refused them with `InvalidCycle`, and each then had to be
-    // acknowledged as missed. It was exposed on the router and called by
-    // nothing. Removed rather than guarded, as template-commit-reveal did
-    // (`work:work/notes/findings/the-manual-epoch-prototype-could-strand-a-commitment.md`):
-    // a manual cycle advances ONE PHASE at a time, through `_moveToNextPhase`.
-
-    function _moveToNextPhase() internal returns (ManualCycle memory) {
-        // TODO add possibility to skip a cycle even if turns are timed
-        //
-        // UNANIMOUS, and judged here rather than trusted to a client: anyone
-        // may call this, so a caller who pushed early used to open the reveal
-        // phase on a player who had not committed, or close a cycle on one who
-        // had not revealed, and in this game missed reveals cost the avatar.
-        // The rules are the template's `_advanceCycle`, over the members
-        // `_attendance` counts.
-        if (CYCLE_POLICY != CyclePolicy.Manual) {
-            revert NextPhaseNotAllowed();
-        }
-
-        ManualCycle memory currentManualCycle = _getManualCycle();
-        Attendance memory attendance = _attendance(
-            currentManualCycle.cycleNumber
+    /// @notice Settle a missed reveal by being shown what it committed.
+    /// @dev ANYONE MAY, because nothing in it can cost the player more than
+    ///      their silence did ({_forfeit}). The actions are CHECKED AND NOT
+    ///      RESOLVED: the settlement runs in a later cycle, and resolving there
+    ///      would write the board after the cycle it belonged to had closed.
+    ///      The other route, without the actions, is the base's
+    ///      {_forfeitMissedReveal}, for the owner or a delegate.
+    function _acknowledgeMissedReveal(
+        uint256 avatarID,
+        Action[] calldata actions,
+        bytes32 secret
+    ) internal {
+        CommitReveal.Chunk memory chunk = _openMissedChunk(
+            avatarID,
+            _digest(actions, secret),
+            actions.length,
+            bytes24(0)
         );
-        if (attendance.waitedFor == 0) {
-            revert NoOneToWaitFor();
-        }
-        if (currentManualCycle.commiting) {
-            if (attendance.committed < attendance.waitedFor) {
-                revert StillWaitingToCommit(
-                    attendance.committed,
-                    attendance.waitedFor
-                );
-            }
-        } else if (attendance.revealed < attendance.committed) {
-            revert StillWaitingToReveal(
-                attendance.revealed,
-                attendance.committed
-            );
-        }
-
-        if (currentManualCycle.commiting) {
-            _manualCycle.cycleNumber = currentManualCycle.cycleNumber;
-            _manualCycle.commiting = false;
-        } else {
-            _manualCycle.commiting = true;
-            _manualCycle.cycleNumber = currentManualCycle.cycleNumber + 1;
-        }
-        return _manualCycle;
+        _closeChunk(chunk, 0);
     }
 
-    //-------------------------------------------------------------------------
-    // WHO THE MANUAL CYCLE WAITS FOR
-    //-------------------------------------------------------------------------
-
-    /// @notice Start waiting for this avatar, under the MANUAL policy only.
-    /// @dev MEMBERSHIP IS DECIDED AT SETUP: an avatar becomes a member when it
-    ///  enters custody, which is when a lobby or an offline world provisions
-    ///  its seats and gives each one what this game puts at stake. A timed
-    ///  game never advances by hand, so it enrols nobody and pays nothing.
-    ///  Idempotent, so a second deposit of the same avatar cannot count it
-    ///  twice and make unanimity unreachable.
-    function _startWaitingFor(uint256 avatarID) internal {
-        if (CYCLE_POLICY != CyclePolicy.Manual) {
-            return;
-        }
-        if (_waitedForIndexPlusOne[avatarID] != 0) {
-            return;
-        }
-        if (_waitedFor.length >= MAX_WAITED_FOR) {
-            revert TooManyToWaitFor(MAX_WAITED_FOR);
-        }
-        _waitedFor.push(avatarID);
-        _waitedForIndexPlusOne[avatarID] = _waitedFor.length;
-        emit WaitedForChanged(avatarID, true, uint64(_waitedFor.length));
-    }
-
-    /// @notice Stop waiting for this avatar: it left custody.
-    function _stopWaitingFor(uint256 avatarID) internal {
-        uint256 indexPlusOne = _waitedForIndexPlusOne[avatarID];
-        if (indexPlusOne == 0) {
-            return;
-        }
-        uint256 last = _waitedFor[_waitedFor.length - 1];
-        _waitedFor[indexPlusOne - 1] = last;
-        _waitedForIndexPlusOne[last] = indexPlusOne;
-        _waitedFor.pop();
-        delete _waitedForIndexPlusOne[avatarID];
-        emit WaitedForChanged(avatarID, false, uint64(_waitedFor.length));
-    }
-
-    /// @notice Who the cycle waits for, and how many of them have acted in it.
-    /// @dev A LOOP OVER THE MEMBERS, bounded by `MAX_WAITED_FOR`, and that is
-    ///  what lets death need no transaction. Death is never written down here:
-    ///  `_getResolvedAvatar` computes it from how far `lastCycleNumber` has
-    ///  fallen behind. A stored tally would go on counting a dead member, who
-    ///  can no longer commit (`AvatarIsDead`), and the cycle would never move
-    ///  again. Counting at the moment of asking skips the dead for free.
+    /// @notice Stop the cycle waiting for a dead avatar.
+    /// @dev DEATH IS LAZY: {_getResolvedAvatar} computes it when asked, so
+    ///      nothing happens on chain when an avatar dies, and the base's tally
+    ///      (an O(1) count, by design) goes on waiting for it. Under a policy
+    ///      that advances on unanimity, a dead member would block every cycle
+    ///      after. So anyone may release one, and the route checks rather than
+    ///      trusts: it must be in the world (an avatar out of it cannot die)
+    ///      and dead now.
     ///
-    ///  - `waitedFor`: the LIVING members. One that has never entered is alive
-    ///    (`life` is forced to 1 out of the world) and is waited for, because
-    ///    its first submission is the Enter.
-    ///  - `revealed`: `lastCycleNumber == cycleNumber`, which only `_reveal`
-    ///    writes.
-    ///  - `committed`: that, OR a commitment stamped with this cycle. Both
-    ///    halves, because `_reveal` clears the commitment, so a member that has
-    ///    revealed looks like one that never committed.
-    function _attendance(
-        uint64 cycleNumber
-    ) internal view returns (Attendance memory attendance) {
-        uint256 count = _waitedFor.length;
-        for (uint256 i = 0; i < count; i++) {
-            uint256 avatarID = _waitedFor[i];
-            AvatarResolved memory avatar = _getResolvedAvatar(
-                avatarID,
-                cycleNumber
-            );
-            if (avatar.life == 0) {
-                continue;
-            }
-            attendance.waitedFor++;
-            if (_avatars[avatarID].lastCycleNumber == cycleNumber) {
-                attendance.committed++;
-                attendance.revealed++;
-            } else if (_commitments[avatarID].cycleNumber == cycleNumber) {
-                attendance.committed++;
-            }
+    ///      IT CAN NEVER LEAVE A COUNTED COMMIT BEHIND. An avatar's life is
+    ///      fixed within a cycle until its own reveal: death by misses depends
+    ///      on the cycle number alone, and anything else that kills is written
+    ///      before the cycle starts. So an avatar dead now could not commit in
+    ///      this cycle (`AvatarIsDead`), and the tally holds no commit of its.
+    ///
+    ///      The seat is KEPT (`_stopWaitingFor`, not `_leaveSeat`): the avatar
+    ///      stays in custody for good, as a body in the world.
+    function _releaseDeadAvatar(uint256 avatarID) internal {
+        if (!_isWaitedFor(avatarID)) {
+            revert NotInGame(avatarID);
         }
-    }
-
-    function _acknowledgeMissedReveal(uint256 avatarID) internal {
-        // TODO burn / stake ....
-        Commitment storage commitment = _commitments[avatarID];
-
-        if (commitment.cycleNumber == 0) {
-            revert NothingToReveal();
-        }
-
         (uint64 cycleNumber, ) = _cycleNumber();
-
-        if (commitment.cycleNumber == cycleNumber) {
-            revert CanStillReveal(cycleNumber);
+        if (
+            !_avatars[avatarID].inGame ||
+            _getResolvedAvatar(avatarID, cycleNumber).life != 0
+        ) {
+            revert AvatarNotDead(avatarID);
         }
-
-        commitment.cycleNumber = 0;
-
-        // TODO block nft control
-
-        // here we cannot know whether there were further move or even any moves
-        // we just burn all tokens in reserve
-        emit CommitmentVoid(avatarID, cycleNumber);
+        _stopWaitingFor(avatarID);
     }
 
     //-------------------------------------------------------------------------
@@ -581,31 +489,6 @@ abstract contract UsingGameInternal is
         resolution.stopProcessing = true;
     }
 
-    function _cycleNumber()
-        internal
-        view
-        virtual
-        returns (uint64 cycleNumber, bool commiting)
-    {
-        if (CYCLE_POLICY == CyclePolicy.Manual) {
-            ManualCycle memory currentManualCycle = _getManualCycle();
-            cycleNumber = currentManualCycle.cycleNumber;
-            commiting = currentManualCycle.commiting;
-        } else {
-            uint256 cycleDuration = COMMIT_PHASE_DURATION +
-                REVEAL_PHASE_DURATION;
-            uint256 time = _timestamp();
-            if (time < START_TIME) {
-                revert GameNotStarted();
-            }
-            uint256 timePassed = time - START_TIME;
-            cycleNumber = uint64(timePassed / cycleDuration + 2); // cycles start at 2, which makes the hypothetical previous reveal phase's cycle be 1
-            commiting =
-                timePassed - ((cycleNumber - 2) * cycleDuration) <
-                COMMIT_PHASE_DURATION;
-        }
-    }
-
     function _getResolvedAvatar(
         uint256 avatarID,
         uint64 cycleNumber
@@ -802,15 +685,15 @@ abstract contract UsingGameInternal is
         }
     }
 
-    function _checkHash(
-        bytes24 commitmentHash,
-        Action[] memory actions,
+    /// @notice The commitment hash of a turn, in the base's one encoding:
+    ///  `bytes24(keccak256(abi.encode(secret, actions, furtherActions)))`, with
+    ///  `furtherActions` zero because a turn is one chunk. `js/commitment.ts`
+    ///  is the client's copy, pinned against this by the contract tests.
+    function _digest(
+        Action[] calldata actions,
         bytes32 secret
-    ) internal pure {
-        bytes24 computedHash = bytes24(keccak256(abi.encode(secret, actions)));
-        if (commitmentHash != computedHash) {
-            revert CommitmentHashNotMatching();
-        }
+    ) internal pure returns (bytes24) {
+        return bytes24(keccak256(abi.encode(secret, actions, bytes24(0))));
     }
 
     function _removeFromZone(uint64 zone, uint256 avatarID) internal {

@@ -148,10 +148,10 @@ describe('a cycle pushed by hand', function () {
 			args: [avatarID],
 		})) as {inGame: boolean; lastCycleNumber: bigint};
 		expect(avatar.inGame).toEqual(true);
-		// `lastCycleNumber` IS HOW ATTENDANCE COUNTS REVEALS, because `reveal`
-		// zeroes the commitment when it is done - so a member that has revealed
-		// is otherwise indistinguishable from one that never committed.
-		// `_attendance` depends on exactly this, and this is where it is pinned.
+		// `lastCycleNumber` IS HOW A MISS IS COUNTED: it moves only on a
+		// reveal, and `_getResolvedAvatar` kills an avatar that falls more than
+		// `numMissesAllowed` behind it. (Attendance no longer reads it: the
+		// commit-reveal base keeps its own tally.)
 		expect(avatar.lastCycleNumber).toEqual(2n);
 
 		// PUSH AGAIN, which closes the cycle and opens the next one's commit
@@ -310,9 +310,12 @@ describe('a cycle pushed by hand', function () {
 		expect(message.includes('NoOneToWaitFor')).toEqual(true);
 	});
 
-	it('enrols nobody when the clock decides', async function () {
-		// The shipped deployment is timed: a purchase puts the avatar in custody
-		// and waits for nobody, so a timed game pays nothing for this.
+	it('enrols every avatar in custody, when the clock decides too', async function () {
+		// CUSTODY IS MEMBERSHIP UNDER EVERY POLICY, because on the commit-reveal
+		// base only a member may commit (`NotInGame`): the tally that judges
+		// unanimity must count the same set as the commitments it counts. Before
+		// the port this game enrolled only under the manual policy, and a timed
+		// game waited for nobody. The count costs one word either way.
 		const {env, Game, AvatarsSale, unnamedAccounts} =
 			await networkHelpers.loadFixture(deployAll);
 		const owner = unnamedAccounts[0];
@@ -325,7 +328,128 @@ describe('a cycle pushed by hand', function () {
 		const {waitedFor} = (await env.read(Game, {
 			functionName: 'getAttendance',
 		})) as {waitedFor: bigint};
-		expect(waitedFor).toEqual(0n);
+		expect(waitedFor).toEqual(1n);
+	});
+
+	it('stops waiting for a dead avatar through its own route, and only for a dead one', async function () {
+		// DEATH IS LAZY (`_getResolvedAvatar`), so nothing happens on chain when
+		// an avatar dies, and the base's tally goes on counting it: a game that
+		// advances on unanimity would wait for a member that can never commit
+		// again. `releaseDeadAvatar` is how the cycle stops waiting for it, sent
+		// by anyone (the advance client, the offline world's seats).
+		//
+		// Under the clock with early advance, because that is where a missed
+		// reveal can kill: the clock moves on without anyone, and only the
+		// EARLY advance is lost while a dead member is counted.
+		const {
+			env,
+			Avatars,
+			AvatarsSale,
+			unnamedAccounts,
+			advanceToCycle,
+			advanceToRevealPhase,
+			getCycleNumber,
+			getTimestamp,
+		} = await networkHelpers.loadFixture(deployAll);
+		const Game = await deployGameWith(env, 'Game_Hybrid_Dead', {
+			avatars: Avatars.address,
+			cyclePolicy: CYCLE_POLICY.TimedWithEarlyAdvance,
+		});
+		const [a, b, stranger] = [
+			unnamedAccounts[0],
+			unnamedAccounts[1],
+			unnamedAccounts[2],
+		];
+		for (const owner of [a, b]) {
+			await env.execute(AvatarsSale, {
+				account: owner,
+				functionName: 'purchase',
+				args: purchaseArgs({gameAddress: Game.address, owner, subID: 0n}),
+				value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			});
+		}
+		const id = {A: avatarIDFor(a, 0n), B: avatarIDFor(b, 0n)};
+		const secret =
+			'0x0000000000000000000000000000000000000000000000000000000000000002' as const;
+		const release = (avatarID: bigint) =>
+			env.execute(Game, {
+				account: stranger,
+				functionName: 'releaseDeadAvatar',
+				args: [avatarID],
+			});
+		const waitedFor = async () =>
+			(
+				(await env.read(Game, {functionName: 'getAttendance'})) as {
+					waitedFor: bigint;
+				}
+			).waitedFor;
+
+		// A enters and then goes quiet; B is bought and stays out of the world,
+		// where an avatar cannot die.
+		let {cycleNumber} = getCycleNumber(await getTimestamp());
+		cycleNumber += 1;
+		const enter: Action[] = [{actionType: 0, data: (1n << 32n) | 0n}];
+		await advanceToCycle(cycleNumber);
+		await env.execute(Game, {
+			account: a,
+			functionName: 'commit',
+			args: [id.A, commitmentHash(secret, enter), zeroAddress],
+		});
+		await advanceToRevealPhase(cycleNumber);
+		await env.execute(Game, {
+			account: a,
+			functionName: 'reveal',
+			args: [id.A, enter, secret, zeroAddress],
+		});
+
+		// Alive, so not released: the route checks, it does not trust.
+		await expect(release(id.A)).toBeRejectedWith('AvatarNotDead');
+
+		cycleNumber += 3 + 2; // numMissesAllowed, and one more
+		await advanceToCycle(cycleNumber, true);
+		const dead = (await env.read(Game, {
+			functionName: 'getAvatar',
+			args: [id.A],
+		})) as {life: number};
+		expect(dead.life).toEqual(0);
+		expect(await waitedFor()).toEqual(2n);
+
+		// B commits; a dead A blocks the early advance.
+		await env.execute(Game, {
+			account: b,
+			functionName: 'commit',
+			args: [id.B, commitmentHash(secret, enter), zeroAddress],
+		});
+		await expect(
+			env.execute(Game, {
+				account: b,
+				functionName: 'moveToNextPhase',
+				args: [],
+			}),
+		).toBeRejectedWith('StillWaitingToCommit');
+
+		// B is out of the world and alive: not dead, not released.
+		await expect(release(id.B)).toBeRejectedWith('AvatarNotDead');
+
+		await release(id.A);
+		expect(await waitedFor()).toEqual(1n);
+		// Once is enough: a second release has nothing to do, and says so.
+		await expect(release(id.A)).toBeRejectedWith('NotInGame');
+
+		await env.execute(Game, {
+			account: b,
+			functionName: 'moveToNextPhase',
+			args: [],
+		});
+		const [, commiting] = (await env.read(Game, {
+			functionName: 'getCycleNumber',
+		})) as readonly [bigint, boolean];
+		expect(commiting).toEqual(false);
+		await env.execute(Game, {
+			account: b,
+			functionName: 'reveal',
+			args: [id.B, enter, secret, zeroAddress],
+		});
 	});
 
 	it('will not be pushed when the clock is the one deciding', async function () {

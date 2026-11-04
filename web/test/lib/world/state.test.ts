@@ -112,7 +112,7 @@ describe('zonesForCamera', () => {
 describe('the travel allowance on top of the camera', () => {
 	/**
 	 * Zones are what BOTH reads are scoped by: the avatars standing in them, and
-	 * the `CommitmentRevealed` logs, which are filed under the zone an avatar
+	 * the `ActionsResolved` logs, which are filed under the zone an avatar
 	 * ENDED its turn in. So a turn that crosses a boundary is only found when
 	 * the destination zone is loaded, and an avatar that walks into view is only
 	 * animated if the zone it walked from was loaded too.
@@ -156,7 +156,7 @@ describe('the travel allowance on top of the camera', () => {
 /**
  * The reveal-log half of the reader.
  *
- * Storage says where an avatar IS; only `CommitmentRevealed` says how it got
+ * Storage says where an avatar IS; only `ActionsResolved` says how it got
  * there, and only that says which parts of a turn the contract accepted (it
  * emits `actions[0:numActionsResolved]`, and a refused action increments
  * nothing). Both are needed to draw a board that moves, so both are read here,

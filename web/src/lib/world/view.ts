@@ -25,7 +25,7 @@ export type PlannedAction = {
  *
  * Here rather than beside the planning code because BOTH sides of the board
  * need it now: what the player has planned, and what the chain says it carried
- * out (`CommitmentRevealed`). One mapping, so a plan and its outcome cannot be
+ * out (`ActionsResolved`). One mapping, so a plan and its outcome cannot be
  * drawn from two different vocabularies.
  */
 export function toPlannedActions(actions: readonly Action[]): PlannedAction[] {

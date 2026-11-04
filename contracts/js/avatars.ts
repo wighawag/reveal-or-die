@@ -147,11 +147,11 @@ export function createReader(
 			}
 		}
 
-		const event = getEventFromAbi(Game.abi, 'CommitmentRevealed');
+		const event = getEventFromAbi(Game.abi, 'ActionsResolved');
 
 		const topics = encodeEventTopics({
 			abi: [event],
-			eventName: 'CommitmentRevealed',
+			eventName: 'ActionsResolved',
 			args: {
 				cycleNumber: BigInt(cycleNumber - 1),
 				zone: zones,
@@ -170,7 +170,7 @@ export function createReader(
 		const logs = parseEventLogs({
 			abi: Game.abi,
 			logs: logResult.value as any, // TODO fix eip-1193 ?
-			eventName: 'CommitmentRevealed',
+			eventName: 'ActionsResolved',
 		});
 
 		const avatarsMap: Avatars = new Map();

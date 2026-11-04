@@ -11,7 +11,8 @@
  * not a token reserve bonded per cycle. So there is no cost and no reserve
  * line, the setup gate ends in "deposit" rather than "stake", and a missed
  * reveal is reported as something that BLOCKS play rather than as a forfeit,
- * because `_acknowledgeMissedReveal` currently burns nothing.
+ * because settling one takes nothing more than the miss (`_forfeit` in
+ * `UsingGameInternal`).
  */
 import {derived, type Readable} from 'svelte/store';
 import type {Context} from '$lib/context/types';
@@ -263,7 +264,7 @@ export function describeSubmission(
 			//
 			// It describes what was REVEALED rather than what the chain accepted, so
 			// "moved" is the player's intent: a step into a wall is refused, and the
-			// only place that shows is the `CommitmentRevealed` log, which carries the
+			// only place that shows is the `ActionsResolved` log, which carries the
 			// accepted prefix and which nothing here reads yet. See
 			// ../reveal-outcome.ts.
 			switch (about.outcome) {
@@ -334,10 +335,11 @@ export function describeSubmission(
  * What to tell the player about a commitment they never revealed.
  *
  * Phrased as a blockage rather than a loss, which is the honest reading of this
- * contract: `_acknowledgeMissedReveal` carries a `TODO burn / stake` and
- * forfeits nothing, so the only consequence is that `_makeCommitment` keeps
- * rejecting new commitments with `PreviousCommitmentNotRevealed` until it is
- * called. If a forfeit is added, this sentence is where it gets said.
+ * contract: settling a missed reveal forfeits nothing beyond the miss itself
+ * (`_forfeit` in `UsingGameInternal`), so the only consequence is that a new
+ * commitment is rejected with `PreviousCommitmentNotRevealed` until it is
+ * settled. If missing a reveal is made to kill, this sentence is where it gets
+ * said.
  */
 /**
  * What to tell a player whose browser has lost a turn the chain still holds.

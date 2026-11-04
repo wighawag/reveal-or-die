@@ -88,7 +88,7 @@ describe('remembering the turn the submission forgot', () => {
 		});
 
 		it('reads the board\u2019s copy when there is one', () => {
-			// `lastTurn` is the accepted prefix out of `CommitmentRevealed`: a step
+			// `lastTurn` is the accepted prefix out of `ActionsResolved`: a step
 			// into a wall is absent from it. The submission's own memory knows only what
 			// was revealed, so this is the input that makes the sentence true.
 			const {state, mineState, outcome} = submission(revealed);

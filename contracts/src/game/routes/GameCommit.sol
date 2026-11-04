@@ -12,7 +12,7 @@ contract GameCommit is IGameCommit, UsingGameInternal {
         bytes24 commitmentHash,
         address payable payee
     ) external payable {
-        _makeCommitment(msg.sender, avatarID, commitmentHash);
+        _commitTurn(msg.sender, avatarID, commitmentHash);
 
         if (payee != address(0)) {
             payee.transfer(msg.value);
@@ -20,6 +20,6 @@ contract GameCommit is IGameCommit, UsingGameInternal {
     }
 
     function cancelCommit(uint256 avatarID) external {
-        _cancelCommitment(msg.sender, avatarID);
+        _cancelTurn(msg.sender, avatarID);
     }
 }

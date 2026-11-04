@@ -21,7 +21,7 @@ import {
 import type {Action} from './commit-reveal';
 
 /**
- * A turn the chain has resolved, as `CommitmentRevealed` reports it.
+ * A turn the chain has resolved, as `ActionsResolved` reports it.
  *
  * THE ACCEPTED PREFIX. `_reveal` emits `actions[0:numActionsResolved]`, and an
  * action the contract refuses sets `stopProcessing` without incrementing that
@@ -78,7 +78,7 @@ const MAX_ZONES = 64;
  *
  * TWO MARGINS, and the reason for the second one is movement. Zones are what
  * both reads are scoped by - the avatars standing in them, and the
- * `CommitmentRevealed` logs filed under them - and an avatar's log is filed
+ * `ActionsResolved` logs filed under them - and an avatar's log is filed
  * under the zone it ENDED its turn in. So a turn that crosses a zone boundary
  * is only found if the destination zone is fetched, and a turn that walks into
  * view is only animated if we were already loading the zone it came from.
@@ -192,7 +192,7 @@ export function createWorldReader(params: {
 	 * The turns the chain has resolved recently, per avatar.
 	 *
 	 * WHY THIS IS A SECOND READ. Storage keeps where an avatar IS; only
-	 * `CommitmentRevealed` says how it got there, and only that says which parts
+	 * `ActionsResolved` says how it got there, and only that says which parts
 	 * of a turn the contract accepted. Both are needed to draw a board that
 	 * MOVES: without the log the renderer can only teleport every avatar to its
 	 * new cell on the tick after a reveal.
@@ -240,12 +240,12 @@ export function createWorldReader(params: {
 					publicClient.getContractEvents({
 						address: Game.address,
 						abi: Game.abi,
-						eventName: 'CommitmentRevealed',
+						eventName: 'ActionsResolved',
 						// Both are INDEXED, so this is a node-side topic filter rather
 						// than a download of every reveal in the world.
 						//
 						// `cycleNumber:` IS THE EVENT'S OWN TOPIC NAME: the key has to
-						// match `CommitmentRevealed(uint256 indexed avatarID, uint64
+						// match `ActionsResolved(uint256 indexed avatarID, uint64
 						// indexed cycleNumber, ...)` as this game's contract declares it.
 						// A key viem does not recognise is not an error, it is an
 						// unfiltered query.
@@ -318,7 +318,7 @@ export function createWorldReader(params: {
 					// optimisation. The two reads are separate RPC calls against a chain
 					// that is moving, and a reveal landing between them splits the pair:
 					// storage already says the avatar has moved while
-					// `CommitmentRevealed` is still outside the log range. The position
+					// `ActionsResolved` is still outside the log range. The position
 					// then arrives one poll ahead of the turn, which draws as a jump
 					// followed by a walk that runs BACKWARDS from the destination and
 					// then forward again - observed on a second browser, which has

@@ -69,8 +69,8 @@ import {
  * Both the secret and the actions are DERIVED rather than stored, so a reload
  * reconstructs them exactly. The alternative bricks the world: a player that
  * commits and then forgets its secret can never reveal, no advance can close a
- * cycle holding an unopened commitment, and `acknowledgeMissedReveal` refuses
- * one from the CURRENT cycle - so under the manual policy the two refusals are
+ * cycle holding an unopened commitment, and a missed reveal cannot be settled
+ * while its cycle is still the CURRENT one - so under the manual policy the two refusals are
  * each other's premise and the human's game stops for good.
  *
  * **UPSTREAM CAN DERIVE FROM NOTHING BUT (game, identity, cycle). HERE IT
@@ -110,8 +110,8 @@ import {
  * ## differently
  *
  * Upstream a missed reveal forfeits a bonded ERC20. Here there is no bond and
- * nothing to burn: `_acknowledgeMissedReveal` carries `TODO burn / stake` and
- * takes nothing. What actually costs something is the CLOCK - an avatar that
+ * nothing to burn: settling a missed reveal (`_forfeit` in `UsingGameInternal`)
+ * takes nothing beyond the miss. What actually costs something is the CLOCK - an avatar that
  * has not revealed for `numMissesAllowed` cycles is dead, computed from how far
  * `lastCycleNumber` has fallen behind, with no event and no transaction to mark it.
  * The game is called reveal-or-die and that is the whole of why.
@@ -359,6 +359,8 @@ export function createOfflinePlayers(params: {
 	// contract has both, and this game only the one); the framework sees
 	// `CycleReading` either way, which is the whole point of the seam.
 	const readCycle = createCycleReader({publicClient, deployments});
+	/** Dead seats this session has already tried to release. */
+	const released = new Set<bigint>();
 
 	function send(
 		player: OfflinePlayer,
@@ -551,7 +553,7 @@ export function createOfflinePlayers(params: {
 		// THE ONE STATE THIS FILE CANNOT GET OUT OF, said out loud rather than
 		// papered over. The chain is holding a turn no candidate reproduces, so
 		// it cannot be opened; it cannot be settled either, because
-		// `acknowledgeMissedReveal` refuses a commitment from the current cycle;
+		// a missed reveal cannot be settled while its cycle is current;
 		// and the cycle cannot advance past it. It takes a build that changed
 		// `turnFor` or `secretFor` between a commit and its reveal to reach, and
 		// the commit path above is what stops that happening in the ordinary
@@ -569,12 +571,32 @@ export function createOfflinePlayers(params: {
 	): Promise<void> {
 		const avatar = await avatarOf(player);
 
-		// DEAD, so there is nothing it can do and nothing waiting on it. Every
-		// write below would revert (`_makeCommitment` refuses a dead avatar), and
-		// the attendance reader has already stopped counting it, so the cycle
-		// closes without it. This is the shape "reveal or die" takes in this
-		// loop: a player the world stopped being able to play for.
-		if (avatar.life === 0) return;
+		// DEAD, so there is nothing it can do, and once released nothing waits
+		// on it. Every write below would revert (`_makeCommitment` refuses a dead
+		// avatar). Death is computed when asked, with no transaction, so the
+		// contract's tally goes on waiting for a dead member until somebody
+		// releases it (`releaseDeadAvatar`), and under the manual policy the
+		// world would stop for good. So a dead seat releases itself, ONCE per
+		// session: the route is permissionless and refuses a second time, and a
+		// reload tries once more and is refused at the estimate, sending nothing.
+		//
+		// A failed release is caught HERE rather than left to the pass, because
+		// the pass stops at the first throw and the seats after this one would
+		// never act.
+		if (avatar.life === 0) {
+			if (!released.has(player.identity)) {
+				released.add(player.identity);
+				try {
+					await send(player, {
+						functionName: 'releaseDeadAvatar',
+						args: [player.identity],
+					});
+				} catch (err) {
+					console.warn('a dead offline player could not be released', err);
+				}
+			}
+			return;
+		}
 
 		const onChain = await commitmentOf(player);
 
@@ -587,16 +609,18 @@ export function createOfflinePlayers(params: {
 		//
 		// IT SPENDS NOTHING, which is the difference from upstream and is worth
 		// keeping straight: there the same call burns a bonded stake and is
-		// justified on the grounds that the bond is the world's own. Here
-		// `_acknowledgeMissedReveal` takes nothing at all. The loss already
-		// happened when the reveal did not, and is counted by `lastCycleNumber` falling
-		// behind; this only unblocks the next commitment.
+		// justified on the grounds that the bond is the world's own. Here the
+		// settlement (`_forfeit` in `UsingGameInternal`) takes nothing at all.
+		// The loss already happened when the reveal did not, and is counted by
+		// `lastCycleNumber` falling behind; this only unblocks the next
+		// commitment. The route WITHOUT the actions, which needs nothing this
+		// file might fail to re-derive; each seat is its avatar's owner.
 		if (
 			onChain.cycleNumber !== 0n &&
 			Number(onChain.cycleNumber) < cycle.cycleNumber
 		) {
 			await send(player, {
-				functionName: 'acknowledgeMissedReveal',
+				functionName: 'forfeitMissedReveal',
 				args: [player.identity],
 			});
 			return;

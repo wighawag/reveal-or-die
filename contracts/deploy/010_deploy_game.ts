@@ -23,6 +23,7 @@ export default deployScript(
 			// actually ran. See `UsingGameTypes.CyclePolicy`.
 			cyclePolicy: data.Game.cyclePolicy,
 			numMissesAllowed: data.Game.numMissesAllowed,
+			actionsPerReveal: data.Game.actionsPerReveal,
 		};
 
 		const routes = [

@@ -35,6 +35,12 @@ import {COMMIT_GAS, REVEAL_GAS} from '../js/gas.js';
 export const CYCLE_POLICY = {
 	Timed: 0,
 	Manual: 1,
+	/**
+	 * The clock, brought forward when everyone has acted. The commit-reveal
+	 * base's third policy, which this game has on the base for free; no
+	 * environment declares it yet.
+	 */
+	TimedWithEarlyAdvance: 2,
 } as const;
 
 // we define our config and export it as "config"
@@ -184,6 +190,9 @@ export const config = {
 				cyclePolicy: CYCLE_POLICY.Timed,
 				numMoves: 10n,
 				numMissesAllowed: 3n,
+				// The longest turn that can resolve, in one reveal: every move,
+				// then an exit. The contract refuses less.
+				actionsPerReveal: 11n,
 			},
 			/**
 			 * THE OLD RISE TESTNET DEPLOYMENT WAS NOT THIS. Its routes carried
@@ -199,6 +208,9 @@ export const config = {
 				cyclePolicy: CYCLE_POLICY.Timed,
 				numMoves: 10n,
 				numMissesAllowed: 3n,
+				// The longest turn that can resolve, in one reveal: every move,
+				// then an exit. The contract refuses less.
+				actionsPerReveal: 11n,
 			},
 			default: {
 				commitPhaseDuration: 30n,
@@ -206,6 +218,9 @@ export const config = {
 				cyclePolicy: CYCLE_POLICY.Timed,
 				numMoves: 10n,
 				numMissesAllowed: 3n,
+				// The longest turn that can resolve, in one reveal: every move,
+				// then an exit. The contract refuses less.
+				actionsPerReveal: 11n,
 			},
 		},
 	},

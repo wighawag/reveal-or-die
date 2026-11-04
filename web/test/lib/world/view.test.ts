@@ -134,7 +134,7 @@ describe('mergeWorldView', () => {
 
 describe('the turn the chain resolved', () => {
 	/**
-	 * `CommitmentRevealed` carries the actions the contract ACCEPTED, per
+	 * `ActionsResolved` carries the actions the contract ACCEPTED, per
 	 * avatar. Carrying them onto the view is what lets the renderer replay every
 	 * avatar's turn rather than teleporting each one to its new cell, and it is
 	 * the only thing on the entity that says what HAPPENED as opposed to what is.

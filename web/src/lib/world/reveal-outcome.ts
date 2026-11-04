@@ -17,7 +17,7 @@
  * keeps only the vocabulary, which is entirely this game's.
  *
  * WHAT THE HUD SAYS ABOUT IT now prefers what the chain ACCEPTED, when it is
- * on the board. `lib/world/state.ts` fetches `CommitmentRevealed` for the
+ * on the board. `lib/world/state.ts` fetches `ActionsResolved` for the
  * camera's zones, which carries `actions[0:numActionsResolved]` - the prefix
  * the contract carried out, a step it refused being simply absent - so a turn
  * that walked into a wall is two moves, not three. The remembered actions
@@ -94,7 +94,7 @@ export function outcomeOfResolved(
  * so is better than guessing at "moved".
  *
  * THE CHAIN'S OWN ACCOUNT WINS when it has one. `lastTurn` is the accepted
- * prefix straight out of `CommitmentRevealed`, so it is the truth even for a
+ * prefix straight out of `ActionsResolved`, so it is the truth even for a
  * turn the contract refused half of; the remembered actions are the fallback
  * for the one player whose avatar is not in the camera's zones - out of the
  * world, or panned away from - because the outcome sentence is about THEIR

@@ -1,7 +1,7 @@
 import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
-import {setupFixtures} from './utils/index.js';
+import {setupFixtures, deployGameWith, CYCLE_POLICY} from './utils/index.js';
 import {zoneID, isObstacle, isValidMove} from '../../js/zones.js';
 import {commitmentHash, type Action} from '../../js/commitment.js';
 import {
@@ -673,7 +673,19 @@ describe('Game', function () {
 			...fixture,
 			player,
 			avatarID,
+			secret,
 			commit,
+			/**
+			 * Commit `actions` as the next cycle's turn and never reveal them: the
+			 * clock is left in the commit phase of the cycle after, mined.
+			 */
+			async commitAndGoQuiet(actions: Action[]) {
+				cycleNumber += 1;
+				await advanceToCycle(cycleNumber);
+				await commit(actions);
+				cycleNumber += 1;
+				await advanceToCycle(cycleNumber, true);
+			},
 			/** Commit and reveal `actions` as the next cycle's whole turn. */
 			async turn(actions: Action[]) {
 				cycleNumber += 1;
@@ -815,6 +827,139 @@ describe('Game', function () {
 			args: [zoneID(0, 1), 0n, 100n],
 		});
 		expect(inZone.filter((x) => x.avatarID === a.avatarID).length).toEqual(1);
+	});
+
+	/**
+	 * A MISSED REVEAL, SETTLED ON THE FIRST OF THE BASE'S TWO ROUTES: shown the
+	 * actions that were committed. Anyone may send it, because nothing in it can
+	 * hurt the player more than their own silence did.
+	 *
+	 * WHAT IT COSTS IS THE MISS AND NOTHING ELSE, which is this game's
+	 * `_forfeit` today (the maintainer, 2026-11-04: missed reveals do not kill
+	 * until the front end is well tested). The miss is already counted, lazily,
+	 * by `lastCycleNumber` not moving; the settlement only clears the slot so
+	 * the avatar can commit again.
+	 *
+	 * AND IT RESOLVES NOTHING. The actions are checked against the commitment
+	 * and then dropped: a settlement runs in a LATER cycle, so resolving there
+	 * would write the board after its own cycle has closed (in bomber-world, a
+	 * bomb landing in a cycle whose reveals have already been read).
+	 */
+	it('settles a missed reveal shown its actions, from anyone, and resolves none of them', async function () {
+		const a = await oneAvatar('f0');
+		const stranger = a.unnamedAccounts[3];
+		await a.turn([{actionType: 0, data: pos(0n, 1n)}]);
+		const missed: Action[] = [{actionType: 1, data: pos(0n, 2n)}];
+		await a.commitAndGoQuiet(missed);
+
+		// Blocked until it is settled: going quiet is not a way to start over.
+		await expect(a.commit([])).toBeRejectedWith('PreviousCommitmentNotRevealed');
+
+		// Shown anything else, it refuses: the chain checks what is settled.
+		await expect(
+			a.env.execute(a.Game, {
+				account: stranger,
+				functionName: 'acknowledgeMissedReveal',
+				args: [a.avatarID, [{actionType: 1, data: pos(1n, 1n)}], a.secret],
+			}),
+		).toBeRejectedWith('CommitmentHashNotMatching');
+
+		await a.env.execute(a.Game, {
+			account: stranger,
+			functionName: 'acknowledgeMissedReveal',
+			args: [a.avatarID, missed, a.secret],
+		});
+
+		const after = await a.avatar();
+		expect(after.life).toEqual(1);
+		expect(after.position).toEqual(pos(0n, 1n));
+		const commitment = await a.env.read(a.Game, {
+			functionName: 'getCommitment',
+			args: [a.avatarID],
+		});
+		expect(commitment.cycleNumber).toEqual(0n);
+		await a.commit([]);
+	});
+
+	/**
+	 * THE SECOND ROUTE: no actions, so only the owner or their delegate. A
+	 * stranger could otherwise settle a commitment its owner could have
+	 * settled on better terms; here both routes cost the same (the miss), but
+	 * that is this game's `_forfeit` today and not a property of the route.
+	 */
+	it('settles a missed reveal without its actions, only for its owner', async function () {
+		const a = await oneAvatar('f1');
+		const stranger = a.unnamedAccounts[3];
+		await a.turn([{actionType: 0, data: pos(0n, 1n)}]);
+		await a.commitAndGoQuiet([{actionType: 1, data: pos(0n, 2n)}]);
+
+		await expect(
+			a.env.execute(a.Game, {
+				account: stranger,
+				functionName: 'forfeitMissedReveal',
+				args: [a.avatarID],
+			}),
+		).toBeRejectedWith('NotDelegate');
+
+		await a.env.execute(a.Game, {
+			account: a.player,
+			functionName: 'forfeitMissedReveal',
+			args: [a.avatarID],
+		});
+
+		const after = await a.avatar();
+		expect(after.life).toEqual(1);
+		expect(after.position).toEqual(pos(0n, 1n));
+		await a.commit([]);
+	});
+
+	/**
+	 * The cycle's tally counts a commitment when it is made, so an avatar that
+	 * could leave custody with one open would leave a commit counted for a
+	 * member who no longer is one, and a SUBSET could then reach unanimity.
+	 * The old looped attendance could not see a non-member's commitment; the
+	 * base's O(1) tally can, so the door is closed here.
+	 */
+	it('refuses to withdraw an avatar with an open commitment', async function () {
+		const a = await oneAvatar('f2');
+		await a.nextCycle();
+		await a.commit([{actionType: 0, data: pos(0n, 1n)}]);
+		await expect(a.withdraw()).toBeRejectedWith('CommitmentStillOpen');
+	});
+
+	/**
+	 * ONE CHUNK PER TURN, sized for the longest turn that can resolve: every
+	 * move the game allows, then an exit (an Enter stops processing on its
+	 * own). That turn reveals; one action more is refused by the base with
+	 * `TooManyActions`, so the client must never commit one (and refuses to).
+	 */
+	it('reveals the longest turn that can resolve, and refuses a longer one', async function () {
+		const a = await oneAvatar('f3');
+		await a.turn([{actionType: 0, data: pos(0n, 1n)}]);
+		const numMoves = Number(a.Game.linkedData!.numMoves);
+		expect(Number(a.Game.linkedData!.actionsPerReveal)).toEqual(numMoves + 1);
+
+		const steps: Action[] = Array.from({length: numMoves}, () => ({
+			actionType: 1,
+			data: pos(0n, 1n),
+		}));
+		await a.turn([...steps, {actionType: 2, data: 0n}]);
+
+		await expect(
+			a.turn([...steps, {actionType: 2, data: 0n}, {actionType: 2, data: 0n}]),
+		).toBeRejectedWith('TooManyActions');
+	});
+
+	it('refuses a configuration whose reveal cannot carry its longest turn', async function () {
+		const {env, Avatars} = await networkHelpers.loadFixture(deployAll);
+		await expect(
+			deployGameWith(env, 'Game_TooShortAReveal', {
+				avatars: Avatars.address,
+				cyclePolicy: CYCLE_POLICY.Timed,
+				numMoves: 10n,
+				actionsPerReveal: 10n,
+			}),
+		).toBeRejected();
 	});
 });
 

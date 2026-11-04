@@ -8,11 +8,17 @@
  * the only symptom is every commit failing with a bare revert.
  *
  * Note what this is NOT. The template's equivalent reports a FORFEIT: its
- * `acknowledgeMissedReveal` burns the bond, so the store is telling the player
- * what it cost them. Here it costs nothing today (`_acknowledgeMissedReveal`
- * carries `TODO burn / stake` and forfeits nothing), so this is about
- * UNBLOCKING play rather than reporting a loss. If a forfeit is added later,
- * this is where it gets surfaced.
+ * settlement burns the bond, so the store is telling the player what it cost
+ * them. Here the settlement takes nothing more than the miss, which is already
+ * counted by `lastCycleNumber` not moving (`UsingGameInternal._forfeit`), so
+ * this is about UNBLOCKING play rather than reporting a loss. If missing a
+ * reveal is made to kill, this is where it gets surfaced.
+ *
+ * `forfeitMissedReveal`, the settlement WITHOUT the actions, because it needs
+ * nothing this browser might have lost: only the avatar, and a signer the owner
+ * has delegated to. The other route (`acknowledgeMissedReveal`, shown the
+ * actions) costs exactly the same in this game, so there is nothing to gain by
+ * reaching for the stored turn first.
  *
  * ONE READ, TWO QUESTIONS, and the second one used to be thrown away. Asking
  * `getCommitment` answers "am I blocked?" - a commitment left over from an
@@ -171,7 +177,7 @@ export function createMissedReveal(params: {
 				{
 					address: Game.address,
 					abi: Game.abi,
-					functionName: 'acknowledgeMissedReveal',
+					functionName: 'forfeitMissedReveal',
 					args: [onchainIdentity(id)],
 					account: $executor.account,
 					chain: null,

@@ -24,9 +24,29 @@ interface IGameReveal is UsingGameTypes {
         address payable payee
     ) external payable;
 
-    function moveToNextPhase() external returns (ManualCycle memory);
+    /// @notice Move the cycle on by one phase, if the rules already permit it:
+    ///  every member has committed (to open the reveal phase) or every
+    ///  commitment has been revealed (to close the cycle). The base's advance
+    ///  ({UsingCommitReveal-_advanceCycle}); refused under the timed policy.
+    function moveToNextPhase()
+        external
+        returns (uint64 cycleNumber, bool commiting);
 
-    function acknowledgeMissedReveal(uint256 avatarID) external;
+    /// @notice Settle a missed reveal by showing the actions it committed.
+    ///  Anyone may; nothing is resolved.
+    function acknowledgeMissedReveal(
+        uint256 avatarID,
+        Action[] calldata actions,
+        bytes32 secret
+    ) external;
+
+    /// @notice Settle a missed reveal without its actions: the owner or a
+    ///  delegate of theirs only.
+    function forfeitMissedReveal(uint256 avatarID) external;
+
+    /// @notice Stop the cycle waiting for a dead avatar. Anyone may; refused
+    ///  unless the avatar is in the world, dead, and still waited for.
+    function releaseDeadAvatar(uint256 avatarID) external;
 }
 
 interface IGameGetters is UsingGameTypes {

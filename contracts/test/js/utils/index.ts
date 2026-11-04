@@ -46,6 +46,7 @@ export async function deployGameWith(
 		revealPhaseDuration?: bigint;
 		numMoves?: bigint;
 		numMissesAllowed?: bigint;
+		actionsPerReveal?: bigint;
 	},
 ) {
 	const {deployer, admin} = env.namedAccounts;
@@ -62,6 +63,7 @@ export async function deployGameWith(
 		numMoves: config.numMoves ?? 10n,
 		cyclePolicy: config.cyclePolicy,
 		numMissesAllowed: config.numMissesAllowed ?? 3n,
+		actionsPerReveal: config.actionsPerReveal ?? (config.numMoves ?? 10n) + 1n,
 	};
 
 	const routes = [

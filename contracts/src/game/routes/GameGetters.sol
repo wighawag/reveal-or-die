@@ -45,11 +45,13 @@ contract GameGetters is IGameGetters, UsingGameInternal {
     function getCommitment(
         uint256 avatarID
     ) external view returns (Commitment memory commitment) {
-        return _commitments[avatarID];
+        return _commitmentOf(avatarID);
     }
 
-    /// @notice Who the manual cycle waits for, and how many have acted in the
-    ///  current cycle: the numbers `moveToNextPhase` judges by.
+    /// @notice Who the cycle waits for, and how many have acted in the current
+    ///  cycle: the base's tally, the numbers `moveToNextPhase` judges by.
+    ///  `waitedFor` counts every avatar in custody until it leaves or, dead,
+    ///  is released (`releaseDeadAvatar`).
     function getAttendance()
         external
         view
@@ -69,7 +71,8 @@ contract GameGetters is IGameGetters, UsingGameInternal {
                 time: TIME,
                 numMoves: MAX_MOVES,
                 cyclePolicy: CYCLE_POLICY,
-                numMissesAllowed: NUM_MISSES_ALLOWED
+                numMissesAllowed: NUM_MISSES_ALLOWED,
+                actionsPerReveal: ACTIONS_PER_REVEAL
             });
     }
 }

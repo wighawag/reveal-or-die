@@ -58,6 +58,8 @@ import {
 	createAttendanceReader,
 	createCycleAdvancer,
 	createCycleReader,
+	createDeadReleaser,
+	deadOnBoard,
 	THIS_CONTRACT_JUDGES_AN_ADVANCE,
 } from '$lib/world/advance';
 import {
@@ -371,6 +373,14 @@ export function createGameContext(core: CoreServices): GameContext {
 		},
 	);
 
+	// The dead the board shows, for the attendance reader to release. Bound
+	// once the board exists, which is after the reader is built: the framework
+	// builds the board from the same options object the reader is handed in.
+	let boardNow: () => WorldState | undefined = () => undefined;
+	const releaseDead = createDeadReleaser(core, {
+		dead: () => deadOnBoard(boardNow()?.avatars.values() ?? []),
+	});
+
 	// The commit-reveal wiring is the framework's; what follows is this game.
 	const world = createCommitRevealGame<WorldGame>(core, {
 		identity: activeIdentity,
@@ -384,10 +394,13 @@ export function createGameContext(core: CoreServices): GameContext {
 				publicClient: core.publicClient,
 				deployments: core.deployments,
 			}),
-			readAttendance: createAttendanceReader({
-				publicClient: core.publicClient,
-				deployments: core.deployments,
-			}),
+			readAttendance: createAttendanceReader(
+				{
+					publicClient: core.publicClient,
+					deployments: core.deployments,
+				},
+				{releaseDead},
+			),
 			advance: createCycleAdvancer(core),
 			// THE ANSWER IS THIS GAME'S TO GIVE, which is why it is a named constant
 			// in `world/advance.ts` beside the evidence rather than a literal here.
@@ -523,6 +536,10 @@ export function createGameContext(core: CoreServices): GameContext {
 			};
 		},
 	});
+	boardNow = () => {
+		const $board = get(world.onchainState);
+		return $board.step === 'Loaded' ? $board : undefined;
+	};
 
 	/**
 	 * ...and this game can usually work out WHAT was committed, without asking:
@@ -541,7 +558,7 @@ export function createGameContext(core: CoreServices): GameContext {
 
 	/**
 	 * The player's own avatar as the BOARD holds it: `lastTurn` on it is the
-	 * resolved prefix out of `CommitmentRevealed`, the truth about what the turn
+	 * resolved prefix out of `ActionsResolved`, the truth about what the turn
 	 * did. Undefined whenever the avatar is not in the fetched zones.
 	 */
 	const myAvatarOnBoard = derived(

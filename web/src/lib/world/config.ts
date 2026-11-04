@@ -9,7 +9,11 @@
 import type {TypedDeployments} from '$lib/core/connection/types';
 // Gas to allow for one turn: set once in the contracts package, which prices
 // the chain's credits from the same two figures. See the note there.
-import {COMMIT_GAS, REVEAL_GAS} from 'reveal-or-die-contracts';
+import {
+	ACTIONS_BESIDES_MOVES,
+	COMMIT_GAS,
+	REVEAL_GAS,
+} from 'reveal-or-die-contracts';
 import {resolveCycleConfig, type CycleConfig} from '$lib/game/core/cycle';
 import {
 	optionalBigInt,
@@ -31,6 +35,17 @@ export type WorldConfig = {
 	 * quietly truncated.
 	 */
 	numMoves: number;
+	/**
+	 * How many actions one reveal may carry, which here is one whole turn.
+	 *
+	 * A reveal carrying more is REFUSED by the contract (`TooManyActions`), not
+	 * truncated, and it is refused after the commitment is fixed, so a turn the
+	 * chunk cannot hold is a turn that can never be opened. The planner builds
+	 * at most `numMoves` moves and one ending action, so a deployment whose
+	 * chunk holds less than that is refused here, before anything is planned.
+	 * The contract refuses the same configuration at construction.
+	 */
+	actionsPerReveal: number;
 	/**
 	 * How many cycles an avatar may go without revealing before the contract
 	 * kills it. It dies in the cycle after that.
@@ -136,9 +151,18 @@ export function resolveWorldConfig(deployments: TypedDeployments): WorldConfig {
 	const worstGasPrice =
 		optionalBigInt(deployments.chain.properties, 'expectedWorstGasPrice') ?? 0n;
 
+	const numMoves = readNumber(linkedData, 'numMoves');
+	const actionsPerReveal = readNumber(linkedData, 'actionsPerReveal');
+	if (actionsPerReveal < numMoves + ACTIONS_BESIDES_MOVES) {
+		throw new Error(
+			`This deployment's reveal holds ${actionsPerReveal} actions, fewer than its longest turn (${numMoves + ACTIONS_BESIDES_MOVES}).`,
+		);
+	}
+
 	return {
 		cycle: resolveCycleConfig(linkedData),
-		numMoves: readNumber(linkedData, 'numMoves'),
+		numMoves,
+		actionsPerReveal,
 		numMissesAllowed: optionalNumber(linkedData, 'numMissesAllowed'),
 		avatarsAddress: readAddress(linkedData, 'avatars'),
 		sale: {
