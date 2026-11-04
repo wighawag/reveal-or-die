@@ -174,4 +174,88 @@ describe('the active identity', () => {
 
 		expect(get(identity)).toBe(undefined);
 	});
+
+	it('never takes a read for an account that is no longer signed in', async () => {
+		// THE HOTSEAT RACE. Each account change starts a read, and reads on a
+		// busy chain finish in any order: here the first person's custody answers
+		// after the second person has signed in and been answered. Taking that
+		// late answer put the FIRST person's avatar under the second person's
+		// account, and the submission, which is keyed by the identity, dropped
+		// the plan the second person had just made (offline-hotseat e2e, cycle
+		// two, after the reload). Left there, every commit would be signed for
+		// an avatar this account has no authority over.
+		const gates = new Map<string, () => void>();
+		const {deps} = fakeDeps({
+			avatarsOf: {[OWNER]: [4n], [OTHER]: [8n]},
+			ownerOf: {'4': OWNER, '8': OTHER},
+		});
+		const read = deps.publicClient.readContract as unknown as (args: {
+			functionName: string;
+			args?: readonly unknown[];
+		}) => Promise<unknown>;
+		(deps.publicClient as {readContract: unknown}).readContract = async (args: {
+			functionName: string;
+			args?: readonly unknown[];
+		}) => {
+			if (args.functionName === 'getAvatarsOf') {
+				const owner = String(args.args?.[0]).toLowerCase();
+				await new Promise<void>((resolve) => gates.set(owner, resolve));
+			}
+			return read(args);
+		};
+		const account = writable<`0x${string}` | undefined>(OWNER as `0x${string}`);
+		const identity = createActiveIdentity({account, deps});
+		const seen: (bigint | undefined)[] = [];
+		identity.subscribe((value) => seen.push(value));
+
+		account.set(OTHER as `0x${string}`);
+		await vi.waitFor(() => expect(gates.has(OTHER)).toBe(true));
+		gates.get(OTHER)!();
+		await vi.waitFor(() => expect(get(identity)).toBe(8n));
+
+		gates.get(OWNER)!();
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		expect(get(identity)).toBe(8n);
+		expect(seen).not.toContain(4n);
+	});
+
+	it('forgets the previous account\u2019s avatar the moment the account changes', async () => {
+		// Until the new account's custody is read, the honest answer is "not
+		// read yet", not the previous account's avatar: a plan made meanwhile
+		// would be filed under somebody else's identity.
+		const gates = new Map<string, () => void>();
+		const {deps} = fakeDeps({
+			avatarsOf: {[OWNER]: [4n], [OTHER]: [8n]},
+			ownerOf: {'4': OWNER, '8': OTHER},
+		});
+		const read = deps.publicClient.readContract as unknown as (args: {
+			functionName: string;
+			args?: readonly unknown[];
+		}) => Promise<unknown>;
+		(deps.publicClient as {readContract: unknown}).readContract = async (args: {
+			functionName: string;
+			args?: readonly unknown[];
+		}) => {
+			if (args.functionName === 'getAvatarsOf') {
+				const owner = String(args.args?.[0]).toLowerCase();
+				if (owner === OTHER) {
+					await new Promise<void>((resolve) => gates.set(owner, resolve));
+				}
+			}
+			return read(args);
+		};
+		const account = writable<`0x${string}` | undefined>(OWNER as `0x${string}`);
+		const identity = createActiveIdentity({account, deps});
+		await vi.waitFor(() => expect(get(identity)).toBe(4n));
+
+		account.set(OTHER as `0x${string}`);
+
+		expect(get(identity)).toBe(undefined);
+		expect(get(identity.loaded)).toBe(false);
+		await vi.waitFor(() => expect(gates.has(OTHER)).toBe(true));
+		gates.get(OTHER)!();
+		await vi.waitFor(() => expect(get(identity)).toBe(8n));
+		expect(get(identity.loaded)).toBe(true);
+	});
 });

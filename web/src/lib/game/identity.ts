@@ -136,15 +136,39 @@ export function createActiveIdentity(params: {
 		{loaded: false, identity: undefined},
 	);
 
+	/**
+	 * ONLY THE LATEST READ MAY ANSWER, and only for the account still signed
+	 * in. Every account change starts a read, and on a busy chain they finish
+	 * in any order: a hotseat switch (and the wallet's own auto-connect landing
+	 * after it) starts several within milliseconds, and the first person's
+	 * custody arriving after the second person's put the first person's avatar
+	 * under the second person's account. The submission is keyed by the
+	 * identity, so it dropped the plan just made; and every commit from there
+	 * would have been signed for an avatar this account has no authority over.
+	 */
+	let latest = 0;
+	/** The account `state` describes, so a change of account is seen as one. */
+	let describes: string | undefined;
+
 	async function update() {
 		const owner = get(account);
+		const read = ++latest;
+		const current = () => read === latest && get(account) === owner;
 		if (!owner) {
 			// Not signed in. `loaded` stays FALSE rather than reporting an empty
 			// custody: "nobody is here" is the sign-in gate's answer, and claiming
 			// to have read the chain about an account that does not exist would let
 			// the stake gate answer a question nobody asked.
+			describes = undefined;
 			state.set({loaded: false, identity: undefined});
 			return;
+		}
+		// ANOTHER ACCOUNT: what is held is somebody else's custody, and until
+		// this one's is read the honest answer is "not read yet". A re-read for
+		// the same account (a purchase, a seizure) keeps showing what it had.
+		if (owner.toLowerCase() !== describes) {
+			describes = owner.toLowerCase();
+			state.set({loaded: false, identity: undefined});
 		}
 		const deployments = deps.deployments.get();
 		const game = {
@@ -156,6 +180,7 @@ export function createActiveIdentity(params: {
 			functionName: 'getAvatarsOf',
 			args: [owner],
 		})) as readonly bigint[];
+		if (!current()) return;
 
 		for (const avatarID of candidates) {
 			const holder = (await deps.publicClient.readContract({
@@ -163,6 +188,7 @@ export function createActiveIdentity(params: {
 				functionName: 'getAvatarOwner',
 				args: [avatarID],
 			})) as `0x${string}`;
+			if (!current()) return;
 			if (holder.toLowerCase() === owner.toLowerCase()) {
 				state.set({loaded: true, identity: avatarID});
 				return;
