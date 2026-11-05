@@ -1,9 +1,5 @@
 import {test, expect} from '../fixtures/test';
-import {
-	authoriseToPlay,
-	boardState,
-	waitUntilSetUpToPlay,
-} from '../fixtures/board';
+import {boardState, waitUntilSetUpToPlay} from '../fixtures/board';
 
 // Its own account, which no other suite funds, so it starts EMPTY: see
 // test/e2e-account-claims.test.ts.
@@ -25,7 +21,6 @@ test.describe('A player with no ETH', () => {
 	test('gets ETH from the faucet, and buys an avatar', async ({
 		page,
 		connectWallet,
-		authoriseBrowser,
 	}) => {
 		test.setTimeout(5 * 60_000);
 		const claims: string[] = [];
@@ -66,11 +61,10 @@ test.describe('A player with no ETH', () => {
 				timeout: 120_000,
 			})
 			.toBeGreaterThan(0);
-		// WHERE THE CHAIN PRICES NO STIPEND, the purchase funds this browser's key
-		// with nothing and it cannot authorise itself, so the gate asks: a LAN
-		// box's chain declares no gas price (`rocketh/config.ts`), and this is
-		// the step a player there takes. On the local chain it does not come up.
-		await authoriseToPlay(page, authoriseBrowser);
+		// AND THE KEY AUTHORISES ITSELF out of the stipend the purchase paid it,
+		// with nothing more to press. On a LAN box that needs the chain's gas
+		// price declared (`rocketh/config.ts`): without it the stipend came to
+		// almost nothing and the gate asked the player to authorise by hand.
 		await waitUntilSetUpToPlay(page);
 
 		expect(claims, 'the faucet should have been asked for ETH').not.toEqual([]);
