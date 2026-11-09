@@ -17,6 +17,9 @@ importers:
       ldenv:
         specifier: ^0.6.0
         version: 0.6.0
+      reveal-or-die-contracts:
+        specifier: workspace:*
+        version: link:contracts
       set-defaults:
         specifier: ^0.0.5
         version: 0.0.5
