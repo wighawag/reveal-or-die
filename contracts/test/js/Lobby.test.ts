@@ -47,6 +47,8 @@ async function createTable(
 ) {
 	const fixtures = await networkHelpers.loadFixture(deployAll);
 	const {env} = fixtures;
+	// Blocks between the deployment and the table, as a table created later has.
+	for (let i = 0; i < 3; i++) await provider.request({method: 'evm_mine'});
 	const [creator, alice, bob, carol] =
 		fixtures.unnamedAccounts as `0x${string}`[];
 	const Factory = env.get<Abi>('GameFactory');
@@ -116,6 +118,7 @@ async function createTable(
 					started: boolean;
 					cycles: number;
 					startedWith: number;
+					openedAtBlock: number;
 				},
 				bigint[],
 			],
@@ -162,8 +165,10 @@ async function createTable(
 	return {
 		...fixtures,
 		Factory,
+		Implementation,
 		Table,
 		created,
+		createdIn: BigInt(receipt.blockNumber),
 		tableFixtures,
 		creator,
 		alice,
@@ -219,6 +224,16 @@ describe('games for a fixed set of players', function () {
 				args: [table.alice, 2, CYCLES, NO_OPTIONS],
 			}),
 		).toBeRejectedWith(/RosterAlreadyOpened/);
+	});
+
+	it('opens a table at the block it was created in, not where its implementation was deployed', async function () {
+		const table = await createTable(3);
+		const [roster] = await table.read.roster();
+		expect(BigInt(roster.openedAtBlock)).toEqual(table.createdIn);
+		expect(
+			BigInt(roster.openedAtBlock) >
+				BigInt(table.Implementation.receipt!.blockNumber),
+		).toEqual(true);
 	});
 
 	it("seats a player who buys an avatar at the table through the world's sale", async function () {
