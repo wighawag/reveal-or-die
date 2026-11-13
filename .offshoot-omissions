@@ -266,9 +266,13 @@ web/test/lib/game/identity.test.ts
 # route, `$lib/game/lobby/table`, the lobby route) arrives and stays unused:
 # this game exports no `lobby` from its `$app-specific` module, so its menu
 # offers no tables. When it wants them, it writes its own three of these.
+# `table-link.e2e.ts` (stratagems' step T2, 2026-11-12) checks the table gate,
+# which a game with no `lobby` never opens: it goes with them, and comes back
+# unchanged when this game has tables.
 contracts/deploy/030_deploy_lobby.ts
 contracts/test/js/Lobby.test.ts
 web/e2e/tests/table.e2e.ts
+web/e2e/tests/table-link.e2e.ts
 
 # ---------------------------------------------------------------------------
 # THE GAME'S OWN CLOCK, RETIRED BY THE BASE (2026-11-05, main 4aaa00bd). This
