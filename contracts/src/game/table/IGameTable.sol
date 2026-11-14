@@ -27,9 +27,11 @@ interface IGameTable is UsingGameTypes {
         uint256 leftoverPot;
     }
 
-    /// @notice Take a seat at an ETH-mode table, paying exactly its stake.
-    ///         The seat's id is the caller's address.
-    function join() external payable;
+    /// @notice Take a seat at an ETH-mode table, paying exactly its stake,
+    ///         plus `stipend` forwarded to `stipendTo` (zero and zero for none):
+    ///         what funds the browser key that plays the seat, in the same
+    ///         transaction. The seat's id is the caller's address.
+    function join(address payable stipendTo, uint256 stipend) external payable;
 
     /// @notice Close the table, by anyone, once its last cycle has passed or
     ///         at most one seat is alive (in a commit phase nobody living has

@@ -134,7 +134,12 @@ async function table(
 	) {
 		const account = accounts[name];
 		if (how === 'eth') {
-			await env.execute(Table, {account, functionName: 'join', value: stake});
+			await env.execute(Table, {
+				account,
+				functionName: 'join',
+				args: [zeroAddress, 0n],
+				value: stake,
+			});
 			ids[name] = BigInt(account);
 		} else {
 			await env.execute(AvatarsSale, {
@@ -403,11 +408,46 @@ describe('a table, its mode and its stake', () => {
 			eth.env.execute(eth.Table, {
 				account: eth.accounts.a,
 				functionName: 'join',
+				args: [zeroAddress, 0n],
 				value: eth.stake - 1n,
 			}),
 		).toBeRejectedWith('TableStakeMismatch');
 		await eth.sit('a');
 		await expect(eth.sit('a')).toBeRejectedWith('AlreadySeated');
+	});
+
+	it('forwards a stipend to the key that plays an ETH seat, in the same transaction', async () => {
+		const w = await table(ETH_MODE, ['a', 'b'], {start: false});
+		const key = w.unnamedAccounts[9] as `0x${string}`;
+		const stipend = 12345n;
+		// a stipend must be paid for, and must have somewhere to go
+		await expect(
+			w.env.execute(w.Table, {
+				account: w.accounts.a,
+				functionName: 'join',
+				args: [key, stipend],
+				value: w.stake,
+			}),
+		).toBeRejectedWith('TableStakeMismatch');
+		await expect(
+			w.env.execute(w.Table, {
+				account: w.accounts.a,
+				functionName: 'join',
+				args: [zeroAddress, stipend],
+				value: w.stake + stipend,
+			}),
+		).toBeRejectedWith('NoStipendRecipient');
+		const before = await w.balance(key);
+		await w.env.execute(w.Table, {
+			account: w.accounts.a,
+			functionName: 'join',
+			args: [key, stipend],
+			value: w.stake + stipend,
+		});
+		expect((await w.balance(key)) - before).toEqual(stipend);
+		// the table keeps exactly the stake
+		expect(await w.balance(w.Table.address)).toEqual(w.stake);
+		expect((await w.read.table()).seated).toEqual(1n);
 	});
 
 	it('lets a seat leave before the start, with its stake, and frees the seat', async () => {

@@ -13,8 +13,8 @@ contract GameTable is IGameTable, UsingGameTable {
         uint256 tableStake
     ) UsingGameInternal(config) UsingGameTable(tableStake) {}
 
-    function join() external payable {
-        _join(msg.sender, msg.value);
+    function join(address payable stipendTo, uint256 stipend) external payable {
+        _join(msg.sender, msg.value, stipendTo, stipend);
     }
 
     function closeTable() external {

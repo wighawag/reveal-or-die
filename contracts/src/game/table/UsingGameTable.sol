@@ -47,6 +47,8 @@ abstract contract UsingGameTable is UsingGameInternal {
     error WrongTableMode(uint8 mode);
     /// @notice a seat risks exactly the table's stake
     error TableStakeMismatch(uint256 expected, uint256 given);
+    /// @notice a stipend with nobody to send it to
+    error NoStipendRecipient(uint256 stipend);
     /// @notice an account takes one seat in ETH mode
     error AlreadySeated(uint256 seat);
     /// @notice the table has not started
@@ -144,16 +146,33 @@ abstract contract UsingGameTable is UsingGameInternal {
     ///      Its id is the account's address, which no avatar id can be (they
     ///      carry their owner above the 96th bit), and which is why an account
     ///      has one seat.
-    function _join(address account, uint256 value) internal {
+    ///
+    ///      AND OPTIONALLY THE KEY THAT PLAYS IT: `stipend` of the value is
+    ///      forwarded to `stipendTo` in the same transaction, as the avatars'
+    ///      sale does, so taking a seat funds this browser's signer (which then
+    ///      authorises itself) rather than leaving a second transaction to send.
+    ///      Sent last, after the seat is taken.
+    function _join(
+        address account,
+        uint256 value,
+        address payable stipendTo,
+        uint256 stipend
+    ) internal {
         _requireMode(MODE_ETH);
-        if (value != TABLE_STAKE) {
-            revert TableStakeMismatch(TABLE_STAKE, value);
+        if (stipendTo == address(0) && stipend != 0) {
+            revert NoStipendRecipient(stipend);
+        }
+        if (value != TABLE_STAKE + stipend) {
+            revert TableStakeMismatch(TABLE_STAKE + stipend, value);
         }
         uint256 seat = uint256(uint160(account));
         if (_players[seat].owner != address(0)) {
             revert AlreadySeated(seat);
         }
         _seat(seat, account);
+        if (stipend != 0) {
+            _pay(stipendTo, stipend);
+        }
     }
 
     function _seat(uint256 seat, address owner) internal {
