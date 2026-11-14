@@ -52,6 +52,7 @@ async function buildWorld(overrides?: {provision?: Provision}) {
 		scripts: [...OFFLINE_DEPLOYMENT.scripts],
 		data: {...OFFLINE_DEPLOYMENT.data},
 		accounts: {...OFFLINE_DEPLOYMENT.accounts},
+		expectedContracts: [...OFFLINE_DEPLOYMENT.expectedContracts],
 		initialBalances: {...OFFLINE_DEPLOYMENT.initialBalances},
 		...(overrides?.provision ? {provision: overrides.provision} : {}),
 	});

@@ -55,6 +55,32 @@ describe('the cycle reader', () => {
 	});
 });
 
+describe('the cycle reader at a table (step R1b)', () => {
+	it("reads the base's getCycle, with the phase's bounds, since a table advances early", async () => {
+		const chain = fakeChain({
+			getCycle: {
+				cycleNumber: 9n,
+				commiting: false,
+				phaseStart: 100n,
+				phaseEnd: 110n,
+			},
+		});
+		(chain.deployments as any).get = () => ({
+			chain: {id: 1337},
+			contracts: {
+				Game: {address: GAME, abi: [{type: 'function', name: 'getCycle'}]},
+			},
+		});
+		expect(await createCycleReader(chain)()).toEqual({
+			cycleNumber: 9,
+			isCommitPhase: false,
+			phaseStart: 100,
+			phaseEnd: 110,
+		});
+		expect(chain.reads).toEqual(['getCycle']);
+	});
+});
+
 describe('attendance', () => {
 	it('is the contract’s own count, in ONE read', async () => {
 		// It used to be one or two reads PER MEMBER, assembled here, because the

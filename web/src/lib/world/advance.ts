@@ -124,9 +124,10 @@ type ReadDeps = {
 /**
  * Where the cycle actually is.
  *
- * ONLY THE MANUAL POLICY CALLS THIS. Under `timed` the cycle is pure arithmetic
- * over the chain clock and `createCycleTrackers` never asks, which is what
- * keeps an ordinary deployment's RPC traffic exactly what it was.
+ * ONLY THE MANUAL AND HYBRID POLICIES CALL THIS (the hybrid one at a table).
+ * Under `timed` the cycle is pure arithmetic over the chain clock and
+ * `createCycleTrackers` never asks, which is what keeps an ordinary
+ * deployment's RPC traffic exactly what it was.
  *
  * `phaseStart` and `phaseEnd` are ZERO and that is honest rather than lazy: a
  * manual cycle has no clock, so there is no time at which the phase began and
@@ -136,6 +137,32 @@ type ReadDeps = {
 export function createCycleReader(deps: ReadDeps): () => Promise<CycleReading> {
 	return async () => {
 		const Game = deps.deployments.get().contracts.Game;
+		// AT A TABLE (stratagems' plan, step R1b) the cycle advances early
+		// (`TimedWithEarlyAdvance`), so its phases' bounds are the chain's to say:
+		// a table's own route answers the base's `getCycle`, which the world's
+		// routes do not have.
+		if (
+			(Game.abi as readonly {type: string; name?: string}[]).some(
+				(item) => item.type === 'function' && item.name === 'getCycle',
+			)
+		) {
+			const cycle = (await deps.publicClient.readContract({
+				address: Game.address,
+				abi: Game.abi,
+				functionName: 'getCycle' as never,
+			} as never)) as {
+				cycleNumber: bigint;
+				commiting: boolean;
+				phaseStart: bigint;
+				phaseEnd: bigint;
+			};
+			return {
+				cycleNumber: Number(cycle.cycleNumber),
+				isCommitPhase: cycle.commiting,
+				phaseStart: Number(cycle.phaseStart),
+				phaseEnd: Number(cycle.phaseEnd),
+			};
+		}
 		// TWO UNNAMED-IN-TYPESCRIPT RETURNS: solidity names them `cycleNumber` and
 		// `commiting`, and viem hands back a positional tuple for a function with
 		// more than one output whether or not they are named.

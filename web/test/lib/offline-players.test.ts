@@ -70,6 +70,7 @@ async function buildWorld() {
 		scripts: [...OFFLINE_DEPLOYMENT.scripts],
 		data: {...OFFLINE_DEPLOYMENT.data},
 		accounts: {...OFFLINE_DEPLOYMENT.accounts},
+		expectedContracts: [...OFFLINE_DEPLOYMENT.expectedContracts],
 		initialBalances: {
 			...OFFLINE_DEPLOYMENT.initialBalances,
 			// Every played seat needs gas of its own, exactly as provisioning gives

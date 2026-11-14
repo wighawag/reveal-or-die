@@ -29,6 +29,12 @@ export {createGameContext as createAppContext, SIGNER_GRANT} from './context';
  */
 export type AppMembers = Omit<GameContext, 'start'>;
 
+/**
+ * THIS GAME'S TABLES (stratagems' plan, step R1b): exported, so the framework
+ * offers "Tables" and composes a table's page (`$lib/game/lobby/table`).
+ */
+export {revealOrDieLobby as lobby} from './table';
+
 /** What `?debug` traces, on top of the framework's own. */
 export {startDiagnostics} from './diagnostics';
 

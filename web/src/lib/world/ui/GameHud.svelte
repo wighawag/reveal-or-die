@@ -19,7 +19,12 @@
 	import GameClock from '$lib/game/ui/GameClock.svelte';
 	import DPad from './DPad.svelte';
 	import LootPanel from './LootPanel.svelte';
+	import TableStatus from './TableStatus.svelte';
 	import Button from '$lib/shadcn/ui/button/button.svelte';
+	import TablePanel from '$lib/game/lobby/ui/TablePanel.svelte';
+	import TableLobby from '$lib/game/lobby/ui/TableLobby.svelte';
+	import {tableSettingsOf} from '$lib/game/lobby/table';
+	import {createTableStatus} from './table-status';
 
 	const context = getAppContext();
 	const {game} = context;
@@ -40,6 +45,15 @@
 	// move cannot open two top-ups at once.
 	const topUp = context.topUp;
 
+	// At a table (stratagems' plan, step R1b): its lobby until it starts, then
+	// its seats over the board and this game's own lines in the HUD.
+	const tableScreen = game.table?.screen;
+	const tableSettings = tableSettingsOf(game.config.cycle);
+	const inTableLobby = $derived(
+		game.table !== undefined && $tableScreen?.screen !== 'playing',
+	);
+	const tableStatus = createTableStatus(context);
+
 	const toneClass: Record<string, string> = {
 		idle: 'text-muted-foreground',
 		busy: 'text-blue-400',
@@ -48,9 +62,106 @@
 	};
 </script>
 
+<!-- What stands between this person and a turn (signing in, a seat,
+     authorising this browser): in the HUD, and in a table's lobby, where the
+     seat is what this asks for. -->
+{#snippet setupControls()}
+	{#if $hud.setup}
+		<!--
+			Not yet playable: ask for the one thing that is missing, rather than
+			showing planning controls that cannot lead anywhere.
+		-->
+		<p class="text-sm font-semibold">{$hud.setup.headline}</p>
+		<p class="mt-1 max-w-sm text-xs text-muted-foreground">
+			{$hud.setup.detail}
+		</p>
+		{#if $hud.setup.action === 'authorise'}
+			<!--
+				The same flow the out-of-gas remedy uses: it registers the delegate
+				AND funds it in one transaction, which is the right shape here too.
+				A key that is authorised but has no gas is authorised in name only,
+				and that is a second dead end one step further on.
+			-->
+			<!-- The purpose IS authorising here, so the dialog says so. It is a
+			     required argument now, deliberately: a default is what let one
+			     caller's words end up in front of every other caller's users. -->
+			<Button
+				size="sm"
+				class="mt-3"
+				onclick={() => topUp.start(topUp.purposes.authorise)}
+			>
+				Authorise and carry on
+			</Button>
+		{:else if $hud.setup.action === 'buy'}
+			<!--
+				Spends the player's own money, so it prompts the wallet, unlike
+				every move. `purchase.buy()` also refuses to run twice at once:
+				a disabled button is a suggestion, and `subID` is random, so a
+				second run would buy a SECOND avatar rather than colliding.
+			-->
+			<Button
+				size="sm"
+				class="mt-3"
+				disabled={$hud.setup.busy}
+				onclick={() => purchase.buy()}
+			>
+				{$hud.setup.busy ? $hud.setup.busyLabel : $hud.setup.actionLabel}
+			</Button>
+			{#if $hud.setup.error}
+				<p class="mt-2 max-w-sm text-xs text-red-400">{$hud.setup.error}</p>
+			{/if}
+		{:else if $hud.setup.action === 'join'}
+			<!-- An ETH-mode table's seat: the stake, from the account. -->
+			<Button
+				size="sm"
+				class="mt-3"
+				data-testid="table-join"
+				disabled={$hud.setup.busy}
+				onclick={() => game.worldTable?.join()}
+			>
+				{$hud.setup.busy ? $hud.setup.busyLabel : $hud.setup.actionLabel}
+			</Button>
+			{#if $hud.setup.error}
+				<p class="mt-2 max-w-sm text-xs text-red-400">{$hud.setup.error}</p>
+			{/if}
+		{/if}
+		{#each $tableStatus.seatable as avatar (avatar.avatarID)}
+			<!-- An avatar this account holds, carrying the table's stake. -->
+			<Button
+				size="sm"
+				variant="outline"
+				class="mt-2 mr-2"
+				data-testid="table-seat-held"
+				onclick={() => game.worldTable?.seatHeld(avatar.avatarID)}
+			>
+				{avatar.label}
+			</Button>
+		{/each}
+	{/if}
+{/snippet}
+
 <div
 	class="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-3"
 >
+	<!-- At a table: its lobby (what it plays by, who is seated, the creator's
+	     start) until it has started and this person holds a seat; then who is
+	     playing, and the creator's forfeit. -->
+	{#if game.table && inTableLobby}
+		<TableLobby
+			table={game.table}
+			inviteLink={typeof location === 'undefined' ? '' : location.href}
+			settings={tableSettings}
+			details={$tableStatus.details}
+		>
+			{#snippet takeSeat()}
+				{@render setupControls()}
+			{/snippet}
+		</TableLobby>
+	{:else if game.table}
+		<div class="absolute top-3 right-3">
+			<TablePanel table={game.table} />
+		</div>
+	{/if}
 	<!-- Phase and cycle -->
 	<div
 		class="pointer-events-auto flex w-fit items-center gap-3 rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"
@@ -144,50 +255,8 @@
 			{/if}
 
 			{#if $hud.setup}
-				<!--
-				Not yet playable: ask for the one thing that is missing, rather than
-				showing planning controls that cannot lead anywhere.
-			-->
-				<p class="text-sm font-semibold">{$hud.setup.headline}</p>
-				<p class="mt-1 max-w-sm text-xs text-muted-foreground">
-					{$hud.setup.detail}
-				</p>
-				{#if $hud.setup.action === 'authorise'}
-					<!--
-					The same flow the out-of-gas remedy uses: it registers the delegate
-					AND funds it in one transaction, which is the right shape here too.
-					A key that is authorised but has no gas is authorised in name only,
-					and that is a second dead end one step further on.
-				-->
-					<!-- The purpose IS authorising here, so the dialog says so. It is a
-				     required argument now, deliberately: a default is what let one
-				     caller's words end up in front of every other caller's users. -->
-					<Button
-						size="sm"
-						class="mt-3"
-						onclick={() => topUp.start(topUp.purposes.authorise)}
-					>
-						Authorise and carry on
-					</Button>
-				{:else if $hud.setup.action === 'buy'}
-					<!--
-					Spends the player's own money, so it prompts the wallet, unlike
-					every move. `purchase.buy()` also refuses to run twice at once:
-					a disabled button is a suggestion, and `subID` is random, so a
-					second run would buy a SECOND avatar rather than colliding.
-				-->
-					<Button
-						size="sm"
-						class="mt-3"
-						disabled={$hud.setup.busy}
-						onclick={() => purchase.buy()}
-					>
-						{$hud.setup.busy ? $hud.setup.busyLabel : $hud.setup.actionLabel}
-					</Button>
-					{#if $hud.setup.error}
-						<p class="mt-2 max-w-sm text-xs text-red-400">{$hud.setup.error}</p>
-					{/if}
-				{/if}
+				<!-- In a table's lobby the seat is asked for there, once. -->
+				{#if !inTableLobby}{@render setupControls()}{/if}
 			{:else}
 				<p class="text-sm {toneClass[$hud.submissionTone]}">
 					{$hud.submissionLabel}
@@ -289,6 +358,9 @@
 				{/if}
 			{/if}
 
+			<!-- At a table once started: who is alive, the close, the leftovers and
+			     the winnings (stratagems' plan, step R1b). -->
+			<TableStatus />
 			<!-- Outside the setup gate: an avatar taken out, or one held in the
 			     wallet, is still burnable for its stake while nothing is in play. -->
 			<LootPanel />

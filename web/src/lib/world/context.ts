@@ -15,6 +15,13 @@
 import {derived, get, type Readable} from 'svelte/store';
 import type {Abi} from 'viem';
 import {bodiesAt, createLoot, type LootStore} from '$lib/world/loot';
+import {
+	createWorldTable,
+	seatWanted,
+	tableStopsPlay,
+	type WorldTableStore,
+} from '$lib/world/table';
+import type {TableStore} from '$lib/game/lobby/table';
 import type {CoreServices} from '$lib/context/core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import type {ChainTimeStore} from '$lib/game/core/chain-time';
@@ -225,6 +232,17 @@ export type Game = {
 	/** The bodies where the plan ends, a Collect can name. */
 	bodiesHere: Readable<bigint[]>;
 	/**
+	 * The table this game is at, if it is at one, as the framework reads its
+	 * roster (`$lib/game/lobby/table`): its lobby before the start, its seats
+	 * after.
+	 */
+	table: TableStore | undefined;
+	/**
+	 * The same table as THIS GAME reads it (`$lib/world/table`): its mode and
+	 * stake, who is alive, the close, the leftovers and a survivor's winnings.
+	 */
+	worldTable: WorldTableStore | undefined;
+	/**
 	 * Which part of the cycle this is: play, the commit lock, the reveal, or the
 	 * catch-up while the board fetches what the new cycle assumes.
 	 *
@@ -256,7 +274,7 @@ export type Game = {
 export type SetupNeeded = FrameworkSetupNeeded<{step: 'deposit'}>;
 
 /** What a setup step can be acted on with, where anything can be. */
-export type SetupAction = 'authorise' | 'buy';
+export type SetupAction = 'authorise' | 'buy' | 'join';
 
 /**
  * This game's step of the setup gate: the contract has to be holding an avatar.
@@ -365,6 +383,31 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	/**
+	 * AT A TABLE (stratagems' plan, step R1b): this game's read of it. Its
+	 * leftovers are released with the loot store's chain settling, which is
+	 * built after the game, hence the closure.
+	 */
+	const worldTable: WorldTableStore | undefined = core.table
+		? createWorldTable({
+				deps: core,
+				game: deployments.contracts.Game as unknown as {
+					address: `0x${string}`;
+					abi: Abi;
+				},
+				avatars: deployments.contracts.Avatars as unknown as {
+					address: `0x${string}`;
+					abi: Abi;
+				},
+				seat: activeIdentity,
+				settleClaimsOf: (body) => loot.settleClaimsOf(body),
+				onChanged: () => {
+					void deposited.update();
+					void loot.update();
+				},
+			})
+		: undefined;
+
+	/**
 	 * Where the active avatar stands, from the ACCOUNT'S OWN read. Not from the
 	 * board, which is scoped to what the camera can see: a player who pans away
 	 * would have it read as "not in the world", and the next click would be
@@ -459,12 +502,24 @@ export function createGameContext(core: CoreServices): GameContext {
 			 * running, and a dead one would make `_makeCommitment` revert with
 			 * `AvatarIsDead` once a cycle, at the signer's expense.
 			 */
-			commitWhenIdle: () => isAtRisk(get(deposited), get(activeIdentity)),
+			//
+			// NOR ONCE A TABLE HAS NOTHING LEFT TO PLAY: closed, or closable with
+			// at most one alive. A lone survivor's empty commitment would refuse
+			// the close in that cycle (`TableCommitmentOpen`).
+			commitWhenIdle: () =>
+				isAtRisk(get(deposited), get(activeIdentity)) &&
+				!tableStopsPlay(worldTable && get(worldTable)),
 		},
 		isOutOfGas: (error) => error instanceof SignerOutOfFundsError,
 		stake: {
 			refresh: () => deposited.update(),
-			needed: derived(deposited, depositNeeded),
+			// AT A TABLE a seat is taken before its start and never after it: an
+			// unread table needs nothing yet, a started one nothing ever.
+			needed: worldTable
+				? derived([deposited, worldTable], ([$deposited, $table]) =>
+						seatWanted($table) ? depositNeeded($deposited) : undefined,
+					)
+				: derived(deposited, depositNeeded),
 			acquisition: createAvatarAcquisition({config, deployments}),
 			grant: SIGNER_GRANT,
 		},
@@ -475,6 +530,8 @@ export function createGameContext(core: CoreServices): GameContext {
 				currentPosition,
 				activeIdentity,
 				player: account,
+				// NO EXIT AT A TABLE: the contract drops one, so it is never offered.
+				noExit: worldTable !== undefined,
 			}),
 		hold: holdResolvingCycle,
 		holdPlan: holdPlanUntilBoardReleases,
@@ -505,6 +562,7 @@ export function createGameContext(core: CoreServices): GameContext {
 				world.game;
 			void deposited.update();
 			void loot.update();
+			const stopTable = worldTable?.startPolling();
 			// What the avatar collected and its claims follow the avatar and the
 			// cycle: a claim becomes final when its cycle ends.
 			// A KEY, not a constant: a derived store re-emits only when its value
@@ -547,6 +605,7 @@ export function createGameContext(core: CoreServices): GameContext {
 				refresh: () => world.onchainState.update(),
 			});
 			return () => {
+				stopTable?.();
 				unsubscribeAccount();
 				unsubscribeLoot();
 				unsubscribeCycle();
@@ -648,6 +707,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			currentPosition,
 			loot,
 			bodiesHere,
+			worldTable,
 		},
 		render: world.render,
 		start: world.start,

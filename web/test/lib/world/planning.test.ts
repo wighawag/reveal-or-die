@@ -80,7 +80,9 @@ function fakeSubmission(initial: Action[] = []) {
 
 const config = {numMoves: 3} as WorldConfig;
 
-function setup(opts: {at?: Position; actions?: Action[]} = {}) {
+function setup(
+	opts: {at?: Position; actions?: Action[]; noExit?: boolean} = {},
+) {
 	const {submission, state, ready} = fakeSubmission(opts.actions ?? []);
 	const currentPosition: Readable<Position | undefined> = writable(
 		'at' in opts ? opts.at : START,
@@ -91,6 +93,7 @@ function setup(opts: {at?: Position; actions?: Action[]} = {}) {
 		currentPosition,
 		activeIdentity: writable(7n),
 		player: writable('0x1111111111111111111111111111111111111111'),
+		...(opts.noExit ? {noExit: true} : {}),
 	});
 	return {planning, submission, state, ready};
 }
@@ -277,6 +280,12 @@ describe('planning: leaving the world', () => {
 			.actions;
 		expect(actions).toHaveLength(2);
 		expect(bigIntIDToXY(actions[1].data)).toEqual(EXIT);
+	});
+
+	it('never offers an exit at a table, even from the exit tile (step R1b)', () => {
+		const {planning} = setup({at: EXIT, noExit: true});
+		expect(get(planning.canExit)).toBe(false);
+		expect(planning.exitAt()).toBe(false);
 	});
 
 	it('refuses an exit from a cell that is not the exit tile', () => {

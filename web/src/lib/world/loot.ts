@@ -130,6 +130,12 @@ export type LootStore = Readable<LootState> & {
 	/** Settle every final claim, the chain of a dead carrier's first. */
 	settleAll(): Promise<void>;
 	/**
+	 * Settle every final claim `body` holds, each from the bottom of its chain
+	 * up, so the body itself can be released (a table's leftover, R1b-9).
+	 * Throws what stops it, for the caller to show.
+	 */
+	settleClaimsOf(body: bigint): Promise<void>;
+	/**
 	 * Take an avatar out of the game, which pays what it collected: from the
 	 * account, with a wallet prompt, since only the owner may.
 	 */
@@ -316,6 +322,21 @@ export function createLoot(params: {
 		await send(collector, body);
 	}
 
+	async function settleClaimsOf(body: bigint) {
+		const cycle = get(params.cycleNumber);
+		for (const held of await openClaimsOf(deps.publicClient, game, body)) {
+			const claimedIn = Number(
+				(await read('getClaim', [body, held])) as bigint,
+			);
+			if (claimedIn >= cycle) {
+				throw new Error(
+					'A body this one collected is still being shared this cycle: try again next cycle.',
+				);
+			}
+			await settleChain(body, held, 1);
+		}
+	}
+
 	async function settleAll() {
 		const now = get(state);
 		if (now.step !== 'Loaded') return;
@@ -366,6 +387,7 @@ export function createLoot(params: {
 		held: {subscribe: held.subscribe},
 		update,
 		settleAll,
+		settleClaimsOf,
 		withdraw: (avatarID) =>
 			fromAccount('Taking the avatar out', {
 				...game,
@@ -465,6 +487,11 @@ export function lootPanelOf(params: {
 	canPlan: boolean;
 	/** The playing avatar, when it is deposited and out of the world, alive. */
 	outOfTheWorld?: bigint;
+	/**
+	 * At a table once it has started: nothing leaves until the close, and a
+	 * survivor's winnings are the table panel's (`table.ts`), so no withdraw.
+	 */
+	atStartedTable?: boolean;
 	symbol: string;
 	format: (value: bigint) => string;
 }): LootPanel {
@@ -494,7 +521,9 @@ export function lootPanelOf(params: {
 		};
 	}
 	if (model.carried > 0n) {
-		panel.carriedLine = `You carry ${eth(model.carried)}, paid when you take your avatar out.`;
+		panel.carriedLine = params.atStartedTable
+			? `You carry ${eth(model.carried)}, paid with your winnings if you survive.`
+			: `You carry ${eth(model.carried)}, paid when you take your avatar out.`;
 	}
 	if (model.settleableCount > 0) {
 		panel.settle = {
@@ -506,7 +535,7 @@ export function lootPanelOf(params: {
 	if (model.pendingCount > 0) {
 		panel.pendingLine = `${model.pendingCount} body${model.pendingCount === 1 ? '' : ' bodies'} collected this cycle, about ${eth(model.pending)}: final when the cycle ends.`;
 	}
-	if (params.outOfTheWorld !== undefined) {
+	if (params.outOfTheWorld !== undefined && !params.atStartedTable) {
 		panel.withdraw = {
 			avatarID: params.outOfTheWorld,
 			label:

@@ -40,6 +40,8 @@ import {pokeWhenTheHumanActs} from '$lib/game/core/played';
 import {seatsPlayedByTheWorld, type Table} from '$lib/game/lobby/seats';
 import {authoriseTheBrowsersKey} from '$lib/game/acquire';
 import {resolveWorldConfig} from '$lib/world/config';
+import {isTableContract} from '$lib/world/table';
+import {expectedContractNames} from '$lib/embedded/deployments';
 
 /**
  * THIS GAME'S OFFLINE WORLD: the composition, which is the half
@@ -242,6 +244,14 @@ export const OFFLINE_DEPLOYMENT = {
 		[DEPLOYER_ADDRESS]: PLAY_MONEY,
 		[ADMIN_ADDRESS]: PLAY_MONEY,
 	},
+	/**
+	 * What must exist afterwards: everything the app was built against except
+	 * the tables (`030_deploy_tables.ts` is not among the scripts above: an
+	 * in-tab chain has nobody to invite; stratagems' plan, step R1b).
+	 */
+	expectedContracts: expectedContractNames().filter(
+		(name) => !isTableContract(name),
+	),
 } as const;
 
 export type OfflineWorldStatus =
@@ -556,6 +566,7 @@ async function openWorld(
 		scripts: [...OFFLINE_DEPLOYMENT.scripts],
 		data: {...OFFLINE_DEPLOYMENT.data},
 		accounts: {...OFFLINE_DEPLOYMENT.accounts},
+		expectedContracts: [...OFFLINE_DEPLOYMENT.expectedContracts],
 		initialBalances: {...OFFLINE_DEPLOYMENT.initialBalances},
 		// IN A WORKER whenever there is one, with its IndexedDB persistence built
 		// inside it; on this thread otherwise. See `$lib/offline-node`.

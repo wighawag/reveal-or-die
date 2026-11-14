@@ -2,10 +2,11 @@
  * The loot panel's model (step R1a): `../loot.ts` decides every word, this
  * only gathers the stores it reads, for `LootPanel.svelte`.
  */
-import {derived, type Readable} from 'svelte/store';
+import {derived, readable, type Readable} from 'svelte/store';
 import type {Context} from '$lib/context/types';
 import {formatBalance} from '$lib/core/utils/format/balance';
 import {lootModel, lootPanelOf, type LootPanel} from '../loot';
+import type {WorldTableState} from '../table';
 
 export function createLootPanel(context: Context): Readable<LootPanel> {
 	const {game} = context;
@@ -19,6 +20,8 @@ export function createLootPanel(context: Context): Readable<LootPanel> {
 			game.planning.canPlan,
 			game.deposited,
 			game.activeIdentity,
+			game.worldTable ??
+				readable<WorldTableState>({step: 'Unloaded'} as WorldTableState),
 		],
 		([
 			$model,
@@ -28,6 +31,7 @@ export function createLootPanel(context: Context): Readable<LootPanel> {
 			$canPlan,
 			$deposited,
 			$avatarID,
+			$table,
 		]) => {
 			const mine =
 				$deposited.step === 'Loaded' && $avatarID !== undefined
@@ -42,6 +46,11 @@ export function createLootPanel(context: Context): Readable<LootPanel> {
 				collectsLeft: $collectsLeft,
 				canPlan: $canPlan,
 				...(outOfTheWorld !== undefined ? {outOfTheWorld} : {}),
+				// at a table, nothing leaves between its start and its close, and a
+				// survivor's winnings are the table panel's (stratagems' plan, R1b)
+				atStartedTable:
+					($table as WorldTableState).step === 'Loaded' &&
+					($table as Extract<WorldTableState, {step: 'Loaded'}>).table.started,
 				symbol,
 				format: (value) => formatBalance(value),
 			});

@@ -150,8 +150,14 @@ export function createPlanning(params: {
 	activeIdentity: Readable<GameIdentity | undefined>;
 	/** The ACCOUNT that owns them, which is a different question. */
 	player: Readable<`0x${string}` | undefined>;
+	/**
+	 * At a table, where the contract drops an Exit (stratagems' plan, step
+	 * R1b, R1b-6): never offered.
+	 */
+	noExit?: boolean;
 }): PlanningStore {
 	const {submission, config, currentPosition, activeIdentity, player} = params;
+	const noExit = params.noExit ?? false;
 
 	const plannedStore = derived(submission, ($submission) =>
 		actionsOf($submission),
@@ -226,7 +232,7 @@ export function createPlanning(params: {
 		planned: readonly Action[],
 		onchain: Position | undefined,
 	): Position | undefined {
-		if (!ready || !isPlannable(state)) return undefined;
+		if (noExit || !ready || !isPlannable(state)) return undefined;
 		if (planned.some(endsTheTurn)) return undefined;
 		if (onchain === undefined) return undefined;
 		// Where the avatar will be STANDING when the exit resolves, which is the

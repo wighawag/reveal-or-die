@@ -14,7 +14,7 @@
  * because settling one takes nothing more than the miss (`_forfeit` in
  * `UsingGameInternal`).
  */
-import {derived, type Readable} from 'svelte/store';
+import {derived, readable, type Readable} from 'svelte/store';
 import type {Context} from '$lib/context/types';
 import type {SubmissionState} from '$lib/game/core/submission';
 
@@ -31,6 +31,7 @@ import {causeOfDeath, explainDeath, type DeathCause} from '../death';
 import {opensAWallet, type AcquisitionState} from '$lib/game/acquire';
 import {purchaseValue} from 'reveal-or-die-contracts';
 import {formatBalance} from '$lib/core/utils/format/balance';
+import type {WorldTableAction, WorldTableState} from '../table';
 
 /** One avatar the player could switch to. */
 export type AvatarChoice = {
@@ -467,9 +468,27 @@ export function purchaseBusyLabel(state: AcquisitionState): string | undefined {
 /** What the player has to do before they can take a turn. */
 export function describeSetup(
 	setup: SetupNeeded | undefined,
-	options?: {priceLabel?: string; busyLabel?: string},
+	options?: {
+		priceLabel?: string;
+		busyLabel?: string;
+		/**
+		 * At an ETH-mode table a seat is joined for the stake, not bought
+		 * (stratagems' plan, step R1b): the stake, as the button says it.
+		 */
+		join?: {stakeLabel: string};
+	},
 ): HudModel['setup'] {
 	if (!setup) return undefined;
+	if (setup.step === 'deposit' && options?.join) {
+		return {
+			headline: 'Take a seat at this table',
+			detail:
+				'At this table a seat is paid in ETH: the stake is what you risk, and your character is your own, drawn from your address. Survive to take it back with your share of the dead.',
+			action: 'join',
+			actionLabel: `Join for ${options.join.stakeLabel}`,
+			busyLabel: options.busyLabel,
+		};
+	}
 	switch (setup.step) {
 		case 'sign-in':
 			return {
@@ -571,6 +590,10 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.autoRecovery,
 			game.cycleAdvance,
 			game.submission.ready,
+			game.worldTable ??
+				readable<WorldTableState>({step: 'Unloaded'} as WorldTableState),
+			game.worldTable?.action ??
+				readable<WorldTableAction>({step: 'Idle'} as WorldTableAction),
 		],
 		([
 			$phase,
@@ -591,7 +614,12 @@ export function createHud(context: Context): Readable<HudModel> {
 			$autoRecovery,
 			$advance,
 			$ready,
+			$table,
+			$tableAction,
 		]): HudModel => {
+			const table = $table as WorldTableState;
+			const atTable = game.worldTable !== undefined;
+			const symbol = context.deployments.get().chain.nativeCurrency.symbol;
 			const deposited = $deposited as DepositedState;
 			const advance = $advance as CycleAdvanceState;
 			const advanceOutOfGas =
@@ -626,8 +654,22 @@ export function createHud(context: Context): Readable<HudModel> {
 						stake: game.config.sale.stake,
 						stipend: game.config.sale.stipend,
 					}),
-				)} ${context.deployments.get().chain.nativeCurrency.symbol}`,
+				)} ${symbol}`,
+				...(table.step === 'Loaded' && table.table.mode === 'eth'
+					? {
+							join: {
+								stakeLabel: `${formatBalance(table.table.stake)} ${symbol}`,
+							},
+						}
+					: {}),
 			});
+			if (needsSetup?.action === 'join') {
+				const tableAction = $tableAction as WorldTableAction;
+				needsSetup.busy = tableAction.step === 'Sending';
+				if (needsSetup.busy) needsSetup.busyLabel = 'Joining...';
+				needsSetup.error =
+					tableAction.step === 'Failed' ? tableAction.message : undefined;
+			}
 			if (needsSetup?.action === 'buy') {
 				needsSetup.busy = purchaseBusyLabel(purchase) !== undefined;
 				needsSetup.error =
@@ -754,7 +796,11 @@ export function createHud(context: Context): Readable<HudModel> {
 										// slower game than the one that was built. And says where the
 										// way out is, because leaving is the one action with no cell to
 										// click on and the exit tile is otherwise just scenery.
-										'Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn. To leave the world, walk onto the exit tile.',
+										`Click a neighbouring cell to step onto it, or use the arrow keys. Only a legal step is accepted: the contract stops processing at the first move it refuses, which would silently drop the rest of your turn. ${
+											atTable
+												? 'There is no exit at a table: survive to the end.'
+												: 'To leave the world, walk onto the exit tile.'
+										}`,
 
 				submissionLabel: submission.label,
 				submissionTone: submission.tone,

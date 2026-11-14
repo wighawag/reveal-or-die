@@ -121,6 +121,30 @@ describe('the loot panel', () => {
 	});
 });
 
+describe('the loot panel at a table (step R1b)', () => {
+	it('offers no withdraw once the table has started, and says the carried value comes with the winnings', () => {
+		const model = lootModelOf(
+			{step: 'Loaded', avatarID: 7n, carried: 5n, claims: []},
+			{step: 'Idle'},
+		);
+		const panel = lootPanelOf({
+			model,
+			held: [],
+			bodiesHere: [],
+			collectsLeft: 3,
+			canPlan: true,
+			outOfTheWorld: 7n,
+			atStartedTable: true,
+			symbol: 'ETH',
+			format: (v) => v.toString(),
+		});
+		expect(panel.withdraw).toBeUndefined();
+		expect(panel.carriedLine).toBe(
+			'You carry 5 ETH, paid with your winnings if you survive.',
+		);
+	});
+});
+
 describe('settling', () => {
 	/**
 	 * Avatar 7 collected body 20, a dead carrier which itself collected body
