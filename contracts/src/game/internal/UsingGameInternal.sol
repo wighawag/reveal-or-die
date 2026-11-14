@@ -34,6 +34,12 @@ interface IStakeReceiver {
 ///  TWO OF THE BASE'S THREE SEAMS ARE OVERRIDDEN HERE, and the third ({_cycle})
 ///  is left alone: {_playerOf} resolves an avatar through custody, and
 ///  {_forfeit} says what a missed reveal costs.
+///
+///  SEVEN INTERNALS ARE `virtual` FOR THE TABLES, and only for them
+///  ({_deposit}, {_withdraw}, {_commitTurn}, {_exit}, {_getResolvedAvatar},
+///  {_releaseBody}, {_getBody}): a table's routes (`src/game/table/`, stratagems'
+///  plan, step R1b) override them at compile time, and the world's routes,
+///  which override none, compile to the same code as before.
 abstract contract UsingGameInternal is
     UsingGameStore,
     UsingGameEvents,
@@ -44,7 +50,7 @@ abstract contract UsingGameInternal is
     //-------------------------------------------------------------------------
     // ENTRY POINTS
     //-------------------------------------------------------------------------
-    function _deposit(uint256 avatarID, address owner) internal {
+    function _deposit(uint256 avatarID, address owner) internal virtual {
         _players[avatarID] = Player({owner: owner, inCustody: true});
 
         uint256 length = _ownedAvatars[owner].length;
@@ -110,7 +116,11 @@ abstract contract UsingGameInternal is
         return 0;
     }
 
-    function _withdraw(address owner, uint256 avatarID, address to) internal {
+    function _withdraw(
+        address owner,
+        uint256 avatarID,
+        address to
+    ) internal virtual {
         if (_players[avatarID].owner != owner) {
             revert UsingGameErrors.NotAuthorizedOwner(owner);
         }
@@ -192,7 +202,7 @@ abstract contract UsingGameInternal is
         address sender,
         uint256 avatarID,
         bytes24 commitmentHash
-    ) internal {
+    ) internal virtual {
         uint256 player = _playerOf(sender, avatarID);
         (uint64 cycleNumber, ) = _cycleNumber();
         if (_getResolvedAvatar(player, cycleNumber).life == 0) {
@@ -498,7 +508,7 @@ abstract contract UsingGameInternal is
     function _exit(
         ActionResolution memory resolution,
         uint256
-    ) internal pure {
+    ) internal pure virtual {
         // NOT IN THE WORLD, so there is nothing to leave - and this was not
         // merely pointless. `left` used to be set unconditionally, and
         // `_resolveActions` then called `_removeFromZone` with the start zone of
@@ -527,7 +537,7 @@ abstract contract UsingGameInternal is
     function _getResolvedAvatar(
         uint256 avatarID,
         uint64 cycleNumber
-    ) internal view returns (AvatarResolved memory) {
+    ) internal view virtual returns (AvatarResolved memory) {
         Avatar memory avatar = _avatars[avatarID];
 
         uint64 lastCycleNumber = avatar.lastCycleNumber;
@@ -848,7 +858,7 @@ abstract contract UsingGameInternal is
     ///  of the pot, and is final only once they are settled. Claims go from a
     ///  later death to an earlier one (a collector is alive when it collects),
     ///  so settling from the bottom up always ends.
-    function _releaseBody(uint256 body, Body storage state) internal {
+    function _releaseBody(uint256 body, Body storage state) internal virtual {
         uint256 open = _openClaims[body].length;
         if (open != 0) {
             revert BodyHasOpenClaims(body, open);
@@ -869,7 +879,7 @@ abstract contract UsingGameInternal is
 
     function _getBody(
         uint256 body
-    ) internal view returns (PublicBody memory) {
+    ) internal view virtual returns (PublicBody memory) {
         Body memory state = _bodies[body];
         uint256 value = state.released
             ? state.pot
