@@ -46,6 +46,15 @@ const collect = (body: bigint): Action => ({
 });
 const exit = (): Action => ({actionType: ActionType.Exit, data: 0n});
 
+/**
+ * `numMoves` steps (an even number) from (0,1) that end on (0,3), back and
+ * forth over (0,2): the most moves a turn may make before it collects there.
+ */
+const walkOnto = (numMoves: number): Action[] =>
+	Array.from({length: numMoves}, (_, i) =>
+		i === numMoves - 1 ? move(0n, 3n) : move(0n, i % 2 === 0 ? 2n : 1n),
+	);
+
 type Who = string;
 
 /** From (0,2) to the exit tile at (3,5), and out: eight steps, then Exit. */
@@ -204,6 +213,24 @@ async function aBodyBetween(collectors: Who[]) {
 	return w;
 }
 
+/**
+ * Several bodies on (0,2), dead for a cycle already, and the collectors beside
+ * them at (0,1).
+ */
+async function aBodiesBetween(bodies: Who[], collectors: Who[]) {
+	const w = await world([...bodies, ...collectors]);
+	await w.cycle({
+		...Object.fromEntries(bodies.map((n) => [n, [enter(0n, 2n)]])),
+		...Object.fromEntries(collectors.map((c) => [c, [enter(0n, 1n)]])),
+	});
+	const missesAllowed = Number(w.Game.linkedData!.numMissesAllowed);
+	for (let i = 0; i < missesAllowed + 2; i++) {
+		await w.cycle(Object.fromEntries(collectors.map((c) => [c, []])));
+	}
+	for (const n of bodies) expect((await w.avatar(n)).life).toEqual(0);
+	return w;
+}
+
 describe('the stake in an avatar', () => {
 	it('is fixed by the sale at mint, and paid to whoever holds the avatar when they burn it', async () => {
 		const w = await world(['a']);
@@ -357,6 +384,51 @@ describe('a body', () => {
 		await expect(w.settle('b', 'dead')).toBeRejectedWith('NoClaim');
 	});
 
+	it('appears the cycle after the death: not collectable in the cycle it died in, collectable in the next', async () => {
+		// stratagems' plan, step R2 (R2-2a): one cycle short of `aBodyBetween`
+		const w = await world(['dead', 'a']);
+		await w.cycle({dead: [enter(0n, 2n)], a: [enter(0n, 1n)]});
+		const missesAllowed = Number(w.Game.linkedData!.numMissesAllowed);
+		for (let i = 0; i < missesAllowed + 1; i++) await w.cycle({a: []});
+		expect((await w.avatar('dead')).life).toEqual(1);
+
+		// the cycle it dies in: it reads dead, and its body cannot be named yet
+		await w.cycle({a: [move(0n, 2n), collect(w.id('dead'))]});
+		expect((await w.avatar('dead')).life).toEqual(0);
+		expect((await w.avatar('a')).position).toEqual(pos(0n, 2n));
+		expect((await w.body('dead')).claimants).toEqual(0);
+
+		// the next cycle it can
+		await w.cycle({a: [collect(w.id('dead'))]});
+		expect((await w.body('dead')).claimants).toEqual(1);
+		expect((await w.body('dead')).firstClaimCycle).toEqual(
+			BigInt(w.cycleNumber()),
+		);
+	});
+
+	it('ends the movement once the turn has collected: a later move ends the turn there, further collects resolve', async () => {
+		// stratagems' plan, step R2 (R2-2b)
+		const w = await aBodiesBetween(['d1', 'd2', 'd3'], ['a']);
+		await w.cycle({
+			a: [
+				move(0n, 2n),
+				collect(w.id('d1')),
+				collect(w.id('d2')),
+				move(0n, 3n),
+				collect(w.id('d3')),
+			],
+		});
+		// the move after the collects is dropped, and the turn ends there
+		expect((await w.avatar('a')).position).toEqual(pos(0n, 2n));
+		expect((await w.body('d1')).claimants).toEqual(1);
+		expect((await w.body('d2')).claimants).toEqual(1);
+		expect((await w.body('d3')).claimants).toEqual(0);
+		// and the avatar moves again the next cycle
+		await w.cycle({a: [move(0n, 3n), collect(w.id('d3'))]});
+		expect((await w.avatar('a')).position).toEqual(pos(0n, 3n));
+		expect((await w.body('d3')).claimants).toEqual(0);
+	});
+
 	it('cannot be collected from another cell, nor while alive', async () => {
 		const w = await aBodyBetween(['a', 'b']);
 		await w.cycle({a: [collect(w.id('dead'))], b: [collect(w.id('a'))]});
@@ -480,17 +552,15 @@ describe('a body', () => {
 		const names = ['d1', 'd2', 'd3'];
 		const w = await world([...names, 'a']);
 		await w.cycle({
-			...Object.fromEntries(names.map((n) => [n, [enter(0n, 2n)]])),
+			...Object.fromEntries(names.map((n) => [n, [enter(0n, 3n)]])),
 			a: [enter(0n, 1n)],
 		});
 		const missesAllowed = Number(w.Game.linkedData!.numMissesAllowed);
 		for (let i = 0; i < missesAllowed + 2; i++) await w.cycle({a: []});
+		// every move first, since collecting ends the movement (R2-2b)
 		const numMoves = Number(w.Game.linkedData!.numMoves);
-		const back: Action[] = Array.from({length: numMoves - 1}, (_, i) =>
-			move(0n, i % 2 === 0 ? 1n : 2n),
-		);
 		const receipts = await w.cycle({
-			a: [move(0n, 2n), ...names.map((n) => collect(w.id(n))), ...back],
+			a: [...walkOnto(numMoves), ...names.map((n) => collect(w.id(n)))],
 		});
 		expect(receipts.a.gasUsed < REVEAL_GAS).toEqual(true);
 		expect((await w.body('d3')).claimants).toEqual(1);

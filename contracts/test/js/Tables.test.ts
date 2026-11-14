@@ -781,22 +781,20 @@ describe('the world beside the tables', () => {
 			return gas;
 		}
 		await cycle({
-			d1: [enter(0n, 2n)],
-			d2: [enter(0n, 2n)],
-			d3: [enter(0n, 2n)],
+			d1: [enter(0n, 3n)],
+			d2: [enter(0n, 3n)],
+			d3: [enter(0n, 3n)],
 			a: [enter(0n, 1n)],
 		});
 		const missesAllowed = Number(Game.linkedData!.numMissesAllowed);
 		for (let i = 0; i < missesAllowed + 2; i++) await cycle({a: []});
-		const back: Action[] = Array.from({length: 9}, (_, i) =>
-			move(0n, i % 2 === 0 ? 1n : 2n),
+		// ten moves from (0,1) back and forth over (0,2) onto (0,3), then the
+		// collects: collecting ends the movement (R2-2b)
+		const walk: Action[] = Array.from({length: 10}, (_, i) =>
+			i === 9 ? move(0n, 3n) : move(0n, i % 2 === 0 ? 2n : 1n),
 		);
 		const gas = await cycle({
-			a: [
-				move(0n, 2n),
-				...['d1', 'd2', 'd3'].map((n) => collect(av[n].id)),
-				...back,
-			],
+			a: [...walk, ...['d1', 'd2', 'd3'].map((n) => collect(av[n].id))],
 		});
 		expect(gas.a).toEqual(WORLD_REVEAL_GAS_BEFORE_TABLES);
 	});
