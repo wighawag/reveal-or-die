@@ -499,7 +499,7 @@ export function lootPanelOf(params: {
 	if (model.settleableCount > 0) {
 		panel.settle = {
 			line: `${model.settleableCount} share${model.settleableCount === 1 ? '' : 's'} to settle, about ${eth(model.settleable)}.`,
-			label: model.busy ? 'Settling...' : 'Settle',
+			label: model.busy ? 'Taking your shares...' : 'Take your shares',
 			disabled: model.busy,
 		};
 	}

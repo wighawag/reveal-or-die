@@ -507,9 +507,11 @@ export function createGameContext(core: CoreServices): GameContext {
 			void loot.update();
 			// What the avatar collected and its claims follow the avatar and the
 			// cycle: a claim becomes final when its cycle ends.
+			// A KEY, not a constant: a derived store re-emits only when its value
+			// changes, so one that always answered `undefined` called this once.
 			const unsubscribeLoot = derived(
 				[activeIdentity, currentCycleNumber],
-				() => undefined,
+				([$avatarID, $cycle]) => `${$avatarID}:${$cycle}`,
 			).subscribe(() => void loot.update());
 			// The deposited avatars are the ACCOUNT's, so they follow the account.
 			const unsubscribeAccount = account.subscribe(() => {
