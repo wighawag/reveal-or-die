@@ -16,6 +16,7 @@ import type {RecoveryState} from '$lib/game/core/recovery';
 import type {AutoRecoveryState} from '$lib/world/recover-submission';
 import type {RevealOutcome} from '$lib/world/reveal-outcome';
 import type {CyclePhase} from '$lib/world/context';
+import {ActionType} from 'reveal-or-die-contracts';
 
 /**
  * What the player is TOLD, which is the only part of a failure they can act on.
@@ -904,5 +905,27 @@ describe('a cycle this client could not push on', () => {
 		const model = get(createHud(fakeContext(planning)));
 		expect(model.outOfGas).toBeUndefined();
 		expect(model.advanceFailed).toBeUndefined();
+	});
+});
+
+/**
+ * A TURN OF COLLECTS ALONE (stratagems' plan, step R2): a body appears the
+ * cycle after its death, so an avatar that walked onto it in that cycle names
+ * it the next one without moving. A Collect is not on the board's path (it
+ * names a body, not a cell), so counting the planned PATH made such a turn
+ * uncommittable.
+ */
+describe('a turn that only collects', () => {
+	it('is committable', () => {
+		const planning = {
+			step: 'Planning',
+			cycleNumber: 3,
+			actions: [{actionType: ActionType.Collect, data: 42n}],
+		} as unknown as State;
+		const model = get(
+			createHud(fakeContext(planning, {currentPosition: {x: 1, y: 1}})),
+		);
+		expect(model.plannedCount).toBe(1);
+		expect(model.canCommit).toBe(true);
 	});
 });
