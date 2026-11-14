@@ -6,6 +6,42 @@ blockedBy: [reveal-or-die-adopts-the-commit-reveal-base]
 home: reveal-or-die (bomber-world takes it by cascade)
 ---
 
+# Tables for reveal-or-die
+
+## Done, 2026-11-14, on local preview branches `pr1b/*`, NOT pushed
+
+Built from stratagems' port plan, step R1b (`main`, `work/plans/join-template-commit-reveal.md`, section "Step R"), its decisions R1b-1 to R1b-19 taken with the maintainer on 2026-11-13. They replace the steps and open questions below, which are kept as what was asked; the decisions of 2026-11-04, 11-05 and 11-12 below still stand except where R1b says otherwise (a table pays the avatar's R1a stake in ETH rather than keeping a tally; the `numMoves` option is deferred).
+
+**The decisions (R1b-1 to R1b-18)**: the mode is the table's `gameOptions`, `{uint8 mode}` (0 avatar, 1 ETH, every other byte zero), refused where it is read; avatar mode seats an avatar carrying exactly the table's stake, ETH mode seats `join()` for exactly that stake, the seat's id the account's address, one per account; the table's stake is the deployment's (`data.Table.stake`, the sale's, recorded on the factory); the death clock starts at the table's start for every seat, entered or not; no exit, and nobody leaves between the start and the close; `closeTable()` by anyone once the last cycle has passed or at most one seat is alive, fixing the end cycle, the survivors and the leftovers; the table keeps its own seated list (a forfeited member's body counts); `releaseLeftover(body)` by anyone after the close, refused while the body has open claims, into a pot the survivors share (the remainder stays), or to the body's owner when nobody survived; table-only routes (`UsingGameTable`, the world's routes with it compiled in, a `GameTable` route), the world byte-identical but for the metadata hash; `data.Table` (`TimedWithEarlyAdvance`, the world's durations, `numMoves` 10, `numMissesAllowed` 1); the lobby asks the mode with a select (template-commit-reveal `work`: `a-table-option-may-offer-choices`); bomber-world takes it by cascade and exports no `lobby` until stratagems' step R2.
+
+**`main`** (from `origin/main` 070176ee):
+
+- `a572f7f5` the template's cascade (`TableOptionField.choices`).
+- `e8538fe5` the test first (failing): `Tables.test.ts`, 16 cases: the mode refused where read, the stake equal, a seat leaving before the start, a never-entered seat dying, an exit dropped, the order replay at a table, the close early (refused while two are alive, in a reveal phase, and while the one alive has committed) and after the last cycle, a forfeited member's body, the payouts in both modes, a leftover refused with open claims, the pot and its remainder, nobody surviving, the world's reveal gas pinned.
+- `8b2e41ba` seven internals `virtual` (`_deposit`, `_withdraw`, `_commitTurn`, `_exit`, `_getResolvedAvatar`, `_releaseBody`, `_getBody`): the world's routes byte-identical but for the metadata hash.
+- `89fc5bfa` `src/game/table/`: `UsingGameTable` (ERC-7201 storage `reveal-or-die.storage.Table`), `GameTableRoutes.sol` (the five world routes with it), `GameTable` (`join`, `closeTable`, `releaseLeftover`, `getTable`, `getSeated`, `getCycle`), `030_deploy_tables.ts` (`GameTableImplementation`, a router, no proxy; `GameTableFactory`, `CommitRevealGameFactory` with the config and the stake as linked data; all deterministic), `data.Table`, and `AVATAR_STAKE` shared by the sale and the tables.
+- `90f7d817` the client: `world/table.ts` (the lobby, exported from `world/game.ts`; the table store; every word of the HUD's table lines), the setup's Join in ETH mode and a held avatar's seat, no exit offered at a table, no empty turn once the table is closable (so the close is taken in a commit phase), a table's cycle read from `getCycle`, the offline world without the tables; unit tests.
+- `9fd670da` `tables.e2e.ts`, one story per mode; the HUD asks a seated ETH player to authorise over the table's lobby.
+- `20e8be0c` the world's reveal gas a named constant, which bomber-world pins to its own.
+- `33a22bba` the LAN package's pnpm deps hash recomputed: stale since the lockfile changed in fd51f913 (the T2 cascade), so `nix build .#lan` failed on `main` before this step too.
+
+**bomber-world `main`** (from 26d6520d): `ed403867` the cascade (five conflicts, both sides kept; `GameHud.svelte` kept bomber-world's skin with no table UI; `data.Table.actionsPerReveal` 16, since bombs take two actions and the constructor refuses less); `b0cdccee` `tables.e2e.ts` omitted, `world/game.ts` exporting no `lobby`; `9d90b12e` the second cascade, the gas pin bomber-world's own (670,769, the world's routes byte-identical to 26d6520d).
+
+## Measured
+
+- Contracts: **84 passing** (from 68); bomber-world **86** (from 70). Deployed sizes (EIP-170 24,576): `GameTableGetters` 10,387, `GameTableDeposit` 14,021, `GameTableCommit` 7,832, `GameTableReveal` 19,599, `GameTableLoot` 9,250, `GameTable` 12,830 (bomber-world 12,507, 15,774, 9,558, 21,461, 9,250, 13,777). The world's six routes byte-identical but for the metadata hash, here and in bomber-world; the world's reveal of 3 collects and 10 moves 560,811 gas before and after (bomber-world 670,769). The table router routes 43 selectors in 8 routes.
+- Check 0 errors and 0 warnings in both; unit **2239 + 78** (from 2217 + 78), bomber-world **2329 + 78** (from 2307 + 78); dangling imports and omissions clean.
+- e2e: **57 passed, 2 skipped** (9.3 min; from 55 and 2), `tables.e2e.ts` included (avatar mode 2.8 min, ETH mode 2.9 min); RPC 8557, app 4183.
+- `nix build git+file://$PWD#lan` passes at 33a22bba.
+
+## Surprises
+
+- A seat that never enters could not die (`_getResolvedAvatar` gives life 1 outside the world), the exploit R1b-5 closes.
+- The close had to be taken in a commit phase with no living seat committed, or a reveal after it could claim a body counted as a leftover; so the client stops a lone survivor committing empty turns once the table is closable.
+- In ETH mode nothing funds the browser's key (a purchase does), and the creator's start is sent by that key: the first e2e run failed on `start` with `NotDelegate`, and the HUD now asks a seated player to authorise over the table's lobby.
+
+## What was asked (kept)
+
 # The template has tables; this game cannot offer them until its contracts stand on the base
 
 Asked for by the bomber-world maintainer, 2026-11-03 ("I still do not see option for lobby"). The home menu's "Tables" entry and the `/lobby/` route arrived by cascade and stay hidden, by design: they appear only when the game's `$app-specific` module exports a `lobby`, and this game cannot yet.
