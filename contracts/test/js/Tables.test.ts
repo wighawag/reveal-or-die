@@ -22,6 +22,15 @@ import {avatarIDFor, purchaseArgs} from '../../js/avatar-id.js';
 const {provider, networkHelpers} = await network.connect();
 const {deployAll} = setupFixtures(provider);
 
+/**
+ * What the world's reveal of 3 collects and 10 moves cost BEFORE the tables
+ * (measured on reveal-or-die main 070176ee): the world's routes are
+ * byte-identical but for the metadata hash since the tables' `virtual`
+ * keywords, and this pins it. THIS REPO'S NUMBER: a descendant whose world
+ * differs (bomber-world's bombs) pins its own here.
+ */
+const WORLD_REVEAL_GAS_BEFORE_TABLES = 560_811n;
+
 const AVATAR_MODE = 0;
 const ETH_MODE = 1;
 
@@ -659,7 +668,7 @@ describe('the leftovers and the payouts', () => {
 });
 
 describe('the world beside the tables', () => {
-	it('reveals at the gas it did before the tables (560,811 for 3 collects and 10 moves)', async () => {
+	it('reveals at the gas it did before the tables (3 collects and 10 moves)', async () => {
 		// The same turn as Loot.test.ts' gas case, on the world: its routes are
 		// byte-identical to before R1b but for the metadata hash, and this pins it.
 		const fixture = await networkHelpers.loadFixture(deployAll);
@@ -749,6 +758,6 @@ describe('the world beside the tables', () => {
 				...back,
 			],
 		});
-		expect(gas.a).toEqual(560_811n);
+		expect(gas.a).toEqual(WORLD_REVEAL_GAS_BEFORE_TABLES);
 	});
 });
