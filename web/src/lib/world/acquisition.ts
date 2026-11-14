@@ -46,7 +46,9 @@ export function createAvatarAcquisition(params: {
 	return {
 		address: config.sale.address,
 		functionName: 'purchase',
-		price: config.sale.price,
+		// what the wallet pays besides the stipend: the price and the stake the
+		// avatar carries (step R1a)
+		price: config.sale.price + config.sale.stake,
 		stipend: config.sale.stipend,
 		gas: PURCHASE_GAS,
 		request: ({owner, stipendTo, stipend}) => ({
@@ -73,7 +75,11 @@ export function createAvatarAcquisition(params: {
 			// `msg.value` and then requires the remainder to equal the price
 			// EXACTLY, so the two have to be computed together or the purchase
 			// reverts with `WrongPaymentAmount`.
-			value: purchaseValue({price: config.sale.price, stipend}),
+			value: purchaseValue({
+				price: config.sale.price,
+				stake: config.sale.stake,
+				stipend,
+			}),
 		}),
 	};
 }

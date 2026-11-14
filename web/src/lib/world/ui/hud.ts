@@ -623,6 +623,7 @@ export function createHud(context: Context): Readable<HudModel> {
 				priceLabel: `${formatBalance(
 					purchaseValue({
 						price: game.config.sale.price,
+						stake: game.config.sale.stake,
 						stipend: game.config.sale.stipend,
 					}),
 				)} ${context.deployments.get().chain.nativeCurrency.symbol}`,

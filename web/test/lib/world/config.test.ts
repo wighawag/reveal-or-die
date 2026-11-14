@@ -27,7 +27,7 @@ function deploymentWith(game: Record<string, unknown>) {
 			},
 			AvatarsSale: {
 				address: '0x2222222222222222222222222222222222222222',
-				linkedData: {paymentAmount: '1'},
+				linkedData: {paymentAmount: '1', stakeAmount: '2'},
 			},
 		},
 	} as never;
@@ -36,16 +36,17 @@ function deploymentWith(game: Record<string, unknown>) {
 describe('the world config', () => {
 	it('reads how many actions a reveal holds', () => {
 		const config = resolveWorldConfig(
-			deploymentWith({numMoves: '10', actionsPerReveal: '11'}),
+			deploymentWith({numMoves: '10', actionsPerReveal: '14'}),
 		);
-		expect(config.actionsPerReveal).toBe(11);
-		expect(ACTIONS_BESIDES_MOVES).toBe(1);
+		expect(config.actionsPerReveal).toBe(14);
+		// an exit and MAX_COLLECTS (3) collects besides the moves (step R1a)
+		expect(ACTIONS_BESIDES_MOVES).toBe(4);
 	});
 
 	it('refuses a deployment whose reveal cannot hold its longest turn', () => {
 		expect(() =>
 			resolveWorldConfig(
-				deploymentWith({numMoves: '10', actionsPerReveal: '10'}),
+				deploymentWith({numMoves: '10', actionsPerReveal: '13'}),
 			),
 		).toThrow(/fewer than its longest turn/);
 	});

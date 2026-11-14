@@ -7,7 +7,7 @@ import {
 import deployAvatars from 'reveal-or-die-contracts/deploy/001_deploy_avatars.js';
 import deployGame from 'reveal-or-die-contracts/deploy/010_deploy_game.js';
 import deploySale from 'reveal-or-die-contracts/deploy/020_deploy_sale.js';
-import {avatarIDFor, purchaseArgs} from 'reveal-or-die-contracts';
+import {avatarIDFor, purchaseArgs, purchaseValue} from 'reveal-or-die-contracts';
 import {
 	createEmbeddedWorld,
 	restoreIsCoherent,
@@ -748,11 +748,15 @@ export async function stakeForOfflinePlayer(params: {
 			owner: params.player,
 			subID: 0n,
 		}),
-		// THE PRICE EXACTLY, read off the same config the sale was deployed with.
-		// `SaleViaNativePayment.purchase` requires `msg.value` minus the stipend
-		// to equal `PAYMENT_AMOUNT` exactly, so a value computed anywhere else is
-		// a value that can drift into reverting every purchase.
-		value: config.data.sale.default.price,
+		// THE PRICE AND THE STAKE EXACTLY, read off the same config the sale was
+		// deployed with. `SaleViaNativePayment.purchase` requires `msg.value`
+		// minus the stipend to equal `PAYMENT_AMOUNT + STAKE_AMOUNT` exactly (the
+		// stake the avatar carries since step R1a), so a value computed anywhere
+		// else is a value that can drift into reverting every purchase.
+		value: purchaseValue({
+			price: config.data.sale.default.price,
+			stake: config.data.sale.default.stake,
+		}),
 	});
 }
 

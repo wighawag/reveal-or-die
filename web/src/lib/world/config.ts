@@ -82,6 +82,11 @@ export type WorldConfig = {
 		/** In the chain's native currency, exact. Not a minimum. */
 		price: bigint;
 		/**
+		 * What every avatar carries (step R1a), paid with the price and returned
+		 * by burning the avatar. A body is worth its stake to its collectors.
+		 */
+		stake: bigint;
+		/**
 		 * What the purchase forwards to the local signer, in the same transaction.
 		 *
 		 * This is what makes onboarding ONE transaction rather than two: the sale's
@@ -168,6 +173,8 @@ export function resolveWorldConfig(deployments: TypedDeployments): WorldConfig {
 		sale: {
 			address: AvatarsSale.address,
 			price: readBigInt(saleData, 'paymentAmount'),
+			// what the avatar carries, paid with the price (step R1a)
+			stake: readBigInt(saleData, 'stakeAmount'),
 			stipend: worstGasPrice * (COMMIT_GAS + REVEAL_GAS) * TURNS_OF_GAS,
 		},
 		cellSize: 10,
