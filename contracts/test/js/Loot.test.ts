@@ -395,6 +395,13 @@ describe('a body', () => {
 		await expect(w.settle('b', 'carrier')).toBeRejectedWith(
 			'BodyHasOpenClaims',
 		);
+		// what holds it is listed, which is how a client finds the bottom of the chain
+		const [held, total] = await w.env.read(w.Game, {
+			functionName: 'getOpenClaims',
+			args: [w.id('carrier'), 0n, 10n],
+		});
+		expect(total).toEqual(1n);
+		expect(held).toEqual([w.id('dead')]);
 
 		// the chain is settled from the bottom up
 		await w.settle('carrier', 'dead', w.avatars.b.account);
@@ -403,6 +410,11 @@ describe('a body', () => {
 		expect((await w.body('carrier')).pot).toEqual(2n * w.stake);
 		expect(await w.carried('b')).toEqual(2n * w.stake);
 		expect(await w.carried('carrier')).toEqual(0n);
+		const [, open] = await w.env.read(w.Game, {
+			functionName: 'getOpenClaims',
+			args: [w.id('b'), 0n, 10n],
+		});
+		expect(open).toEqual(0n);
 	});
 
 	it('pays what was collected when the avatar is withdrawn, and the avatar keeps exactly its stake', async () => {

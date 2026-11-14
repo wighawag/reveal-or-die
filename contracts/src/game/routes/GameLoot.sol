@@ -38,6 +38,24 @@ contract GameLoot is IGameLoot, UsingGameInternal {
     }
 
     /// @inheritdoc IGameLoot
+    function getOpenClaims(
+        uint256 avatarID,
+        uint256 start,
+        uint256 limit
+    ) external view returns (uint256[] memory bodies, uint256 total) {
+        uint256[] storage list = _openClaims[avatarID];
+        total = list.length;
+        if (start >= total) {
+            return (bodies, total);
+        }
+        uint256 end = start + limit > total ? total : start + limit;
+        bodies = new uint256[](end - start);
+        for (uint256 i = start; i < end; i++) {
+            bodies[i - start] = list[i];
+        }
+    }
+
+    /// @inheritdoc IGameLoot
     function getClaim(
         uint256 collector,
         uint256 body

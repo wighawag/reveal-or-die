@@ -797,7 +797,10 @@ abstract contract UsingGameInternal is
             }
             state.claimants++;
             _claims[resolution.avatarID][body] = resolution.cycleNumber;
-            _openClaims[resolution.avatarID]++;
+            _openClaims[resolution.avatarID].push(body);
+            _openClaimIndex[resolution.avatarID][body] = _openClaims[
+                resolution.avatarID
+            ].length;
             emit BodyCollected(
                 body,
                 resolution.avatarID,
@@ -827,7 +830,7 @@ abstract contract UsingGameInternal is
         uint256 share = state.pot / state.claimants;
 
         delete _claims[collector][body];
-        _openClaims[collector]--;
+        _removeOpenClaim(collector, body);
 
         Player memory player = _players[collector];
         if (player.inCustody) {
@@ -846,7 +849,7 @@ abstract contract UsingGameInternal is
     ///  later death to an earlier one (a collector is alive when it collects),
     ///  so settling from the bottom up always ends.
     function _releaseBody(uint256 body, Body storage state) internal {
-        uint256 open = _openClaims[body];
+        uint256 open = _openClaims[body].length;
         if (open != 0) {
             revert BodyHasOpenClaims(body, open);
         }
@@ -879,8 +882,22 @@ abstract contract UsingGameInternal is
                 released: state.released,
                 pot: state.pot,
                 value: value,
-                openClaims: _openClaims[body]
+                openClaims: _openClaims[body].length
             });
+    }
+
+    /// @dev Swap-and-pop, O(1): the list has no order.
+    function _removeOpenClaim(uint256 collector, uint256 body) internal {
+        uint256[] storage list = _openClaims[collector];
+        uint256 index = _openClaimIndex[collector][body] - 1;
+        uint256 last = list.length - 1;
+        if (index != last) {
+            uint256 moved = list[last];
+            list[index] = moved;
+            _openClaimIndex[collector][moved] = index + 1;
+        }
+        list.pop();
+        delete _openClaimIndex[collector][body];
     }
 
     function _pay(address to, uint256 amount) internal {

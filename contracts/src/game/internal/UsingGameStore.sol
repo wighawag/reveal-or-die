@@ -48,8 +48,13 @@ abstract contract UsingGameStore is UsingGameTypes, UsingCommitReveal {
     /// @notice the cycle `collector` collected `body` in, zero once settled
     mapping(uint256 collector => mapping(uint256 body => uint64 cycleNumber))
         internal _claims;
-    /// @notice how many of an avatar's claims are not settled yet
-    mapping(uint256 avatarID => uint256) internal _openClaims;
+    /// @notice the bodies an avatar has an open claim on, in no order: what a
+    ///  client reads to settle them, and what holds a body's release while it
+    ///  is not empty
+    mapping(uint256 avatarID => uint256[]) internal _openClaims;
+    /// @notice where a body is in its collector's `_openClaims`, plus one
+    mapping(uint256 avatarID => mapping(uint256 body => uint256))
+        internal _openClaimIndex;
     /// @notice what an avatar collected and the game holds for it, in ETH
     mapping(uint256 avatarID => uint256) internal _carried;
 

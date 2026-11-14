@@ -124,6 +124,15 @@ interface IGameLoot is UsingGameTypes {
     ///  paid at its withdrawal.
     function getCarried(uint256 avatarID) external view returns (uint256);
 
+    /// @notice The bodies an avatar has an open claim on, from `start`, at most
+    ///  `limit` of them, in no order, and how many there are: what a client
+    ///  settles, and what must be settled before the avatar's own body can be.
+    function getOpenClaims(
+        uint256 avatarID,
+        uint256 start,
+        uint256 limit
+    ) external view returns (uint256[] memory bodies, uint256 total);
+
     /// @notice The cycle `collector` collected `body` in, zero if it has no
     ///  open claim on it.
     function getClaim(
