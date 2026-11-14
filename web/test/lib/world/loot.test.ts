@@ -29,7 +29,7 @@ describe('the bodies on a cell', () => {
 			{avatarID: 1n, ...DEAD, position: at},
 			{avatarID: 2n, ...ALIVE, position: at},
 			{avatarID: 3n, ...DEAD, position: {x: 2, y: 4}},
-			{avatarID: 4n, inGame: false, life: 0, position: at},
+			{avatarID: 4n, inGame: false, life: 0, lastCycleNumber: 7, position: at},
 			{avatarID: 5n, ...DEAD, position: at},
 		];
 		expect(bodiesAt(avatars, at, NOW, 5n)).toEqual([1n]);
@@ -42,9 +42,7 @@ describe('the bodies on a cell', () => {
 		// `lastCycleNumber + 1` and is a body from the cycle after that.
 		const at = {x: 2, y: 3};
 		const dyingNow = {avatarID: 1n, inGame: true, life: 0, position: at};
-		expect(bodiesAt([{...dyingNow, lastCycleNumber: 9}], at, NOW)).toEqual(
-			[],
-		);
+		expect(bodiesAt([{...dyingNow, lastCycleNumber: 9}], at, NOW)).toEqual([]);
 		expect(bodiesAt([{...dyingNow, lastCycleNumber: 8}], at, NOW)).toEqual([
 			1n,
 		]);

@@ -664,7 +664,7 @@ export function createGameContext(core: CoreServices): GameContext {
 		[world.viewState, world.game.planning.planEnd, activeIdentity],
 		([$view, $at, $avatarID]) =>
 			$view.step === 'Loaded' && $at !== undefined
-				? bodiesAt($view.avatars.values(), $at, $avatarID)
+				? bodiesAt($view.avatars.values(), $at, $view.cycleNumber, $avatarID)
 				: [],
 	);
 

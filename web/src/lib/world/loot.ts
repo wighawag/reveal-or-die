@@ -30,17 +30,26 @@ export type BoardAvatar = {
 	avatarID: bigint;
 	inGame: boolean;
 	life: number;
+	/**
+	 * The contract's, as its getters resolve it: for a dead avatar, the cycle
+	 * before the one it died in.
+	 */
+	lastCycleNumber: number;
 	position: Position;
 };
 
 /**
- * The bodies lying on `at`: avatars in the world and dead, other than `self`.
- * The contract checks the same (`_collectable`), so a Collect planned from this
- * resolves unless the board was stale.
+ * The bodies lying on `at` that a turn of `cycleNumber` may collect: avatars
+ * in the world and dead since before that cycle, other than `self`. A body
+ * appears the cycle after the death (stratagems' plan, step R2, R2-2a): the
+ * contract reads the death at the cycle before the revealing one
+ * (`_collectable`), so a Collect planned from this resolves unless the board
+ * was stale.
  */
 export function bodiesAt(
 	avatars: Iterable<BoardAvatar>,
 	at: Position,
+	cycleNumber: number,
 	self?: bigint,
 ): bigint[] {
 	const found: bigint[] = [];
@@ -48,6 +57,8 @@ export function bodiesAt(
 		if (
 			avatar.inGame &&
 			avatar.life === 0 &&
+			// died in `lastCycleNumber + 1`, so a body from the cycle after
+			avatar.lastCycleNumber + 1 < cycleNumber &&
 			avatar.avatarID !== self &&
 			avatar.position.x === at.x &&
 			avatar.position.y === at.y

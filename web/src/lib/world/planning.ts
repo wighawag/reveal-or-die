@@ -62,6 +62,15 @@ function endsTheTurn(action: Action): boolean {
 	);
 }
 
+/**
+ * A Collect ends the movement (stratagems' plan, step R2, R2-2b): the
+ * contract's `_move` ends the turn at a Move after one, so a collector stays
+ * on the body. More collects may follow it.
+ */
+function endsTheMovement(action: Action): boolean {
+	return action.actionType === ActionType.Collect;
+}
+
 export type PlanningStore = {
 	/** What the player has planned, for the view merge. */
 	plan: Readable<LocalPlan>;
@@ -189,6 +198,7 @@ export function createPlanning(params: {
 	const plannableNow = () => get(canPlan);
 
 	const movesLeft = derived(plannedStore, ($planned) => {
+		if ($planned.some(endsTheMovement)) return 0;
 		const moves = $planned.filter(
 			(a) => a.actionType === ActionType.Move,
 		).length;
@@ -278,6 +288,8 @@ export function createPlanning(params: {
 		const planned = currentPlan();
 		// An Enter or an Exit ends the reveal, so nothing can follow either.
 		if (planned.some(endsTheTurn)) return false;
+		// and a Collect ends the movement (stratagems' plan, step R2, R2-2b)
+		if (planned.some(endsTheMovement)) return false;
 
 		const moves = planned.filter(
 			(a) => a.actionType === ActionType.Move,
