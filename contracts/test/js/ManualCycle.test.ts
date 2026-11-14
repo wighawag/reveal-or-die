@@ -4,7 +4,7 @@ import {network} from 'hardhat';
 import {zeroAddress} from 'viem';
 import {setupFixtures, deployGameWith, CYCLE_POLICY} from './utils/index.js';
 import {commitmentHash, type Action} from '../../js/commitment.js';
-import {avatarIDFor, purchaseArgs} from '../../js/avatar-id.js';
+import {avatarIDFor, purchaseArgs, salePriceOf} from '../../js/avatar-id.js';
 
 const {provider, networkHelpers} = await network.connect();
 const {deployAll} = setupFixtures(provider);
@@ -105,7 +105,7 @@ describe('a cycle pushed by hand', function () {
 				owner: unnamedAccounts[0],
 				subID,
 			}),
-			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			value: salePriceOf(AvatarsSale.linkedData),
 		});
 
 		const secret =
@@ -185,7 +185,7 @@ describe('a cycle pushed by hand', function () {
 				account: owner,
 				functionName: 'purchase',
 				args: purchaseArgs({gameAddress: Game.address, owner, subID: 0n}),
-				value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+				value: salePriceOf(AvatarsSale.linkedData),
 			});
 		}
 		const id = {A: avatarIDFor(a, 0n), B: avatarIDFor(b, 0n)};
@@ -278,7 +278,7 @@ describe('a cycle pushed by hand', function () {
 			account: owner,
 			functionName: 'purchase',
 			args: purchaseArgs({gameAddress: Game.address, owner, subID: 0n}),
-			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			value: salePriceOf(AvatarsSale.linkedData),
 		});
 		const attendance = async () =>
 			(
@@ -323,7 +323,7 @@ describe('a cycle pushed by hand', function () {
 			account: owner,
 			functionName: 'purchase',
 			args: purchaseArgs({gameAddress: Game.address, owner, subID: 0n}),
-			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			value: salePriceOf(AvatarsSale.linkedData),
 		});
 		const {waitedFor} = (await env.read(Game, {
 			functionName: 'getAttendance',
@@ -365,7 +365,7 @@ describe('a cycle pushed by hand', function () {
 				account: owner,
 				functionName: 'purchase',
 				args: purchaseArgs({gameAddress: Game.address, owner, subID: 0n}),
-				value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+				value: salePriceOf(AvatarsSale.linkedData),
 			});
 		}
 		const id = {A: avatarIDFor(a, 0n), B: avatarIDFor(b, 0n)};

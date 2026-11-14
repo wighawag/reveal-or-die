@@ -122,6 +122,20 @@ export function purchaseArgs(params: {
  * caller that remembered the stipend in one place and forgot it in the other
  * gets `WrongPaymentAmount` and no avatar.
  */
-export function purchaseValue(params: {price: bigint; stipend?: bigint}): bigint {
-	return params.price + (params.stipend ?? 0n);
+export function purchaseValue(params: {
+	price: bigint;
+	/** What the avatar carries (step R1a), paid with the price. */
+	stake?: bigint;
+	stipend?: bigint;
+}): bigint {
+	return params.price + (params.stake ?? 0n) + (params.stipend ?? 0n);
+}
+
+/**
+ * WHAT A PURCHASE COSTS, from the sale's deployment record: its fee plus the
+ * stake every avatar carries (step R1a). The sale checks the sum exactly.
+ */
+export function salePriceOf(linkedData: unknown): bigint {
+	const data = linkedData as {paymentAmount: string; stakeAmount?: string};
+	return BigInt(data.paymentAmount) + BigInt(data.stakeAmount ?? 0);
 }

@@ -10,6 +10,20 @@ import "./GameUtils.sol";
 import {Delegation} from "@etherplay/delegation/contracts/Delegation.sol";
 import {CommitReveal} from "../../commit-reveal/CommitReveal.sol";
 
+/// @dev What the game reads and calls of the avatars beyond ERC721 (step
+///  R1a): the stake each carries, released by burning it.
+interface IAvatarsWithStake {
+    function stakeOf(uint256 tokenID) external view returns (uint256);
+
+    function burn(uint256 tokenID, bytes calldata data) external;
+}
+
+/// @dev How a burned body's stake arrives at the game (`GameLoot.receiveStake`,
+///  the same selector as `IGameLoot.receiveStake`).
+interface IStakeReceiver {
+    function receiveStake() external payable;
+}
+
 /// @dev THIS GAME, ON THE COMMIT-REVEAL BASE. Everything that is mechanism -
 ///  the commitment, the chunk, the cycle policies and the advance, who the
 ///  cycle waits for, delegation and both settlements of a missed reveal - is
@@ -31,7 +45,7 @@ abstract contract UsingGameInternal is
     // ENTRY POINTS
     //-------------------------------------------------------------------------
     function _deposit(uint256 avatarID, address owner) internal {
-        _players[avatarID] = Player({owner: owner});
+        _players[avatarID] = Player({owner: owner, inCustody: true});
 
         uint256 length = _ownedAvatars[owner].length;
         _ownedAvatars[owner].push(avatarID);
@@ -150,7 +164,19 @@ abstract contract UsingGameInternal is
         _leaveSeat(avatarID);
         // --------------------------------------------------------------------
 
+        _players[avatarID].inCustody = false;
+        uint256 carried = _carried[avatarID];
+        delete _carried[avatarID];
+
         AVATARS.safeTransferFrom(address(this), to, avatarID);
+
+        // WHAT IT COLLECTED goes with it, in ETH (step R1a), and the avatar
+        // leaves with exactly the stake it came with. A claim still open is
+        // paid to its owner when it is settled ({_settleClaim}).
+        if (carried != 0) {
+            emit CarriedPaid(avatarID, to, carried);
+            _pay(to, carried);
+        }
     }
 
     /// @notice Commit a turn for an avatar, if it is alive.
@@ -295,6 +321,9 @@ abstract contract UsingGameInternal is
         ///  action can follow one and nothing here can change it mid-reveal.
         bool inGame;
         uint256 numActionsResolved;
+        /// @notice the bodies this turn collected, recorded once it resolved
+        uint256[MAX_COLLECTS] collected;
+        uint256 numCollected;
     }
 
     //-------------------------------------------------------------------------
@@ -309,6 +338,7 @@ abstract contract UsingGameInternal is
         (int32 startX, int32 startY) = PositionUtils.toXY(avatar.position);
         uint64 startZone = PositionUtils.getZone(startX, startY);
 
+        uint256[MAX_COLLECTS] memory none;
         ActionResolution memory resolution = ActionResolution({
             avatarID: avatarID,
             cycleNumber: cycleNumber,
@@ -322,10 +352,13 @@ abstract contract UsingGameInternal is
             left: false,
             entering: false,
             inGame: avatar.inGame,
-            numActionsResolved: 0
+            numActionsResolved: 0,
+            collected: none,
+            numCollected: 0
         });
 
         _forEachActions(resolution, actions);
+        _recordCollected(resolution);
 
         newPosition = PositionUtils.fromXY(
             resolution.currentX,
@@ -383,6 +416,8 @@ abstract contract UsingGameInternal is
                 move_count++;
             } else if (action.actionType == ActionType.Exit) {
                 _exit(resolution, action.data);
+            } else if (action.actionType == ActionType.Collect) {
+                _collect(resolution, action.data);
             }
 
             if (resolution.stopProcessing) {
@@ -393,7 +428,7 @@ abstract contract UsingGameInternal is
 
     function _enter(
         ActionResolution memory resolution,
-        uint128 actionData
+        uint256 actionData
     ) internal pure {
         // ONLY FROM OUTSIDE THE WORLD. Nothing checked this, so an avatar
         // already standing somewhere could commit an Enter and be put wherever
@@ -421,7 +456,7 @@ abstract contract UsingGameInternal is
 
     function _move(
         ActionResolution memory resolution,
-        uint128 actionData
+        uint256 actionData
     ) internal view {
         uint64 movePosition = uint64(actionData);
         (int32 moveToX, int32 moveToY) = PositionUtils.toXY(movePosition);
@@ -462,7 +497,7 @@ abstract contract UsingGameInternal is
     ///  with the rest of the rules that are stated there and enforced elsewhere.
     function _exit(
         ActionResolution memory resolution,
-        uint128
+        uint256
     ) internal pure {
         // NOT IN THE WORLD, so there is nothing to leave - and this was not
         // merely pointless. `left` used to be set unconditionally, and
@@ -682,6 +717,176 @@ abstract contract UsingGameInternal is
                     zoneOffset = state.zoneEndIndices[currentZone - 1];
                 }
             }
+        }
+    }
+
+    //-------------------------------------------------------------------------
+    // THE BODIES (step R1a of stratagems' plan; reveal-or-die `work`:
+    // `stake-in-the-avatar`). Nothing here loops further than MAX_COLLECTS.
+    //-------------------------------------------------------------------------
+
+    /// @notice Name a body on the avatar's cell, to share it.
+    /// @dev CHECKED, NOT WRITTEN: the turn is still resolving, and what it
+    ///  collected is recorded once it has ({_recordCollected}). A Collect the
+    ///  rules refuse ends the turn, as a refused move does, so what resolved
+    ///  stays a prefix of what was committed.
+    ///
+    ///  ORDER INDEPENDENCE. What decides a Collect is fixed for the whole
+    ///  cycle whatever order the reveals arrive in: death by misses is a
+    ///  function of the cycle number, a body never moves, a body cannot be
+    ///  released in a cycle it can be collected in (only after its first
+    ///  claimed cycle, {_settleClaim}), and the one value another reveal of
+    ///  this cycle may have written, the body's first claimed cycle, reads as
+    ///  either zero or this cycle, both of which accept. So the set of bodies
+    ///  each avatar collects, and each body's count, come out the same in any
+    ///  order; only which reveal wrote `firstClaimCycle` differs, and it wrote
+    ///  the same number. `test/js/Loot.test.ts` replays it in two orders.
+    function _collect(
+        ActionResolution memory resolution,
+        uint256 body
+    ) internal view {
+        if (!_collectable(resolution, body)) {
+            resolution.stopProcessing = true;
+            return;
+        }
+        resolution.collected[resolution.numCollected++] = body;
+        resolution.numActionsResolved++;
+    }
+
+    function _collectable(
+        ActionResolution memory resolution,
+        uint256 body
+    ) internal view returns (bool) {
+        if (
+            !resolution.inGame ||
+            resolution.numCollected >= MAX_COLLECTS ||
+            body == resolution.avatarID
+        ) {
+            return false;
+        }
+        for (uint256 i = 0; i < resolution.numCollected; i++) {
+            if (resolution.collected[i] == body) {
+                return false;
+            }
+        }
+        Avatar memory lying = _avatars[body];
+        if (
+            !lying.inGame ||
+            lying.position !=
+            PositionUtils.fromXY(resolution.currentX, resolution.currentY)
+        ) {
+            return false;
+        }
+        Body memory state = _bodies[body];
+        if (
+            state.released ||
+            (state.firstClaimCycle != 0 &&
+                state.firstClaimCycle != resolution.cycleNumber)
+        ) {
+            return false;
+        }
+        return _getResolvedAvatar(body, resolution.cycleNumber).life == 0;
+    }
+
+    function _recordCollected(ActionResolution memory resolution) internal {
+        for (uint256 i = 0; i < resolution.numCollected; i++) {
+            uint256 body = resolution.collected[i];
+            Body storage state = _bodies[body];
+            if (state.firstClaimCycle == 0) {
+                state.firstClaimCycle = resolution.cycleNumber;
+            }
+            state.claimants++;
+            _claims[resolution.avatarID][body] = resolution.cycleNumber;
+            _openClaims[resolution.avatarID]++;
+            emit BodyCollected(
+                body,
+                resolution.avatarID,
+                resolution.cycleNumber
+            );
+        }
+    }
+
+    /// @notice Settle one collector's share of one body, pulled by anyone.
+    /// @dev The first settlement of a body releases it ({_releaseBody}); each
+    ///  share is `pot / claimants`, and the rounding remainder (fewer wei than
+    ///  claimants) stays in the game. The share is added to what the collector
+    ///  carries while the game holds it, and paid to its owner otherwise.
+    function _settleClaim(uint256 collector, uint256 body) internal {
+        uint64 claimedIn = _claims[collector][body];
+        if (claimedIn == 0) {
+            revert NoClaim(collector, body);
+        }
+        (uint64 cycleNumber, ) = _cycleNumber();
+        if (claimedIn >= cycleNumber) {
+            revert ClaimNotFinal(body, claimedIn);
+        }
+        Body storage state = _bodies[body];
+        if (!state.released) {
+            _releaseBody(body, state);
+        }
+        uint256 share = state.pot / state.claimants;
+
+        delete _claims[collector][body];
+        _openClaims[collector]--;
+
+        Player memory player = _players[collector];
+        if (player.inCustody) {
+            _carried[collector] += share;
+            emit ClaimSettled(collector, body, share, address(0));
+        } else {
+            emit ClaimSettled(collector, body, share, player.owner);
+            _pay(player.owner, share);
+        }
+    }
+
+    /// @notice Burn a body the game holds, which pays the game its stake, and
+    ///  fix what its collectors share.
+    /// @dev NOT WHILE IT HAS CLAIMS OF ITS OWN OPEN: what it carries is part
+    ///  of the pot, and is final only once they are settled. Claims go from a
+    ///  later death to an earlier one (a collector is alive when it collects),
+    ///  so settling from the bottom up always ends.
+    function _releaseBody(uint256 body, Body storage state) internal {
+        uint256 open = _openClaims[body];
+        if (open != 0) {
+            revert BodyHasOpenClaims(body, open);
+        }
+        uint256 before = address(this).balance;
+        IAvatarsWithStake(address(AVATARS)).burn(
+            body,
+            abi.encodeCall(IStakeReceiver.receiveStake, ())
+        );
+        uint256 pot = address(this).balance - before + _carried[body];
+        delete _carried[body];
+        state.released = true;
+        state.pot = pot;
+
+        _removeFromZone(PositionUtils.getZone(_avatars[body].position), body);
+        emit BodyReleased(body, pot);
+    }
+
+    function _getBody(
+        uint256 body
+    ) internal view returns (PublicBody memory) {
+        Body memory state = _bodies[body];
+        uint256 value = state.released
+            ? state.pot
+            : IAvatarsWithStake(address(AVATARS)).stakeOf(body) +
+                _carried[body];
+        return
+            PublicBody({
+                firstClaimCycle: state.firstClaimCycle,
+                claimants: state.claimants,
+                released: state.released,
+                pot: state.pot,
+                value: value,
+                openClaims: _openClaims[body]
+            });
+    }
+
+    function _pay(address to, uint256 amount) internal {
+        (bool success, ) = payable(to).call{value: amount}("");
+        if (!success) {
+            revert PaymentFailed(to, amount);
         }
     }
 

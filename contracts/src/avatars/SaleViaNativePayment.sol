@@ -40,6 +40,10 @@ abstract contract SaleViaNativePayment is Proxied {
 
     IERC721 public immutable ITEMS;
     uint256 public immutable PAYMENT_AMOUNT;
+    /// @notice What each avatar carries ({Avatars-stakeOf}), paid with the
+    ///         price and sent with the mint; the free-list waives the price,
+    ///         never the stake (step R1a).
+    uint256 public immutable STAKE_AMOUNT;
     address payable public immutable RECIPIENT;
     address public immutable FREE_MAP_ADMIN;
 
@@ -47,6 +51,7 @@ abstract contract SaleViaNativePayment is Proxied {
 
     struct Config {
         uint256 paymentAmount;
+        uint256 stakeAmount;
         address payable recipient;
         address freeMapAdmin;
     }
@@ -54,6 +59,7 @@ abstract contract SaleViaNativePayment is Proxied {
     constructor(IERC721 items, Config memory config) {
         ITEMS = items;
         PAYMENT_AMOUNT = config.paymentAmount;
+        STAKE_AMOUNT = config.stakeAmount;
         RECIPIENT = config.recipient;
         FREE_MAP_ADMIN = config.freeMapAdmin;
     }
@@ -149,16 +155,22 @@ abstract contract SaleViaNativePayment is Proxied {
                 revert FailedToTransferNativeToken(extraNativeTokenRecipient);
             }
         }
+        // THE STAKE IS ALWAYS PAID, and goes with the mint: it is the
+        // player's own money, held in the avatar and returned by a burn, so
+        // waiving it would give away ETH rather than a discount.
         if (!freemap[msg.sender]) {
-            if (paymentAmount != PAYMENT_AMOUNT) {
-                revert WrongPaymentAmount(paymentAmount, PAYMENT_AMOUNT);
+            if (paymentAmount != PAYMENT_AMOUNT + STAKE_AMOUNT) {
+                revert WrongPaymentAmount(
+                    paymentAmount,
+                    PAYMENT_AMOUNT + STAKE_AMOUNT
+                );
             }
             // TODO RECIPIENT support sending it to destination
-            RECIPIENT.transfer(paymentAmount);
+            RECIPIENT.transfer(PAYMENT_AMOUNT);
         } else {
             freemap[msg.sender] = false;
-            if (paymentAmount != 0) {
-                revert WrongPaymentAmount(paymentAmount, 0);
+            if (paymentAmount != STAKE_AMOUNT) {
+                revert WrongPaymentAmount(paymentAmount, STAKE_AMOUNT);
             }
         }
 

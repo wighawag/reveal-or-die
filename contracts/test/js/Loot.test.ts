@@ -3,7 +3,12 @@ import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not 
 import {network} from 'hardhat';
 import {zeroAddress} from 'viem';
 import {setupFixtures} from './utils/index.js';
-import {commitmentHash, ActionType, MAX_COLLECTS, type Action} from '../../js/commitment.js';
+import {
+	commitmentHash,
+	ActionType,
+	MAX_COLLECTS,
+	type Action,
+} from '../../js/commitment.js';
 import {avatarIDFor, purchaseArgs} from '../../js/avatar-id.js';
 import {REVEAL_GAS} from '../../js/gas.js';
 
@@ -27,9 +32,18 @@ const {provider, networkHelpers} = await network.connect();
 const {deployAll} = setupFixtures(provider);
 
 const pos = (x: bigint, y: bigint) => (y << 32n) | x;
-const enter = (x: bigint, y: bigint): Action => ({actionType: ActionType.Enter, data: pos(x, y)});
-const move = (x: bigint, y: bigint): Action => ({actionType: ActionType.Move, data: pos(x, y)});
-const collect = (body: bigint): Action => ({actionType: ActionType.Collect, data: body});
+const enter = (x: bigint, y: bigint): Action => ({
+	actionType: ActionType.Enter,
+	data: pos(x, y),
+});
+const move = (x: bigint, y: bigint): Action => ({
+	actionType: ActionType.Move,
+	data: pos(x, y),
+});
+const collect = (body: bigint): Action => ({
+	actionType: ActionType.Collect,
+	data: body,
+});
 const exit = (): Action => ({actionType: ActionType.Exit, data: 0n});
 
 type Who = string;
@@ -50,19 +64,38 @@ const TO_THE_EXIT: Action[] = [
 /** A world of named avatars, each bought by an account of its own. */
 async function world(names: Who[]) {
 	const fixture = await networkHelpers.loadFixture(deployAll);
-	const {env, Game, Avatars, AvatarsSale, unnamedAccounts, advanceToCycle, advanceToRevealPhase, getCycleNumber, getTimestamp} =
-		fixture;
-	const sale = AvatarsSale.linkedData as {paymentAmount: string; stakeAmount: string};
+	const {
+		env,
+		Game,
+		Avatars,
+		AvatarsSale,
+		unnamedAccounts,
+		advanceToCycle,
+		advanceToRevealPhase,
+		getCycleNumber,
+		getTimestamp,
+	} = fixture;
+	const sale = AvatarsSale.linkedData as {
+		paymentAmount: string;
+		stakeAmount: string;
+	};
 	const price = BigInt(sale.paymentAmount) + BigInt(sale.stakeAmount);
 	const stake = BigInt(sale.stakeAmount);
 
-	const avatars: Record<Who, {account: `0x${string}`; id: bigint; secret: `0x${string}`}> = {};
+	const avatars: Record<
+		Who,
+		{account: `0x${string}`; id: bigint; secret: `0x${string}`}
+	> = {};
 	for (const [i, name] of names.entries()) {
 		const account = unnamedAccounts[i] as `0x${string}`;
 		await env.execute(AvatarsSale, {
 			account,
 			functionName: 'purchase',
-			args: purchaseArgs({gameAddress: Game.address, owner: account, subID: 0n}),
+			args: purchaseArgs({
+				gameAddress: Game.address,
+				owner: account,
+				subID: 0n,
+			}),
 			value: price,
 		});
 		avatars[name] = {
@@ -107,7 +140,12 @@ async function world(names: Who[]) {
 	}
 
 	const balance = async (account: `0x${string}`) =>
-		BigInt((await provider.request({method: 'eth_getBalance', params: [account, 'latest']})) as string);
+		BigInt(
+			(await provider.request({
+				method: 'eth_getBalance',
+				params: [account, 'latest'],
+			})) as string,
+		);
 
 	return {
 		...fixture,
@@ -119,9 +157,12 @@ async function world(names: Who[]) {
 		balance,
 		id: (name: Who) => avatars[name].id,
 		cycleNumber: () => cycleNumber,
-		avatar: (name: Who) => env.read(Game, {functionName: 'getAvatar', args: [avatars[name].id]}),
-		body: (name: Who) => env.read(Game, {functionName: 'getBody', args: [avatars[name].id]}),
-		carried: (name: Who) => env.read(Game, {functionName: 'getCarried', args: [avatars[name].id]}),
+		avatar: (name: Who) =>
+			env.read(Game, {functionName: 'getAvatar', args: [avatars[name].id]}),
+		body: (name: Who) =>
+			env.read(Game, {functionName: 'getBody', args: [avatars[name].id]}),
+		carried: (name: Who) =>
+			env.read(Game, {functionName: 'getCarried', args: [avatars[name].id]}),
 		settle: (collector: Who, body: Who, account?: `0x${string}`) =>
 			env.execute(Game, {
 				account: account ?? avatars[collector].account,
@@ -134,14 +175,15 @@ async function world(names: Who[]) {
 				functionName: 'withdraw',
 				args: [avatars[name].id, avatars[name].account],
 			}),
-		stakeOf: (name: Who) => env.read(Avatars, {functionName: 'stakeOf', args: [avatars[name].id]}),
+		stakeOf: (name: Who) =>
+			env.read(Avatars, {functionName: 'stakeOf', args: [avatars[name].id]}),
 	};
 }
 
 /**
  * `dead` enters at (0,2) and goes quiet; the others enter at (0,1) and (0,3)
  * and play empty turns until it is dead (more than `numMissesAllowed` cycles
- * behind), so they are alive and next to the body.
+ * behind its last reveal, `_getResolvedAvatar`), so they are alive and next to the body.
  */
 async function aBodyBetween(collectors: Who[]) {
 	const w = await world(['dead', ...collectors]);
@@ -155,7 +197,7 @@ async function aBodyBetween(collectors: Who[]) {
 		...Object.fromEntries(collectors.map((c, i) => [c, [enter(...starts[i])]])),
 	});
 	const missesAllowed = Number(w.Game.linkedData!.numMissesAllowed);
-	for (let i = 0; i < missesAllowed + 1; i++) {
+	for (let i = 0; i < missesAllowed + 2; i++) {
 		await w.cycle(Object.fromEntries(collectors.map((c) => [c, []])));
 	}
 	expect((await w.avatar('dead')).life).toEqual(0);
@@ -171,14 +213,22 @@ describe('the stake in an avatar', () => {
 		// the avatar is in the game's custody: its owner does not hold it
 		const {account, id} = w.avatars.a;
 		await expect(
-			w.env.execute(w.Avatars, {account, functionName: 'burn', args: [id]}),
+			w.env.execute(w.Avatars, {
+				account,
+				functionName: 'burn',
+				args: [id, '0x'],
+			}),
 		).toBeRejectedWith('NotHolder');
 
 		await w.withdraw('a');
 		const before = await w.balance(account);
-		const receipt = await w.env.execute(w.Avatars, {account, functionName: 'burn', args: [id]});
+		const receipt = await w.env.execute(w.Avatars, {
+			account,
+			functionName: 'burn',
+			args: [id, '0x'],
+		});
 		const after = await w.balance(account);
-		const gas = receipt.gasUsed * receipt.effectiveGasPrice;
+		const gas = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice);
 		expect(after - before + gas).toEqual(w.stake);
 
 		// and that id can never be minted again
@@ -186,7 +236,11 @@ describe('the stake in an avatar', () => {
 			w.env.execute(w.AvatarsSale, {
 				account,
 				functionName: 'purchase',
-				args: purchaseArgs({gameAddress: w.Game.address, owner: account, subID: 0n}),
+				args: purchaseArgs({
+					gameAddress: w.Game.address,
+					owner: account,
+					subID: 0n,
+				}),
 				value: w.price,
 			}),
 		).toBeRejectedWith('TokenCannotBeReminted');
@@ -196,30 +250,51 @@ describe('the stake in an avatar', () => {
 		const w = await world([]);
 		const {admin} = w.namedAccounts;
 		const buyer = w.unnamedAccounts[5] as `0x${string}`;
-		await w.env.execute(w.AvatarsSale, {account: admin, functionName: 'addToFreeMap', args: [[buyer]]});
+		await w.env.execute(w.AvatarsSale, {
+			account: admin,
+			functionName: 'addToFreeMap',
+			args: [[buyer]],
+		});
 		await expect(
 			w.env.execute(w.AvatarsSale, {
 				account: buyer,
 				functionName: 'purchase',
-				args: purchaseArgs({gameAddress: w.Game.address, owner: buyer, subID: 1n}),
+				args: purchaseArgs({
+					gameAddress: w.Game.address,
+					owner: buyer,
+					subID: 1n,
+				}),
 				value: 0n,
 			}),
 		).toBeRejectedWith('WrongPaymentAmount');
 		await w.env.execute(w.AvatarsSale, {
 			account: buyer,
 			functionName: 'purchase',
-			args: purchaseArgs({gameAddress: w.Game.address, owner: buyer, subID: 1n}),
+			args: purchaseArgs({
+				gameAddress: w.Game.address,
+				owner: buyer,
+				subID: 1n,
+			}),
 			value: w.stake,
 		});
-		expect(await w.env.read(w.Avatars, {functionName: 'stakeOf', args: [avatarIDFor(buyer, 1n)]})).toEqual(w.stake);
+		expect(
+			await w.env.read(w.Avatars, {
+				functionName: 'stakeOf',
+				args: [avatarIDFor(buyer, 1n)],
+			}),
+		).toEqual(w.stake);
 	});
 
 	it('cannot be sent to the game by anyone but the avatars, which send it only by a burn', async () => {
 		const w = await world([]);
 		const sender = w.unnamedAccounts[3] as `0x${string}`;
 		await expect(
-			w.env.execute(w.Game, {account: sender, functionName: 'settleClaim', args: [1n, 2n], value: 1n} as never),
-		).toBeRejected();
+			w.env.execute(w.Game, {
+				account: sender,
+				functionName: 'receiveStake',
+				value: 1n,
+			}),
+		).toBeRejectedWith('OnlyAvatarsSendValue');
 		await expect(
 			provider.request({
 				method: 'eth_sendTransaction',
@@ -233,7 +308,10 @@ describe('a body', () => {
 	it('is shared by the avatars that collect it in the first cycle it is collected in', async () => {
 		const w = await aBodyBetween(['a', 'b']);
 		const body = w.id('dead');
-		await w.cycle({a: [move(0n, 2n), collect(body)], b: [move(0n, 2n), collect(body)]});
+		await w.cycle({
+			a: [move(0n, 2n), collect(body)],
+			b: [move(0n, 2n), collect(body)],
+		});
 		let state = await w.body('dead');
 		expect(state.claimants).toEqual(2);
 		expect(state.firstClaimCycle).toEqual(BigInt(w.cycleNumber()));
@@ -249,7 +327,9 @@ describe('a body', () => {
 		expect(state.pot).toEqual(w.stake);
 		// the body was burned: its stake is in the game now, not in the avatar
 		expect(await w.stakeOf('dead')).toEqual(0n);
-		await expect(w.env.read(w.Avatars, {functionName: 'ownerOf', args: [body]})).toBeRejected();
+		await expect(
+			w.env.read(w.Avatars, {functionName: 'ownerOf', args: [body]}),
+		).toBeRejected();
 
 		// anyone may settle a claim for its collector
 		await w.settle('b', 'dead', w.avatars.a.account);
@@ -265,7 +345,10 @@ describe('a body', () => {
 		const body = w.id('dead');
 		await w.cycle({a: [move(0n, 2n), collect(body)], b: []});
 		// b arrives a cycle later: its Collect is dropped, and everything after it
-		const receipts = await w.cycle({a: [], b: [move(0n, 2n), collect(body), move(0n, 3n)]});
+		const receipts = await w.cycle({
+			a: [],
+			b: [move(0n, 2n), collect(body), move(0n, 3n)],
+		});
 		expect(receipts.b).toBeTruthy();
 		expect((await w.avatar('b')).position).toEqual(pos(0n, 2n));
 		expect((await w.body('dead')).claimants).toEqual(1);
@@ -285,26 +368,33 @@ describe('a body', () => {
 		const names = ['d1', 'd2', 'd3', 'd4'];
 		const w = await world([...names, 'a']);
 		// four bodies on one cell, then one collector beside them
-		await w.cycle({...Object.fromEntries(names.map((n) => [n, [enter(0n, 2n)]])), a: [enter(0n, 1n)]});
+		await w.cycle({
+			...Object.fromEntries(names.map((n) => [n, [enter(0n, 2n)]])),
+			a: [enter(0n, 1n)],
+		});
 		const missesAllowed = Number(w.Game.linkedData!.numMissesAllowed);
-		for (let i = 0; i < missesAllowed + 1; i++) await w.cycle({a: []});
+		for (let i = 0; i < missesAllowed + 2; i++) await w.cycle({a: []});
 		await w.cycle({a: [move(0n, 2n), ...names.map((n) => collect(w.id(n)))]});
-		const claimed = await Promise.all(names.map(async (n) => (await w.body(n)).claimants));
+		const claimed = await Promise.all(
+			names.map(async (n) => (await w.body(n)).claimants),
+		);
 		expect(claimed).toEqual([1, 1, 1, 0]);
 	});
 
-	it("is not released while it has claims of its own unsettled, and then carries what it collected", async () => {
+	it('is not released while it has claims of its own unsettled, and then carries what it collected', async () => {
 		const w = await aBodyBetween(['carrier', 'b']);
 		// the carrier collects the dead, then goes quiet and dies with the claim open
 		await w.cycle({carrier: [move(0n, 2n), collect(w.id('dead'))], b: []});
 		const missesAllowed = Number(w.Game.linkedData!.numMissesAllowed);
-		for (let i = 0; i < missesAllowed + 1; i++) await w.cycle({b: []});
+		for (let i = 0; i < missesAllowed + 2; i++) await w.cycle({b: []});
 		expect((await w.avatar('carrier')).life).toEqual(0);
 
 		// b collects the carrier's body where it fell
 		await w.cycle({b: [move(0n, 2n), collect(w.id('carrier'))]});
 		await w.quiet();
-		await expect(w.settle('b', 'carrier')).toBeRejectedWith('BodyHasOpenClaims');
+		await expect(w.settle('b', 'carrier')).toBeRejectedWith(
+			'BodyHasOpenClaims',
+		);
 
 		// the chain is settled from the bottom up
 		await w.settle('carrier', 'dead', w.avatars.b.account);
@@ -327,7 +417,11 @@ describe('a body', () => {
 		const before = await w.balance(account);
 		const receipt = await w.withdraw('a');
 		const after = await w.balance(account);
-		expect(after - before + receipt.gasUsed * receipt.effectiveGasPrice).toEqual(w.stake);
+		expect(
+			after -
+				before +
+				BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice),
+		).toEqual(w.stake);
 		expect(await w.carried('a')).toEqual(0n);
 		expect(await w.stakeOf('a')).toEqual(w.stake);
 	});
@@ -348,12 +442,18 @@ describe('a body', () => {
 		async function inOrder(order: Who[]) {
 			const w = await aBodyBetween(['a', 'b']);
 			const body = w.id('dead');
-			await w.cycle({a: [move(0n, 2n), collect(body)], b: [move(0n, 2n), collect(body)]}, order);
+			await w.cycle(
+				{a: [move(0n, 2n), collect(body)], b: [move(0n, 2n), collect(body)]},
+				order,
+			);
+			const collectedIn = BigInt(w.cycleNumber());
 			await w.quiet();
 			await w.settle('a', 'dead');
 			await w.settle('b', 'dead');
+			const state = await w.body('dead');
 			return {
-				body: await w.body('dead'),
+				// the cycle numbers are the clock's, which differ between the runs
+				body: {...state, firstClaimCycle: state.firstClaimCycle - collectedIn},
 				a: await w.carried('a'),
 				b: await w.carried('b'),
 			};
@@ -367,12 +467,19 @@ describe('a body', () => {
 	it(`keeps a reveal with ${MAX_COLLECTS} collects under the declared reveal gas`, async () => {
 		const names = ['d1', 'd2', 'd3'];
 		const w = await world([...names, 'a']);
-		await w.cycle({...Object.fromEntries(names.map((n) => [n, [enter(0n, 2n)]])), a: [enter(0n, 1n)]});
+		await w.cycle({
+			...Object.fromEntries(names.map((n) => [n, [enter(0n, 2n)]])),
+			a: [enter(0n, 1n)],
+		});
 		const missesAllowed = Number(w.Game.linkedData!.numMissesAllowed);
-		for (let i = 0; i < missesAllowed + 1; i++) await w.cycle({a: []});
+		for (let i = 0; i < missesAllowed + 2; i++) await w.cycle({a: []});
 		const numMoves = Number(w.Game.linkedData!.numMoves);
-		const back: Action[] = Array.from({length: numMoves - 1}, (_, i) => move(0n, i % 2 === 0 ? 1n : 2n));
-		const receipts = await w.cycle({a: [move(0n, 2n), ...names.map((n) => collect(w.id(n))), ...back]});
+		const back: Action[] = Array.from({length: numMoves - 1}, (_, i) =>
+			move(0n, i % 2 === 0 ? 1n : 2n),
+		);
+		const receipts = await w.cycle({
+			a: [move(0n, 2n), ...names.map((n) => collect(w.id(n))), ...back],
+		});
 		expect(receipts.a.gasUsed < REVEAL_GAS).toEqual(true);
 		expect((await w.body('d3')).claimants).toEqual(1);
 	});

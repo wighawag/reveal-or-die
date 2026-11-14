@@ -53,4 +53,21 @@ interface UsingGameErrors is UsingGameTypes, UsingCommitRevealErrors {
 
     /// @notice happen when attempting to send a non-avatar ERC721 to the game
     error OnlyAvatarsAreAccepted();
+
+    /// @notice Value sent to the game by anything but the avatars' burn.
+    error OnlyAvatarsSendValue();
+
+    /// @notice This avatar has no open claim on that body.
+    error NoClaim(uint256 collector, uint256 body);
+
+    /// @notice The cycle the claim was made in is not over: its count is not
+    ///  final yet.
+    error ClaimNotFinal(uint256 body, uint64 cycleNumber);
+
+    /// @notice The body still has claims of its own to settle: what it carries
+    ///  is not final, so neither is what its collectors share.
+    error BodyHasOpenClaims(uint256 body, uint256 openClaims);
+
+    /// @notice Paying a collected value failed.
+    error PaymentFailed(address to, uint256 amount);
 }

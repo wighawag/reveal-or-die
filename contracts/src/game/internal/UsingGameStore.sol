@@ -23,7 +23,13 @@ abstract contract UsingGameStore is UsingGameTypes, UsingCommitReveal {
     ///  never shares a turn with a move).
     /// @dev The floor `actionsPerReveal` is checked against. A game that adds an
     ///  action to a turn raises it.
-    uint256 internal constant ACTIONS_BESIDES_MOVES = 1;
+    /// @notice How many bodies one turn may name (step R1a): the one bound on
+    ///  the loops a collect costs.
+    uint256 internal constant MAX_COLLECTS = 3;
+
+    /// @notice Besides its moves, the longest turn carries its collects and an
+    ///  exit.
+    uint256 internal constant ACTIONS_BESIDES_MOVES = 1 + MAX_COLLECTS;
 
     mapping(uint256 => Player) internal _players;
     mapping(uint256 => Avatar) internal _avatars;
@@ -33,6 +39,19 @@ abstract contract UsingGameStore is UsingGameTypes, UsingCommitReveal {
     mapping(uint256 avatarID => uint256) internal _ownedAvatarsIndex;
 
     mapping(uint64 => Zone) internal _zones;
+
+    // ------------------------------------------------------------------------
+    // THE BODIES (step R1a). Appended, so the layout above is unchanged.
+    // ------------------------------------------------------------------------
+
+    mapping(uint256 body => Body) internal _bodies;
+    /// @notice the cycle `collector` collected `body` in, zero once settled
+    mapping(uint256 collector => mapping(uint256 body => uint64 cycleNumber))
+        internal _claims;
+    /// @notice how many of an avatar's claims are not settled yet
+    mapping(uint256 avatarID => uint256) internal _openClaims;
+    /// @notice what an avatar collected and the game holds for it, in ETH
+    mapping(uint256 avatarID => uint256) internal _carried;
 
     /// @notice Create an instance of a game
     /// @param config configuration options for the game

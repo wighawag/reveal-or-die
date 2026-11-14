@@ -18,13 +18,34 @@ interface UsingGameTypes is UsingCommitRevealTypes {
     enum ActionType {
         Enter,
         Move,
-        Exit
+        Exit,
+        /// @notice name a body on the avatar's cell, `data` its avatar id
+        Collect
     }
 
     /// @notice Move struct that define the action, type and position
+    /// @dev `data` is a `uint256` since step R1a, because a Collect names a
+    ///  body by its avatar id, which takes 256 bits. A turn's hash is unchanged
+    ///  by the widening: `abi.encode` pads a `uint128` to a word as well.
     struct Action {
         ActionType actionType;
-        uint128 data;
+        uint256 data;
+    }
+
+    /// @notice A body, as {IGameLoot-getBody} reads it.
+    struct PublicBody {
+        /// @notice the first cycle it was collected in (zero: never)
+        uint64 firstClaimCycle;
+        /// @notice how many collected it in that cycle
+        uint32 claimants;
+        /// @notice whether its stake has been released (it is burned)
+        bool released;
+        /// @notice what its collectors share, once released
+        uint256 pot;
+        /// @notice its stake plus what it carries; the pot once released
+        uint256 value;
+        /// @notice its own claims not yet settled, which hold its release
+        uint256 openClaims;
     }
 
     struct PublicAvatar {
@@ -103,6 +124,19 @@ interface UsingGameTypes is UsingCommitRevealTypes {
     /// the NFT back out. A delegate may play, never withdraw.
     struct Player {
         address owner;
+        /// @notice whether the game holds the avatar now: what a settled claim
+        ///  is paid into (its carried value) rather than to `owner` directly
+        bool inCustody;
+    }
+
+    /// @notice A body's claim count, in the one cycle claims count in.
+    /// @dev No list of claimants, deliberately: each collector pulls its own
+    ///  share ({IGameLoot-settleClaim}), so nothing here loops.
+    struct Body {
+        uint64 firstClaimCycle;
+        uint32 claimants;
+        bool released;
+        uint256 pot;
     }
 
     struct Avatar {

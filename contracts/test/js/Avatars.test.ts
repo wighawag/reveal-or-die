@@ -2,7 +2,7 @@ import {expect} from 'earl';
 import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not support vitest
 import {network} from 'hardhat';
 import {setupFixtures} from './utils/index.js';
-import {avatarIDFor, purchaseArgs} from '../../js/avatar-id.js';
+import {avatarIDFor, purchaseArgs, salePriceOf} from '../../js/avatar-id.js';
 import {encodeAbiParameters, zeroAddress} from 'viem';
 
 const {provider, networkHelpers} = await network.connect();
@@ -83,7 +83,7 @@ describe('Avatars', function () {
 		const buyer = unnamedAccounts[0];
 		const subID = 0n;
 		const avatarID = avatarIDFor(buyer, subID);
-		const price = BigInt(AvatarsSale.linkedData!.paymentAmount as string);
+		const price = salePriceOf(AvatarsSale.linkedData);
 
 		// Guards the test: a price of zero would make every assertion here
 		// vacuous, since paying nothing and paying the price would be the same
@@ -115,7 +115,7 @@ describe('Avatars', function () {
 			await networkHelpers.loadFixture(deployAll);
 
 		const buyer = unnamedAccounts[0];
-		const price = BigInt(AvatarsSale.linkedData!.paymentAmount as string);
+		const price = salePriceOf(AvatarsSale.linkedData);
 
 		const rejection = await rejectionOf(() =>
 			env.execute(AvatarsSale, {

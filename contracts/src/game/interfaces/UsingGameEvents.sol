@@ -67,6 +67,34 @@ interface UsingGameEvents is UsingGameTypes, UsingCommitRevealEvents {
     // place of this game's `NewPhase`) and `WaitedForChanged` are the base's,
     // inherited above.
 
+    /// @notice An avatar collected a body in its turn (step R1a).
+    event BodyCollected(
+        uint256 indexed body,
+        uint256 indexed collector,
+        uint64 indexed cycleNumber
+    );
+
+    /// @notice A body's stake was released (it is burned): its collectors
+    ///  share `pot`, its stake plus what it carried.
+    event BodyReleased(uint256 indexed body, uint256 pot);
+
+    /// @notice A collector's share of a body was settled: added to what it
+    ///  carries when the game holds it (`paidTo` zero), paid to its owner
+    ///  otherwise.
+    event ClaimSettled(
+        uint256 indexed collector,
+        uint256 indexed body,
+        uint256 share,
+        address paidTo
+    );
+
+    /// @notice What an avatar carried was paid out, at its withdrawal.
+    event CarriedPaid(
+        uint256 indexed avatarID,
+        address indexed to,
+        uint256 amount
+    );
+
     // allow to easily inspect errors, instead of revert
     event Error(bytes4 selector, bytes data);
 }

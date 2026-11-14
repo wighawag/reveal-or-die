@@ -7,6 +7,7 @@ import {
 } from '../../../rocketh/environment.js';
 import {EthereumProvider} from 'hardhat/types/providers';
 import {zeroAddress} from 'viem';
+import {ACTIONS_BESIDES_MOVES} from '../../../js/commitment.js';
 
 /**
  * How the cycle advances, as {UsingGameTypes-CyclePolicy} numbers them.
@@ -63,7 +64,9 @@ export async function deployGameWith(
 		numMoves: config.numMoves ?? 10n,
 		cyclePolicy: config.cyclePolicy,
 		numMissesAllowed: config.numMissesAllowed ?? 3n,
-		actionsPerReveal: config.actionsPerReveal ?? (config.numMoves ?? 10n) + 1n,
+		actionsPerReveal:
+			config.actionsPerReveal ??
+			(config.numMoves ?? 10n) + BigInt(ACTIONS_BESIDES_MOVES),
 	};
 
 	const routes = [
@@ -71,6 +74,7 @@ export async function deployGameWith(
 		{name: 'Deposit', artifact: artifacts.GameDeposit, args: [full]},
 		{name: 'Commit', artifact: artifacts.GameCommit, args: [full]},
 		{name: 'Reveal', artifact: artifacts.GameReveal, args: [full]},
+		{name: 'Loot', artifact: artifacts.GameLoot, args: [full]},
 		{name: 'Delegation', artifact: artifacts.GameDelegation, args: []},
 	];
 

@@ -6,8 +6,15 @@ import "solidity-kit/solc_0_8/ERC721/implementations/EnumerableERC721.sol";
 contract Avatars is EnumerableERC721 {
     error NotMinter(address sender, address minter);
     error NotMinterAdmin(address sender, address minterAdmin);
+    error NotHolder(address sender, address holder);
+    error StakeTransferFailed(address to, uint256 amount);
 
     event MinterSet(address indexed previousMinter, address indexed newMinter);
+    event StakeReleased(
+        uint256 indexed tokenID,
+        address indexed holder,
+        uint256 amount
+    );
 
     /// @notice Who may change {minter}. Immutable, and set at construction.
     address public immutable MINTER_ADMIN;
@@ -19,6 +26,17 @@ contract Avatars is EnumerableERC721 {
     /// all, rather than minting for free. The failure is loud and immediate
     /// instead of silent and expensive.
     address public minter;
+
+    /// @notice WHAT AN AVATAR CARRIES, in the chain's own currency: fixed at
+    ///         mint for as long as the avatar exists, and paid out only by
+    ///         {burn} (step R1a of stratagems' plan; reveal-or-die `work`:
+    ///         `stake-in-the-avatar`).
+    /// @dev NOTHING ELSE MOVES IT, and no game is trusted with it: a game that
+    ///      holds avatars (its custody) releases a body's stake the way any
+    ///      holder would, by burning it, and whatever the game does with the
+    ///      ETH after is between the game and its players. So an avatar is
+    ///      worth the same in every game, present and future.
+    mapping(uint256 tokenID => uint256 amount) public stakeOf;
 
     constructor(address minterAdmin) {
         MINTER_ADMIN = minterAdmin;
@@ -77,19 +95,58 @@ contract Avatars is EnumerableERC721 {
     /// this becomes a mapping, and that change is smaller than the migration a
     /// wrong guess would cost.
     ///
-    /// NO LONGER `payable`, which is a second fix rather than tidying. It was
-    /// `payable`, took `msg.value`, and did nothing with it - and neither this
-    /// contract nor `EnumerableERC721` has any way to withdraw, so every wei
-    /// ever sent to it was permanently locked. The sale takes the payment and
-    /// forwards it to `RECIPIENT`; this call carries no value at all.
+    /// `payable` AGAIN, AND THIS TIME THE VALUE IS THE AVATAR'S STAKE (step
+    /// R1a). It once was `payable`, took `msg.value` and did nothing with it,
+    /// with no way to withdraw, so every wei sent was locked for good; it was
+    /// made non-payable for that. Now what arrives is recorded as
+    /// {stakeOf} the id, and {burn} is the way out. The sale's FEE still goes to
+    /// its `RECIPIENT`; only the stake comes here.
+    ///
+    /// A BURNED ID IS NEVER MINTED AGAIN: `_safeMint` is called with
+    /// re-minting refused, and a burn leaves the token's nonce behind, so an id
+    /// whose stake was paid out cannot come back carrying another.
     ///
     /// See also docs/plans/identity-without-consent.md: this function was one
     /// half of the composed impersonation described there. Both halves are now
     /// closed.
-    function mint(address to, uint256 tokenID, bytes calldata data) external {
+    function mint(
+        address to,
+        uint256 tokenID,
+        bytes calldata data
+    ) external payable {
         if (msg.sender != minter) {
             revert NotMinter(msg.sender, minter);
         }
+        stakeOf[tokenID] = msg.value;
         _safeMint(to, tokenID, false, data);
+    }
+
+    /// @notice Burn an avatar you hold, and receive the stake it carries.
+    /// @dev THE HOLDER, not an approved operator: the stake goes to whoever
+    ///      holds the avatar, so the one who may burn it is the one it is paid
+    ///      to. A game holding avatars burns a body this way to release its
+    ///      stake. The stake is cleared before the transfer, so a holder that
+    ///      re-enters finds nothing left to take.
+    ///
+    ///      `data` IS THE CALL THE STAKE ARRIVES WITH, chosen by the holder,
+    ///      who is the caller: an account passes nothing, and a contract that
+    ///      refuses plain transfers (a game behind a proxy whose `receive`
+    ///      rejects ETH, as reveal-or-die's does) names the payable function it
+    ///      takes the stake through. Nothing here trusts or knows any game.
+    function burn(uint256 tokenID, bytes calldata data) external {
+        address holder = _ownerOf(tokenID);
+        if (msg.sender != holder) {
+            revert NotHolder(msg.sender, holder);
+        }
+        uint256 amount = stakeOf[tokenID];
+        delete stakeOf[tokenID];
+        _burn(tokenID);
+        emit StakeReleased(tokenID, holder, amount);
+        if (amount != 0) {
+            (bool success, ) = payable(holder).call{value: amount}(data);
+            if (!success) {
+                revert StakeTransferFailed(holder, amount);
+            }
+        }
     }
 }

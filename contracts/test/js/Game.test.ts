@@ -3,11 +3,17 @@ import {describe, it} from 'node:test'; // using node:test as hardhat v3 do not 
 import {network} from 'hardhat';
 import {setupFixtures, deployGameWith, CYCLE_POLICY} from './utils/index.js';
 import {zoneID, isObstacle, isValidMove} from '../../js/zones.js';
-import {commitmentHash, type Action} from '../../js/commitment.js';
+import {
+	commitmentHash,
+	ACTIONS_BESIDES_MOVES,
+	MAX_COLLECTS,
+	type Action,
+} from '../../js/commitment.js';
 import {
 	avatarIDFor,
 	purchaseArgs,
 	purchaseValue,
+	salePriceOf,
 } from '../../js/avatar-id.js';
 import {decodeEventLog, encodeAbiParameters, zeroAddress} from 'viem';
 
@@ -57,7 +63,7 @@ describe('Game', function () {
 				owner: unnamedAccounts[0],
 				subID,
 			}),
-			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			value: salePriceOf(AvatarsSale.linkedData),
 		});
 
 		await advanceToCycle(initialCycleNumber + 2);
@@ -158,7 +164,7 @@ describe('Game', function () {
 				0n,
 				zeroAddress,
 			],
-			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			value: salePriceOf(AvatarsSale.linkedData),
 		});
 
 		await advanceToCycle(initialCycleNumber + 2);
@@ -272,7 +278,7 @@ describe('Game', function () {
 						0n,
 						zeroAddress,
 					],
-					value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+					value: salePriceOf(AvatarsSale.linkedData),
 				});
 			}
 
@@ -395,7 +401,7 @@ describe('Game', function () {
 				0n,
 				zeroAddress,
 			],
-			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			value: salePriceOf(AvatarsSale.linkedData),
 		});
 
 		// far enough west and north to land outside the origin zone, which is
@@ -478,7 +484,7 @@ describe('Game', function () {
 				0n,
 				zeroAddress,
 			],
-			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			value: salePriceOf(AvatarsSale.linkedData),
 		});
 
 		// what the js believes about the cells around the origin
@@ -566,7 +572,7 @@ describe('Game', function () {
 					owner: player,
 					subID,
 				}),
-				value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+				value: salePriceOf(AvatarsSale.linkedData),
 			});
 			return avatarIDFor(player, subID);
 		}
@@ -658,7 +664,7 @@ describe('Game', function () {
 			account: player,
 			functionName: 'purchase',
 			args: purchaseArgs({gameAddress: Game.address, owner: player, subID: 0n}),
-			value: BigInt(AvatarsSale.linkedData!.paymentAmount as string),
+			value: salePriceOf(AvatarsSale.linkedData),
 		});
 		const avatarID = avatarIDFor(player, 0n);
 		let {cycleNumber} = getCycleNumber(await getTimestamp());
@@ -937,16 +943,24 @@ describe('Game', function () {
 		const a = await oneAvatar('f3');
 		await a.turn([{actionType: 0, data: pos(0n, 1n)}]);
 		const numMoves = Number(a.Game.linkedData!.numMoves);
-		expect(Number(a.Game.linkedData!.actionsPerReveal)).toEqual(numMoves + 1);
+		// every move, MAX_COLLECTS collects and an exit (step R1a)
+		expect(Number(a.Game.linkedData!.actionsPerReveal)).toEqual(
+			numMoves + ACTIONS_BESIDES_MOVES,
+		);
 
 		const steps: Action[] = Array.from({length: numMoves}, () => ({
 			actionType: 1,
 			data: pos(0n, 1n),
 		}));
-		await a.turn([...steps, {actionType: 2, data: 0n}]);
+		const collects: Action[] = Array.from({length: MAX_COLLECTS}, (_, i) => ({
+			actionType: 3,
+			data: BigInt(i + 1),
+		}));
+		const longest = [...steps, ...collects, {actionType: 2, data: 0n}];
+		await a.turn(longest);
 
 		await expect(
-			a.turn([...steps, {actionType: 2, data: 0n}, {actionType: 2, data: 0n}]),
+			a.turn([...longest, {actionType: 2, data: 0n}]),
 		).toBeRejectedWith('TooManyActions');
 	});
 
@@ -957,7 +971,8 @@ describe('Game', function () {
 				avatars: Avatars.address,
 				cyclePolicy: CYCLE_POLICY.Timed,
 				numMoves: 10n,
-				actionsPerReveal: 10n,
+				// room for the moves and the exit, not for the collects
+				actionsPerReveal: 11n,
 			}),
 		).toBeRejected();
 	});
@@ -984,7 +999,7 @@ describe('buying an avatar', () => {
 		const owner = env.unnamedAccounts[0];
 		// Stands in for the local signer: an address that holds nothing yet.
 		const signer = env.unnamedAccounts[1];
-		const price = BigInt(AvatarsSale.linkedData!.paymentAmount as string);
+		const price = salePriceOf(AvatarsSale.linkedData);
 		const stipend = 12345678901234n;
 
 		const before = await env.network.provider.request({

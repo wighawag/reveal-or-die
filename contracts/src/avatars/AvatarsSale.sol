@@ -25,6 +25,6 @@ contract AvatarsSale is SaleViaNativePayment {
     ) internal override returns (uint256 tokenID) {
         address owner = abi.decode(data, (address));
         tokenID = (uint256(uint160(owner)) << 96) + subID;
-        Avatars(address(ITEMS)).mint(to, tokenID, data);
+        Avatars(address(ITEMS)).mint{value: STAKE_AMOUNT}(to, tokenID, data);
     }
 }

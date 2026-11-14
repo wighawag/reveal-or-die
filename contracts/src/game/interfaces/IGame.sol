@@ -104,6 +104,34 @@ interface IGameDeposit is UsingGameTypes {
 ///      ({GameDelegation}) deliberately does not declare `is IDelegation`; that
 ///      agreement is checked by asserting each selector is ROUTED on the
 ///      deployed proxy, which is the level at which it can actually break.
+/// @notice The bodies (step R1a): a dead avatar's stake, shared by whoever
+///  collects it in the first cycle it is collected in.
+interface IGameLoot is UsingGameTypes {
+    /// @notice Settle `collector`'s share of `body`, once the cycle it was
+    ///  collected in is over. Anyone may. The first settlement of a body
+    ///  burns it, which releases its stake to the game; a body with claims of
+    ///  its own still open cannot be released (`BodyHasOpenClaims`).
+    function settleClaim(uint256 collector, uint256 body) external;
+
+    /// @notice How a burned body's stake arrives: the avatars contract calls
+    ///  it, and nothing else may.
+    function receiveStake() external payable;
+
+    /// @notice A body: its count, whether it is released, and its value.
+    function getBody(uint256 body) external view returns (PublicBody memory);
+
+    /// @notice What an avatar collected and the game holds for it, in ETH,
+    ///  paid at its withdrawal.
+    function getCarried(uint256 avatarID) external view returns (uint256);
+
+    /// @notice The cycle `collector` collected `body` in, zero if it has no
+    ///  open claim on it.
+    function getClaim(
+        uint256 collector,
+        uint256 body
+    ) external view returns (uint64 cycleNumber);
+}
+
 interface IGame is
     UsingGameEvents,
     UsingGameErrors,
@@ -111,5 +139,6 @@ interface IGame is
     IGameReveal,
     IGameGetters,
     IGameDeposit,
+    IGameLoot,
     IDelegation
 {}
