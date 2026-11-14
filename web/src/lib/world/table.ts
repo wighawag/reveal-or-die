@@ -7,8 +7,10 @@
  *   sale's `purchase` with the table as `to`, which the ordinary purchase does
  *   once the context is at the table) or an avatar the account holds, sent to
  *   it. Its stake is the avatar's own.
- * - ETH MODE: a seat is `join()` for the table's stake in ETH; the character is
- *   the account's, its look generated from its id (the address).
+ * - ETH MODE: a seat is `join()` for the table's stake in ETH, which also
+ *   forwards this browser's key its stipend (`world/acquisition.ts`, the same
+ *   rail as a purchase); the character is the account's, its look generated
+ *   from its id (the address).
  *
  * There is no exit (`UsingGameTable._exit` drops it, and the planning never
  * offers it here). A table ends at its last cycle or as soon as at most one
@@ -312,8 +314,6 @@ export function tablePanelOf(params: {
 export type WorldTableStore = Readable<WorldTableState> & {
 	action: Readable<WorldTableAction>;
 	update(): Promise<void>;
-	/** Take an ETH-mode seat, from the account, paying the stake. */
-	join(): Promise<void>;
 	/** Send an avatar the account holds to an avatar-mode table. */
 	seatHeld(avatarID: bigint): Promise<void>;
 	close(): Promise<void>;
@@ -506,16 +506,6 @@ export function createWorldTable(params: {
 		subscribe: state.subscribe,
 		action: {subscribe: action.subscribe},
 		update,
-		join: () =>
-			run('Joining the table', async () => {
-				const now = get(state);
-				if (now.step !== 'Loaded')
-					throw new Error('The table is not read yet.');
-				await fromAccount(
-					{...game, functionName: 'join', args: [], value: now.table.stake},
-					'Joining the table',
-				);
-			}),
 		seatHeld: (avatarID) =>
 			run('Seating your avatar', () =>
 				fromAccount(

@@ -1,6 +1,13 @@
 import {describe, expect, it} from 'vitest';
 import {decodeAbiParameters, zeroAddress} from 'viem';
-import {purchaseArgs} from '$lib/world/acquisition';
+import {
+	createAvatarAcquisition,
+	createSeatAcquisition,
+	createTableSeatAcquisition,
+	purchaseArgs,
+} from '$lib/world/acquisition';
+import type {WorldConfig} from '$lib/world/config';
+import type {TypedDeployments} from '$lib/core/connection/types';
 import {
 	avatarIDFor,
 	ownerOfAvatarID,
@@ -106,5 +113,48 @@ describe('the random subID', () => {
 		const seen = new Set<bigint>();
 		for (let i = 0; i < 64; i++) seen.add(randomSubID());
 		expect(seen.size).toBe(64);
+	});
+});
+
+describe('a seat at an ETH-mode table (step R1b)', () => {
+	const TABLE = '0x000000000000000000000000000000000000ab1e' as const;
+	const KEY = '0x2222222222222222222222222222222222222222' as const;
+	const config = {
+		sale: {address: GAME, price: 1n, stake: 100n, stipend: 7n},
+	} as unknown as WorldConfig;
+	const deployments = {
+		contracts: {
+			Game: {address: TABLE, abi: []},
+			AvatarsSale: {address: GAME, abi: []},
+		},
+	} as unknown as TypedDeployments;
+	const eth = createTableSeatAcquisition({config, deployments, stake: 100n});
+
+	it("joins the table for its stake and forwards the key's stipend in the same call", () => {
+		expect(eth.address).toBe(TABLE);
+		expect(eth.functionName).toBe('join');
+		expect(eth.price).toBe(100n);
+		expect(
+			eth.request({owner: PLAYER, stipendTo: KEY, stipend: 7n}),
+		).toMatchObject({args: [KEY, 7n], value: 107n});
+		// with no key to fund, nothing is forwarded
+		expect(
+			eth.request({owner: PLAYER, stipendTo: undefined, stipend: 0n}),
+		).toMatchObject({args: [zeroAddress, 0n], value: 100n});
+	});
+
+	it('is the seat once the table reads as ETH mode, the avatar purchase otherwise', () => {
+		let ethMode = false;
+		const avatar = createAvatarAcquisition({config, deployments});
+		const seat = createSeatAcquisition({avatar, eth, isEthMode: () => ethMode});
+		expect(seat.address).toBe(GAME);
+		expect(seat.functionName).toBe('purchase');
+		ethMode = true;
+		expect(seat.address).toBe(TABLE);
+		expect(seat.functionName).toBe('join');
+		expect(seat.price).toBe(100n);
+		expect(
+			seat.request({owner: PLAYER, stipendTo: KEY, stipend: 7n}).value,
+		).toBe(107n);
 	});
 });

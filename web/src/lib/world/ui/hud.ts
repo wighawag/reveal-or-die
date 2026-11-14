@@ -31,7 +31,7 @@ import {causeOfDeath, explainDeath, type DeathCause} from '../death';
 import {opensAWallet, type AcquisitionState} from '$lib/game/acquire';
 import {purchaseValue} from 'reveal-or-die-contracts';
 import {formatBalance} from '$lib/core/utils/format/balance';
-import type {WorldTableAction, WorldTableState} from '../table';
+import type {WorldTableState} from '../table';
 
 /** One avatar the player could switch to. */
 export type AvatarChoice = {
@@ -473,9 +473,10 @@ export function describeSetup(
 		busyLabel?: string;
 		/**
 		 * At an ETH-mode table a seat is joined for the stake, not bought
-		 * (stratagems' plan, step R1b): the stake, as the button says it.
+		 * (stratagems' plan, step R1b): the same acquisition rail, so the same
+		 * action, and the total (the stake and the key's stipend) on the button.
 		 */
-		join?: {stakeLabel: string};
+		join?: {totalLabel: string};
 	},
 ): HudModel['setup'] {
 	if (!setup) return undefined;
@@ -484,8 +485,8 @@ export function describeSetup(
 			headline: 'Take a seat at this table',
 			detail:
 				'At this table a seat is paid in ETH: the stake is what you risk, and your character is your own, drawn from your address. Survive to take it back with your share of the dead.',
-			action: 'join',
-			actionLabel: `Join for ${options.join.stakeLabel}`,
+			action: 'buy',
+			actionLabel: `Join for ${options.join.totalLabel}`,
 			busyLabel: options.busyLabel,
 		};
 	}
@@ -592,8 +593,6 @@ export function createHud(context: Context): Readable<HudModel> {
 			game.submission.ready,
 			game.worldTable ??
 				readable<WorldTableState>({step: 'Unloaded'} as WorldTableState),
-			game.worldTable?.action ??
-				readable<WorldTableAction>({step: 'Idle'} as WorldTableAction),
 		],
 		([
 			$phase,
@@ -615,7 +614,6 @@ export function createHud(context: Context): Readable<HudModel> {
 			$advance,
 			$ready,
 			$table,
-			$tableAction,
 		]): HudModel => {
 			const table = $table as WorldTableState;
 			const atTable = game.worldTable !== undefined;
@@ -658,18 +656,13 @@ export function createHud(context: Context): Readable<HudModel> {
 				...(table.step === 'Loaded' && table.table.mode === 'eth'
 					? {
 							join: {
-								stakeLabel: `${formatBalance(table.table.stake)} ${symbol}`,
+								totalLabel: `${formatBalance(
+									table.table.stake + game.config.sale.stipend,
+								)} ${symbol}`,
 							},
 						}
 					: {}),
 			});
-			if (needsSetup?.action === 'join') {
-				const tableAction = $tableAction as WorldTableAction;
-				needsSetup.busy = tableAction.step === 'Sending';
-				if (needsSetup.busy) needsSetup.busyLabel = 'Joining...';
-				needsSetup.error =
-					tableAction.step === 'Failed' ? tableAction.message : undefined;
-			}
 			if (needsSetup?.action === 'buy') {
 				needsSetup.busy = purchaseBusyLabel(purchase) !== undefined;
 				needsSetup.error =

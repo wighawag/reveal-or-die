@@ -21,6 +21,7 @@ import {
 	boardState,
 	skipTutorial,
 	stakeAnAvatar,
+	waitUntilSetUpToPlay,
 } from '../fixtures/board';
 
 /**
@@ -162,19 +163,36 @@ async function story(
 	const stake = BigInt((await tableState()).stake);
 
 	// OUR SEAT, from the table's lobby: a purchase into the table, or Join.
+	// Either one is the acquisition rail, so it also funds this browser's key,
+	// which authorises itself: nothing is left to ask for (step R1b).
 	if (mode === 'avatar') {
 		await stakeAnAvatar(page);
 	} else {
-		const join = page.getByTestId('table-join');
-		await expect(join).toBeEnabled({timeout: 60_000});
-		await join.click();
-		await confirmIfAsked(page);
+		await page
+			.getByRole('button', {name: /^join for/i})
+			.first()
+			.click({timeout: 60_000});
+		const chooser = page.locator('[data-testid="acquire-payment-methods"]');
+		if (await chooser.isVisible({timeout: 10_000}).catch(() => false)) {
+			await page
+				.locator('[data-testid="acquire-pay-with-account"]')
+				.or(page.locator('[data-testid="acquire-pay-with-wallet"]'))
+				.first()
+				.click({timeout: 30_000});
+		}
+		const consent = page.getByRole('button', {
+			name: /^(sign and buy|buy|sign and join|join)$/i,
+		});
+		if (await consent.isVisible({timeout: 10_000}).catch(() => false)) {
+			await consent.click({timeout: 30_000});
+		}
 		await expect
 			.poll(async () => (await boardState(page)).deposited ?? 0, {
 				message: 'our seat should be taken',
-				timeout: 90_000,
+				timeout: 120_000,
 			})
 			.toBeGreaterThan(0);
+		await waitUntilSetUpToPlay(page);
 	}
 	await authoriseToPlay(page, authoriseBrowser);
 	const ours = await playingSeat(page);
@@ -203,7 +221,12 @@ async function story(
 		});
 	} else {
 		theirs = BigInt(other);
-		await send({...Table, functionName: 'join', args: [], value: stake});
+		await send({
+			...Table,
+			functionName: 'join',
+			args: [ZERO, 0n],
+			value: stake,
+		});
 	}
 
 	// STARTED by its creator, us.

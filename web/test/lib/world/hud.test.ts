@@ -169,16 +169,17 @@ describe('what the setup gate asks for', () => {
 		expect(setup?.actionLabel).toBe('Buy an avatar for 0.00001 ETH');
 	});
 
-	it('asks to join for the stake at an ETH-mode table (step R1b)', () => {
+	it('asks to join at an ETH-mode table, on the same rail as a purchase, with the total on it (step R1b)', () => {
 		const setup = describeSetup(
 			{step: 'deposit'},
-			{priceLabel: '0.00001 ETH', join: {stakeLabel: '0.0001 ETH'}},
+			{priceLabel: '0.00001 ETH', join: {totalLabel: '0.0002 ETH'}},
 		);
-		expect(setup?.action).toBe('join');
-		expect(setup?.actionLabel).toBe('Join for 0.0001 ETH');
+		expect(setup?.action).toBe('buy');
+		expect(setup?.headline).toBe('Take a seat at this table');
+		expect(setup?.actionLabel).toBe('Join for 0.0002 ETH');
 		// the other steps are unchanged at a table
 		expect(
-			describeSetup({step: 'authorise'}, {join: {stakeLabel: '1 ETH'}})?.action,
+			describeSetup({step: 'authorise'}, {join: {totalLabel: '1 ETH'}})?.action,
 		).toBe('authorise');
 	});
 

@@ -91,3 +91,67 @@ export function createAvatarAcquisition(params: {
  * they must match Solidity, and the contract test is what pins them.
  */
 export {avatarIDFor, purchaseArgs} from 'reveal-or-die-contracts';
+
+/**
+ * AN ETH-MODE TABLE'S SEAT (stratagems' plan, step R1b): `join` on the table,
+ * for its stake, forwarding the stipend to this browser's signer in the same
+ * transaction, so taking a seat also funds (and so authorises) the key that
+ * plays it, as buying an avatar does.
+ */
+export function createTableSeatAcquisition(params: {
+	config: WorldConfig;
+	deployments: TypedDeployments;
+	/** The table's stake, the factory's linked data. */
+	stake: bigint;
+}): Acquisition {
+	const {config, deployments, stake} = params;
+	const table = deployments.contracts.Game;
+	return {
+		address: table.address,
+		functionName: 'join',
+		price: stake,
+		stipend: config.sale.stipend,
+		gas: JOIN_GAS,
+		request: ({stipendTo, stipend}) => ({
+			abi: table.abi as Abi,
+			args: [stipendTo ?? ZERO_ADDRESS, stipendTo ? stipend : 0n],
+			value: stake + (stipendTo ? stipend : 0n),
+		}),
+	};
+}
+
+/**
+ * AT A TABLE THE SEAT IS EITHER, by its mode, which is read after the context
+ * is composed: so this answers with the ETH seat once the table says it is in
+ * ETH mode, and with the avatar purchase otherwise. Every field is read when
+ * the acquisition runs (and the pending one is found by the same two), so the
+ * one object serves both.
+ */
+export function createSeatAcquisition(params: {
+	avatar: Acquisition;
+	eth: Acquisition;
+	isEthMode: () => boolean;
+}): Acquisition {
+	const pick = () => (params.isEthMode() ? params.eth : params.avatar);
+	return {
+		get address() {
+			return pick().address;
+		},
+		get functionName() {
+			return pick().functionName;
+		},
+		get price() {
+			return pick().price;
+		},
+		get stipend() {
+			return pick().stipend;
+		},
+		get gas() {
+			return pick().gas;
+		},
+		request: (call) => pick().request(call),
+	};
+}
+
+const JOIN_GAS = 300_000n;
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;

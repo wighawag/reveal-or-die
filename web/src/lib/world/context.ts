@@ -98,7 +98,11 @@ import {
 	createMissedReveal,
 	type MissedRevealStore,
 } from '$lib/world/missed-reveal';
-import {createAvatarAcquisition} from '$lib/world/acquisition';
+import {
+	createAvatarAcquisition,
+	createSeatAcquisition,
+	createTableSeatAcquisition,
+} from '$lib/world/acquisition';
 import {
 	createWorldReader,
 	emptyWorld,
@@ -274,7 +278,7 @@ export type Game = {
 export type SetupNeeded = FrameworkSetupNeeded<{step: 'deposit'}>;
 
 /** What a setup step can be acted on with, where anything can be. */
-export type SetupAction = 'authorise' | 'buy' | 'join';
+export type SetupAction = 'authorise' | 'buy';
 
 /**
  * This game's step of the setup gate: the contract has to be holding an avatar.
@@ -520,7 +524,28 @@ export function createGameContext(core: CoreServices): GameContext {
 						seatWanted($table) ? depositNeeded($deposited) : undefined,
 					)
 				: derived(deposited, depositNeeded),
-			acquisition: createAvatarAcquisition({config, deployments}),
+			// AT AN ETH-MODE TABLE the seat is `join`, which funds this browser's
+			// key in the same transaction as the purchase does (step R1b).
+			acquisition: worldTable
+				? createSeatAcquisition({
+						avatar: createAvatarAcquisition({config, deployments}),
+						eth: createTableSeatAcquisition({
+							config,
+							deployments,
+							stake: BigInt(
+								(
+									deployments.contracts.Game.linkedData as {
+										stake?: string | bigint;
+									}
+								).stake ?? 0,
+							),
+						}),
+						isEthMode: () => {
+							const $table = get(worldTable);
+							return $table.step === 'Loaded' && $table.table.mode === 'eth';
+						},
+					})
+				: createAvatarAcquisition({config, deployments}),
 			grant: SIGNER_GRANT,
 		},
 		planning: ({submission}) =>

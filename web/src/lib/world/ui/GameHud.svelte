@@ -110,20 +110,6 @@
 			{#if $hud.setup.error}
 				<p class="mt-2 max-w-sm text-xs text-red-400">{$hud.setup.error}</p>
 			{/if}
-		{:else if $hud.setup.action === 'join'}
-			<!-- An ETH-mode table's seat: the stake, from the account. -->
-			<Button
-				size="sm"
-				class="mt-3"
-				data-testid="table-join"
-				disabled={$hud.setup.busy}
-				onclick={() => game.worldTable?.join()}
-			>
-				{$hud.setup.busy ? $hud.setup.busyLabel : $hud.setup.actionLabel}
-			</Button>
-			{#if $hud.setup.error}
-				<p class="mt-2 max-w-sm text-xs text-red-400">{$hud.setup.error}</p>
-			{/if}
 		{/if}
 		{#each $tableStatus.seatable as avatar (avatar.avatarID)}
 			<!-- An avatar this account holds, carrying the table's stake. -->
@@ -163,9 +149,9 @@
 		</div>
 	{/if}
 	<!-- Seated in a table's lobby with this browser not yet allowed to play for
-	     the account: an ETH-mode seat is joined from the account and funds no
-	     key, and the creator's start is sent by that key. Over the lobby, since
-	     the lobby asks only for the seat. -->
+	     the account (a second browser, or one whose permission was taken back):
+	     the creator's start is sent by that key, and the lobby asks only for the
+	     seat. A seat taken here funds and authorises the key itself. -->
 	{#if game.table && inTableLobby && $hud.setup?.action === 'authorise'}
 		<div
 			class="pointer-events-auto absolute bottom-3 left-1/2 z-30 w-fit max-w-md -translate-x-1/2 rounded-lg border bg-background p-3 shadow-xl"
