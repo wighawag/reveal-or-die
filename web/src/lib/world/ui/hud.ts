@@ -680,7 +680,14 @@ export function createHud(context: Context): Readable<HudModel> {
 					a.inGame &&
 					$cycle.currentCycleNumber >= Number(a.lastCycleNumber) + 1,
 			);
-			const plannedCount = $plan.planned.length;
+			// EVERY ACTION, Collects included: a Collect names a body, so it is not
+			// on the plan's path (`$plan.planned`), and a turn that only collects
+			// (the common case since a body appears the cycle after its death,
+			// stratagems' plan, step R2) is still a turn to commit.
+			const plannedCount =
+				'actions' in $submission
+					? ($submission as {actions: readonly unknown[]}).actions.length
+					: $plan.planned.length;
 			const canLeave = $canExit as boolean;
 			const submission = describeSubmission($submission, {
 				inWorld,
