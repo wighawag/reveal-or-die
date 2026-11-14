@@ -177,21 +177,26 @@ export const config = {
 	},
 	data: {
 		/**
-		 * What one avatar costs.
+		 * What one avatar costs: `price`, the sale's fee, plus `stake`, which
+		 * the avatar carries (step R1a).
 		 *
 		 * In the chain's own currency, and checked EXACTLY by the sale, so it
-		 * belongs on the sale's deployment and nowhere else. It is deliberately
-		 * not zero: a free purchase would never exercise the value split that
-		 * lets one transaction pay for the avatar and fund the key that plays
-		 * with it.
+		 * belongs on the sale's deployment and nowhere else. The price is
+		 * deliberately not zero: a free purchase would never exercise the value
+		 * split that lets one transaction pay for the avatar and fund the key
+		 * that plays with it.
 		 *
 		 * The stem carries an `amount` here too, for the reserve its own game
-		 * stakes. This game stakes the avatar itself, so there is no amount to
-		 * name.
+		 * stakes. This game's stake is in the avatar itself, `stake` below: the
+		 * game holds the avatar, and a body's stake is what its collectors share.
 		 */
 		sale: {
 			default: {
 				price: parseEther('0.00000001'),
+				// What every avatar carries, paid with the price and held in the
+				// avatar until whoever holds it burns it (step R1a). A body is
+				// worth its stake to whoever collects it.
+				stake: parseEther('0.0001'),
 			},
 		},
 		/**
@@ -219,8 +224,9 @@ export const config = {
 				numMoves: 10n,
 				numMissesAllowed: 3n,
 				// The longest turn that can resolve, in one reveal: every move,
-				// then an exit. The contract refuses less.
-				actionsPerReveal: 11n,
+				// its collects (MAX_COLLECTS, 3), then an exit. The contract
+				// refuses less.
+				actionsPerReveal: 14n,
 			},
 			/**
 			 * THE OLD RISE TESTNET DEPLOYMENT WAS NOT THIS. Its routes carried
@@ -237,8 +243,9 @@ export const config = {
 				numMoves: 10n,
 				numMissesAllowed: 3n,
 				// The longest turn that can resolve, in one reveal: every move,
-				// then an exit. The contract refuses less.
-				actionsPerReveal: 11n,
+				// its collects (MAX_COLLECTS, 3), then an exit. The contract
+				// refuses less.
+				actionsPerReveal: 14n,
 			},
 			default: {
 				commitPhaseDuration: 30n,
@@ -247,8 +254,9 @@ export const config = {
 				numMoves: 10n,
 				numMissesAllowed: 3n,
 				// The longest turn that can resolve, in one reveal: every move,
-				// then an exit. The contract refuses less.
-				actionsPerReveal: 11n,
+				// its collects (MAX_COLLECTS, 3), then an exit. The contract
+				// refuses less.
+				actionsPerReveal: 14n,
 			},
 		},
 	},

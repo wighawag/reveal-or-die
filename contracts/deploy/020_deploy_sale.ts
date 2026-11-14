@@ -6,6 +6,7 @@ export default deployScript(
 		const {deployer, admin} = namedAccounts;
 		const config = {
 			paymentAmount: data.sale.price,
+			stakeAmount: data.sale.stake,
 			recipient: admin,
 			freeMapAdmin: admin,
 		};
