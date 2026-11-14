@@ -40,6 +40,12 @@ Built from stratagems' port plan, step R1b (`main`, `work/plans/join-template-co
 - The close had to be taken in a commit phase with no living seat committed, or a reveal after it could claim a body counted as a leftover; so the client stops a lone survivor committing empty turns once the table is closable.
 - In ETH mode nothing funds the browser's key (a purchase does), and the creator's start is sent by that key: the first e2e run failed on `start` with `NotDelegate`, and the HUD now asks a seated player to authorise over the table's lobby.
 
+## The ETH seat funds the browser's key, the maintainer, 2026-11-14
+
+Asked after the build ("funding could have an option to send eth to an address so the local key can be funded as part of the tx"): `join(address payable stipendTo, uint256 stipend)`, payable with exactly the stake plus the stipend, forwards the stipend to `stipendTo` after the seat is taken, as the avatars' sale does (`NoStipendRecipient` for a stipend with nowhere to go); `fb92d4d7`, one more contract case (17). The client takes an ETH seat through the acquisition rail (`createTableSeatAcquisition`, chosen by `createSeatAcquisition` once the table reads as ETH mode), so taking it funds and authorises this browser's key in the one transaction, as a purchase does; the button says "Join for" the stake plus the stipend; `683d8e65`. The authorise prompt over the lobby stays, for a second browser. bomber-world `898de4f1` (two conflicts, its character choice kept in the avatar purchase).
+
+Measured again: contracts 85 (bomber-world 87); `GameTable` 13,148 bytes; unit 2241 + 78 (bomber-world 2331 + 78); check 0 and 0; e2e 57 passed and 2 skipped in both (9.5 and 6.6 min), the ETH story now with no authorise step; the LAN build passes at 683d8e65.
+
 ## What was asked (kept)
 
 # The template has tables; this game cannot offer them until its contracts stand on the base
