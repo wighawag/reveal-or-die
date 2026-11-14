@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"lan": {
-		"pnpmDepsHash": "sha256-lUQVd7ZapagK0+WpPDUkiTAkIsh6ELTOsY4EuEfzHOc=",
+		"pnpmDepsHash": "sha256-pX0q1tcbwzkFPGHqf8ZILQHH1tZAZI6SI0afszo56CU=",
 		"preBuild": "(cd contracts && pnpm generate_areas)",
 		"name": "reveal-or-die"
 	},
