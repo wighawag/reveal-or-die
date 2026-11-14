@@ -23,9 +23,6 @@ import {COMMIT_GAS, REVEAL_GAS} from '../js/gas.js';
  * indexes whatever the deployment's linked data declares. A `1n` typed here
  * would be a fourth place to get the order wrong.
  *
- * `TimedWithEarlyAdvance` is the framework's index 2 and this game's contract
- * does not implement it, so it is not offered here either. See the enum.
- *
  * WHY IT IS DECLARED AT ALL, since until now it was inferred from the two
  * durations: that inference stood for two unrelated things, and asking for a
  * cycle pushed by hand silently also asked for a game with no commit phase.
@@ -37,11 +34,19 @@ export const CYCLE_POLICY = {
 	Manual: 1,
 	/**
 	 * The clock, brought forward when everyone has acted. The commit-reveal
-	 * base's third policy, which this game has on the base for free; no
-	 * environment declares it yet.
+	 * base's third policy, which this game has on the base for free; the
+	 * tables play by it (`data.Table` below), the world does not.
 	 */
 	TimedWithEarlyAdvance: 2,
 } as const;
+
+/**
+ * WHAT EVERY AVATAR CARRIES (step R1a), and what every seat at a table risks
+ * (stratagems' plan, step R1b, R1b-4): one constant, so the sale's `stake` and
+ * the tables' `stake` cannot drift apart. A deposit at a table is refused
+ * unless the avatar carries exactly the table's stake.
+ */
+export const AVATAR_STAKE = parseEther('0.0001');
 
 // we define our config and export it as "config"
 export const config = {
@@ -196,7 +201,7 @@ export const config = {
 				// What every avatar carries, paid with the price and held in the
 				// avatar until whoever holds it burns it (step R1a). A body is
 				// worth its stake to whoever collects it.
-				stake: parseEther('0.0001'),
+				stake: AVATAR_STAKE,
 			},
 		},
 		/**
@@ -257,6 +262,28 @@ export const config = {
 				// its collects (MAX_COLLECTS, 3), then an exit. The contract
 				// refuses less.
 				actionsPerReveal: 14n,
+			},
+		},
+		/**
+		 * TABLES (stratagems' plan, step R1b): games for a fixed set of seats,
+		 * created by anyone through `GameTableFactory` (030_deploy_tables.ts).
+		 *
+		 * The world's durations and moves, under the base's third policy (a table
+		 * of two need not wait out every phase), and ONE missed cycle allowed: the
+		 * second in a row kills (R-6). `stake` is what every seat risks, the
+		 * avatar's own in avatar mode and the ETH paid at `join` in ETH mode.
+		 */
+		Table: {
+			default: {
+				commitPhaseDuration: 30n,
+				revealPhaseDuration: 10n,
+				cyclePolicy: CYCLE_POLICY.TimedWithEarlyAdvance,
+				numMoves: 10n,
+				numMissesAllowed: 1n,
+				// as the world's: every move, its collects, then an exit (which a
+				// table drops, but the reveal's bound is the world's code)
+				actionsPerReveal: 14n,
+				stake: AVATAR_STAKE,
 			},
 		},
 	},
