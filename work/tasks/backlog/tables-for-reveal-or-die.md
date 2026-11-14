@@ -66,3 +66,12 @@ reveal-or-die main 4aaa00bd, bomber-world main c2d706d9 (template-commit-reveal 
 - **A dead avatar stays in the game for good** (`a-dead-avatar-stays-dead`, landed main 64a5ed00): no withdraw of a dead one; withdraw only out of the world and alive (exited, or never entered). On the base this is custody: a dead avatar never leaves, as a seized one does not on template-commit-reveal `with/nft-identity`.
 - **A collected skull clears its body**, after the claim cycle has finished (not in a reveal), and **the NFT is burned**, with the sale refusing an id that has existed before.
 - **The claim share is computed after the cycle, not in the reveal**: a reveal records the claim and counts claimants for (skull, cycle) in O(1), reading the skull's first-claim cycle (same answer in any order, the `_place` exemption, to be argued in code and tested in two orders); `cashOut` divides, over finished cycles only.
+
+## Decisions, the maintainer, 2026-11-12 (stratagems' plan, "Step R": R-1 to R-8)
+
+The loot above is replaced by the stake in the avatar (`stake-in-the-avatar`, done on `pr1a/*`): a body holds its avatar's ETH stake and what it collected, shared by whoever collects it in the first cycle it is collected in, and a withdrawal pays what the avatar collected. For TABLES (this task, R1b):
+
+- **No exit at a table**: it ends at its last cycle or as soon as at most one avatar is alive; each survivor withdraws its stake and what it collected; a dead player gets nothing. Bodies uncollected at the end are split equally among the survivors.
+- **Two kinds of table, chosen at creation**: avatar mode (the deposited NFT is the stake, a tally) and token mode (a fixed stake a seat in ETH, an ERC20 per implementation later; the avatar for display only, never sent; the character still dies and its body holds the tokens).
+- **Death at a table**: `numMissesAllowed` 1 in the table implementation.
+- **Gas**: each player their own, through their browser key; the creator pays the creation.
