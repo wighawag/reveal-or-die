@@ -34,7 +34,7 @@ import {
  * the exit and leaves, and is taken out of the game, which pays what it
  * collected. Its own stake is untouched throughout: the avatar leaves whole.
  *
- * About eight cycles of the local clock (30 + 10 s), most of them waiting for
+ * About nine cycles of the local clock (30 + 10 s), most of them waiting for
  * the body to fall more than `numMissesAllowed` cycles behind.
  */
 
@@ -245,6 +245,18 @@ describe('A body', () => {
 				intervals: [5_000],
 			})
 			.toBe(0);
+		// A BODY APPEARS THE CYCLE AFTER THE DEATH (stratagems' plan, step R2,
+		// R2-2a): it died in the cycle after its resolved `lastCycleNumber`.
+		const diedIn =
+			Number((await read(Game, 'getAvatar', [body])).lastCycleNumber) + 1;
+		await expect
+			.poll(async () => Number((await cycleOf())[0]), {
+				message:
+					'the body should be collectable from the cycle after its death',
+				timeout: 120_000,
+				intervals: [2_000],
+			})
+			.toBeGreaterThan(diedIn);
 
 		// COLLECTED FROM THE HUD: step onto it, and the panel offers it.
 		await playTurn(page, async () => {
