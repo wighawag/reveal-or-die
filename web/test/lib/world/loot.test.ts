@@ -17,8 +17,10 @@ import {
  * contract's (`contracts/test/js/Loot.test.ts`).
  */
 
-const ALIVE = {inGame: true, life: 1};
-const DEAD = {inGame: true, life: 0};
+/** Planned in cycle 10: alive, and dead since cycle 8 (its last cycle 7). */
+const NOW = 10;
+const ALIVE = {inGame: true, life: 1, lastCycleNumber: 9};
+const DEAD = {inGame: true, life: 0, lastCycleNumber: 7};
 
 describe('the bodies on a cell', () => {
 	it('are the dead avatars in the world on it, not the living, not elsewhere, not oneself', () => {
@@ -30,8 +32,22 @@ describe('the bodies on a cell', () => {
 			{avatarID: 4n, inGame: false, life: 0, position: at},
 			{avatarID: 5n, ...DEAD, position: at},
 		];
-		expect(bodiesAt(avatars, at, 5n)).toEqual([1n]);
-		expect(bodiesAt(avatars, at)).toEqual([1n, 5n]);
+		expect(bodiesAt(avatars, at, NOW, 5n)).toEqual([1n]);
+		expect(bodiesAt(avatars, at, NOW)).toEqual([1n, 5n]);
+	});
+
+	it('are bodies from the cycle after the death, not in the cycle it happens', () => {
+		// stratagems' plan, step R2 (R2-2a). A dead avatar's `lastCycleNumber`
+		// is the contract's, set to the cycle before its death, so it died in
+		// `lastCycleNumber + 1` and is a body from the cycle after that.
+		const at = {x: 2, y: 3};
+		const dyingNow = {avatarID: 1n, inGame: true, life: 0, position: at};
+		expect(bodiesAt([{...dyingNow, lastCycleNumber: 9}], at, NOW)).toEqual(
+			[],
+		);
+		expect(bodiesAt([{...dyingNow, lastCycleNumber: 8}], at, NOW)).toEqual([
+			1n,
+		]);
 	});
 
 	it('are all named when there is room, and a random few when there is not', () => {

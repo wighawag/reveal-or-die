@@ -470,16 +470,26 @@ describe('planning: collecting bodies', () => {
 		expect(collects).toHaveLength(3);
 	});
 
-	it('moves nothing: the plan ends, and the next step starts, where the steps did', () => {
+	it('moves nothing, and ends the movement: the plan ends where the steps did, and no step follows', () => {
+		// stratagems' plan, step R2 (R2-2b): the contract ends the turn at a
+		// Move after a Collect, so planning offers none
 		const {planning} = setup();
 		planning.stepTo({x: 0, y: 2});
+		expect(get(planning.movesLeft)).toBeGreaterThan(0);
 		planning.collect([99n]);
 		expect(get(planning.planEnd)).toEqual({x: 0, y: 2});
-		expect(planning.stepTo({x: 0, y: 3})).toBe(true);
+		expect(get(planning.movesLeft)).toBe(0);
+		expect(planning.stepTo({x: 0, y: 3})).toBe(false);
+		expect(planning.stepBy({x: 0, y: 1})).toBe(false);
+		// more collects still may
+		expect(planning.collect([98n])).toBe(1);
 		expect(get(planning.plan).planned).toEqual([
 			{type: 'move', to: {x: 0, y: 2}},
-			{type: 'move', to: {x: 0, y: 3}},
 		]);
+		// and taking the collects back gives the steps back
+		planning.undo();
+		planning.undo();
+		expect(planning.stepTo({x: 0, y: 3})).toBe(true);
 	});
 
 	it('collects nothing out of the world, or after an exit', () => {
