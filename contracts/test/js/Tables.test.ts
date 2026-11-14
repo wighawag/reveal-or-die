@@ -23,13 +23,16 @@ const {provider, networkHelpers} = await network.connect();
 const {deployAll} = setupFixtures(provider);
 
 /**
- * What the world's reveal of 3 collects and 10 moves cost BEFORE the tables
- * (measured on reveal-or-die main 070176ee): the world's routes are
- * byte-identical but for the metadata hash since the tables' `virtual`
- * keywords, and this pins it. THIS REPO'S NUMBER: a descendant whose world
- * differs (bomber-world's bombs) pins its own here.
+ * What the world's reveal of 10 moves and 3 collects costs. Measured BEFORE
+ * the tables (reveal-or-die main 070176ee, 560,811 with the collects first),
+ * the world's routes byte-identical but for the metadata hash since the
+ * tables' `virtual` keywords; re-pinned by stratagems' step R2, whose rules
+ * put the collects last (collecting ends the movement) and read a body's death
+ * a cycle earlier: 563,916 for that turn under R1b's rules, 564,993 under R2's.
+ * THIS REPO'S NUMBER: a descendant whose world differs (bomber-world's bombs)
+ * pins its own here.
  */
-const WORLD_REVEAL_GAS_BEFORE_TABLES = 560_811n;
+const WORLD_REVEAL_GAS_BEFORE_TABLES = 564_993n;
 
 const AVATAR_MODE = 0;
 const ETH_MODE = 1;
@@ -338,7 +341,8 @@ async function table(
 
 /**
  * `dead` enters at (0,2) and goes quiet; the others enter beside it and play
- * empty turns until it is dead (two cycles missed in a row at a table).
+ * empty turns until it is dead (two cycles missed in a row at a table), and one
+ * cycle more, after which its body can be collected.
  */
 async function aBodyAt(mode: number, collectors: Who[], extra: Who[] = []) {
 	const w = await table(mode, ['dead', ...collectors, ...extra]);
@@ -358,6 +362,11 @@ async function aBodyAt(mode: number, collectors: Who[], extra: Who[] = []) {
 		);
 	}
 	expect((await w.read.avatar('dead')).life).toEqual(0);
+	// and one more cycle: a body is collectable from the cycle after its death
+	// (stratagems' plan, step R2, R2-2a)
+	await w.cycle(
+		Object.fromEntries([...collectors, ...extra].map((c) => [c, []])),
+	);
 	return w;
 }
 
@@ -708,7 +717,7 @@ describe('the leftovers and the payouts', () => {
 });
 
 describe('the world beside the tables', () => {
-	it('reveals at the gas it did before the tables (3 collects and 10 moves)', async () => {
+	it('reveals at the gas it did before the tables (10 moves and 3 collects)', async () => {
 		// The same turn as Loot.test.ts' gas case, on the world: its routes are
 		// byte-identical to before R1b but for the metadata hash, and this pins it.
 		const fixture = await networkHelpers.loadFixture(deployAll);

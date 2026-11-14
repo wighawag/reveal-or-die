@@ -468,6 +468,14 @@ abstract contract UsingGameInternal is
         ActionResolution memory resolution,
         uint256 actionData
     ) internal view {
+        // COLLECTING ENDS THE MOVEMENT (stratagems' plan, step R2, R2-2b): a
+        // collector finishes its turn on the body, so a Move after a Collect
+        // is refused as any refused step is, and the turn ends there.
+        if (resolution.numCollected != 0) {
+            resolution.stopProcessing = true;
+            return;
+        }
+
         uint64 movePosition = uint64(actionData);
         (int32 moveToX, int32 moveToY) = PositionUtils.toXY(movePosition);
 
@@ -741,9 +749,13 @@ abstract contract UsingGameInternal is
     ///  rules refuse ends the turn, as a refused move does, so what resolved
     ///  stays a prefix of what was committed.
     ///
+    ///  A BODY IS COLLECTABLE FROM THE CYCLE AFTER ITS DEATH, and collecting
+    ///  ends the movement ({_move}): stratagems' plan, step R2 (R2-2a, R2-2b).
+    ///
     ///  ORDER INDEPENDENCE. What decides a Collect is fixed for the whole
-    ///  cycle whatever order the reveals arrive in: death by misses is a
-    ///  function of the cycle number, a body never moves, a body cannot be
+    ///  cycle whatever order the reveals arrive in: a body's death is read
+    ///  at the cycle before the revealing one, death by misses is a function
+    ///  of the cycle number, a body never moves, a body cannot be
     ///  released in a cycle it can be collected in (only after its first
     ///  claimed cycle, {_settleClaim}), and the one value another reveal of
     ///  this cycle may have written, the body's first claimed cycle, reads as
@@ -795,7 +807,13 @@ abstract contract UsingGameInternal is
         ) {
             return false;
         }
-        return _getResolvedAvatar(body, resolution.cycleNumber).life == 0;
+        // A BODY APPEARS THE CYCLE AFTER THE DEATH (stratagems' plan, step R2,
+        // R2-2a): dead at the cycle before the revealing one, so a death the
+        // cycle shows happening is not yet a body anyone can name. It reads
+        // only cycles before the revealing one.
+        return
+            resolution.cycleNumber != 0 &&
+            _getResolvedAvatar(body, resolution.cycleNumber - 1).life == 0;
     }
 
     function _recordCollected(ActionResolution memory resolution) internal {
