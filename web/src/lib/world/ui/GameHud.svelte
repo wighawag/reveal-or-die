@@ -162,6 +162,17 @@
 			<TablePanel table={game.table} />
 		</div>
 	{/if}
+	<!-- Seated in a table's lobby with this browser not yet allowed to play for
+	     the account: an ETH-mode seat is joined from the account and funds no
+	     key, and the creator's start is sent by that key. Over the lobby, since
+	     the lobby asks only for the seat. -->
+	{#if game.table && inTableLobby && $hud.setup?.action === 'authorise'}
+		<div
+			class="pointer-events-auto absolute bottom-3 left-1/2 z-30 w-fit max-w-md -translate-x-1/2 rounded-lg border bg-background p-3 shadow-xl"
+		>
+			{@render setupControls()}
+		</div>
+	{/if}
 	<!-- Phase and cycle -->
 	<div
 		class="pointer-events-auto flex w-fit items-center gap-3 rounded-lg bg-background/85 p-3 shadow-lg backdrop-blur"

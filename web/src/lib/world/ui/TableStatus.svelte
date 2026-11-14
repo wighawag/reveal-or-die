@@ -16,7 +16,7 @@
 
 {#if $status.panel && game.worldTable}
 	{@const table = game.worldTable}
-	<div class="mb-3 space-y-2 text-xs" data-testid="table-status">
+	<div class="mb-3 space-y-2 text-xs" data-testid="world-table-status">
 		{#each $status.panel.lines as line (line)}
 			<p>{line}</p>
 		{/each}
