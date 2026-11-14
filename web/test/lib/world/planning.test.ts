@@ -436,3 +436,48 @@ describe('planning: undo, clear and reporting', () => {
 		expect(planning.enterAt({x: 0, y: 2})).toBe(false);
 	});
 });
+
+/**
+ * COLLECTING (step R1a): a Collect names a body where the plan ends, at most
+ * `MAX_COLLECTS` a turn, and moves nothing, so the plan still ends where the
+ * steps before it did.
+ */
+describe('planning: collecting bodies', () => {
+	const actionsOf = (submission: SubmissionStore<GameIdentity, Action>) =>
+		(submission.value as unknown as {actions: Action[]}).actions;
+
+	it('names the bodies, never one twice, at most three a turn', () => {
+		const {planning, submission} = setup();
+		planning.stepTo({x: 0, y: 2});
+		expect(planning.collect([11n, 12n])).toBe(2);
+		expect(planning.collect([11n, 12n])).toBe(0);
+		expect(get(planning.collectsLeft)).toBe(1);
+		expect(planning.collect([13n, 14n])).toBe(1);
+		expect(get(planning.collectsLeft)).toBe(0);
+		const collects = actionsOf(submission).filter(
+			(a) => a.actionType === ActionType.Collect,
+		);
+		expect(collects.map((a) => a.data).slice(0, 2)).toEqual([11n, 12n]);
+		expect(collects).toHaveLength(3);
+	});
+
+	it('moves nothing: the plan ends, and the next step starts, where the steps did', () => {
+		const {planning} = setup();
+		planning.stepTo({x: 0, y: 2});
+		planning.collect([99n]);
+		expect(get(planning.planEnd)).toEqual({x: 0, y: 2});
+		expect(planning.stepTo({x: 0, y: 3})).toBe(true);
+		expect(get(planning.plan).planned).toEqual([
+			{type: 'move', to: {x: 0, y: 2}},
+			{type: 'move', to: {x: 0, y: 3}},
+		]);
+	});
+
+	it('collects nothing out of the world, or after an exit', () => {
+		expect(setup({at: undefined}).planning.collect([1n])).toBe(0);
+		const {planning} = setup({at: BESIDE_EXIT});
+		planning.stepTo(EXIT);
+		planning.exitAt();
+		expect(planning.collect([1n])).toBe(0);
+	});
+});

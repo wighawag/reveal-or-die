@@ -7,7 +7,11 @@ import {
 import deployAvatars from 'reveal-or-die-contracts/deploy/001_deploy_avatars.js';
 import deployGame from 'reveal-or-die-contracts/deploy/010_deploy_game.js';
 import deploySale from 'reveal-or-die-contracts/deploy/020_deploy_sale.js';
-import {avatarIDFor, purchaseArgs, purchaseValue} from 'reveal-or-die-contracts';
+import {
+	avatarIDFor,
+	purchaseArgs,
+	purchaseValue,
+} from 'reveal-or-die-contracts';
 import {
 	createEmbeddedWorld,
 	restoreIsCoherent,

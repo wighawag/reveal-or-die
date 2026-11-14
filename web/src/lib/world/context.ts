@@ -13,6 +13,8 @@
  * starts IO, which belongs to `start()`. See ADR-0002.
  */
 import {derived, get, type Readable} from 'svelte/store';
+import type {Abi} from 'viem';
+import {bodiesAt, createLoot, type LootStore} from '$lib/world/loot';
 import type {CoreServices} from '$lib/context/core';
 import type {SignerGrant} from '$lib/ui/delegation/grant';
 import type {ChainTimeStore} from '$lib/game/core/chain-time';
@@ -216,6 +218,13 @@ export type Game = {
 	 */
 	currentPosition: Readable<Position | undefined>;
 	/**
+	 * What the playing avatar collected, its claims on bodies, and settling
+	 * them (step R1a, `./loot.ts`).
+	 */
+	loot: LootStore;
+	/** The bodies where the plan ends, a Collect can name. */
+	bodiesHere: Readable<bigint[]>;
+	/**
 	 * Which part of the cycle this is: play, the commit lock, the reveal, or the
 	 * catch-up while the board fetches what the new cycle assumes.
 	 *
@@ -382,6 +391,9 @@ export function createGameContext(core: CoreServices): GameContext {
 	});
 
 	// The commit-reveal wiring is the framework's; what follows is this game.
+	// Built once the game is (it reads the game's cycle), and read by `start`,
+	// which runs later.
+	let loot: LootStore;
 	const world = createCommitRevealGame<WorldGame>(core, {
 		identity: activeIdentity,
 		contract: deployments.contracts.Game.address,
@@ -492,6 +504,13 @@ export function createGameContext(core: CoreServices): GameContext {
 			const {missedReveal, twoPhase, currentCycleNumber, cycleInfo} =
 				world.game;
 			void deposited.update();
+			void loot.update();
+			// What the avatar collected and its claims follow the avatar and the
+			// cycle: a claim becomes final when its cycle ends.
+			const unsubscribeLoot = derived(
+				[activeIdentity, currentCycleNumber],
+				() => undefined,
+			).subscribe(() => void loot.update());
 			// The deposited avatars are the ACCOUNT's, so they follow the account.
 			const unsubscribeAccount = account.subscribe(() => {
 				void deposited.update();
@@ -527,6 +546,7 @@ export function createGameContext(core: CoreServices): GameContext {
 			});
 			return () => {
 				unsubscribeAccount();
+				unsubscribeLoot();
 				unsubscribeCycle();
 				stopSettleWatch();
 				stopRevealRefresh();
@@ -536,6 +556,32 @@ export function createGameContext(core: CoreServices): GameContext {
 			};
 		},
 	});
+	loot = createLoot({
+		deps: core,
+		game: deployments.contracts.Game as unknown as {
+			address: `0x${string}`;
+			abi: Abi;
+		},
+		avatars: deployments.contracts.Avatars as unknown as {
+			address: `0x${string}`;
+			abi: Abi;
+		},
+		avatar: activeIdentity,
+		cycleNumber: world.game.currentCycleNumber,
+	});
+
+	/**
+	 * The bodies lying where the playing avatar's plan ends, which a Collect
+	 * can name (step R1a).
+	 */
+	const bodiesHere = derived(
+		[world.viewState, world.game.planning.planEnd, activeIdentity],
+		([$view, $at, $avatarID]) =>
+			$view.step === 'Loaded' && $at !== undefined
+				? bodiesAt($view.avatars.values(), $at, $avatarID)
+				: [],
+	);
+
 	boardNow = () => {
 		const $board = get(world.onchainState);
 		return $board.step === 'Loaded' ? $board : undefined;
@@ -598,6 +644,8 @@ export function createGameContext(core: CoreServices): GameContext {
 			purchase: world.game.acquisition,
 			autoRecovery: autoRecovery.state,
 			currentPosition,
+			loot,
+			bodiesHere,
 		},
 		render: world.render,
 		start: world.start,

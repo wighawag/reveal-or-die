@@ -18,6 +18,7 @@
 	import {createHud} from './hud';
 	import GameClock from '$lib/game/ui/GameClock.svelte';
 	import DPad from './DPad.svelte';
+	import LootPanel from './LootPanel.svelte';
 	import Button from '$lib/shadcn/ui/button/button.svelte';
 
 	const context = getAppContext();
@@ -287,6 +288,10 @@
 					</div>
 				{/if}
 			{/if}
+
+			<!-- Outside the setup gate: an avatar taken out, or one held in the
+			     wallet, is still burnable for its stake while nothing is in play. -->
+			<LootPanel />
 		</div>
 
 		<!--

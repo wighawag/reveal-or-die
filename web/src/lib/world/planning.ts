@@ -28,6 +28,7 @@ import {
 import type {Action} from './commit-reveal';
 import {toPlannedActions, type LocalPlan} from './view';
 import type {WorldConfig} from './config';
+import {chooseBodies, collectRoom} from './loot';
 
 /** The plan is only changeable while the submission is not committed. */
 export function isPlannable(state: SubmissionState<Action>): boolean {
@@ -120,6 +121,17 @@ export type PlanningStore = {
 	 * leading it. `contracts/test/js/Game.test.ts` pins both sides.
 	 */
 	exitAt(): boolean;
+	/**
+	 * Name bodies lying where the plan ends, to share them (step R1a). At most
+	 * `MAX_COLLECTS` a turn, the rest of the room chosen at random when more
+	 * lie there ({@link chooseBodies}); returns how many were planned. The
+	 * bodies are the caller's to find on the board ({@link bodiesAt}).
+	 */
+	collect(bodies: readonly bigint[]): number;
+	/** How many more bodies this turn may name. */
+	collectsLeft: Readable<number>;
+	/** Where the plan currently ends, on the board: what a Collect names bodies at. */
+	planEnd: Readable<Position | undefined>;
 	/** Take back the last step. */
 	undo(): void;
 	clear(): void;
@@ -177,13 +189,20 @@ export function createPlanning(params: {
 		return Math.max(0, config.numMoves - moves);
 	});
 
-	/** Where the plan currently ends: the last planned step, else where it stands. */
+	/**
+	 * Where the plan currently ends: the last planned step, else where it
+	 * stands. A Collect names a body, not a cell, so it moves nothing and is
+	 * skipped.
+	 */
 	function planEnd(
 		planned: readonly Action[],
 		onchain: Position | undefined,
 	): Position | undefined {
-		const last = planned[planned.length - 1];
-		if (last) return bigIntIDToXY(last.data);
+		for (let i = planned.length - 1; i >= 0; i--) {
+			if (planned[i].actionType !== ActionType.Collect) {
+				return bigIntIDToXY(planned[i].data);
+			}
+		}
 		return onchain;
 	}
 
@@ -308,6 +327,40 @@ export function createPlanning(params: {
 		return true;
 	}
 
+	const collectsLeft = derived(plannedStore, ($planned) =>
+		collectRoom(
+			$planned.filter((a) => a.actionType === ActionType.Collect).length,
+		),
+	);
+
+	const planEndStore = derived(
+		[plannedStore, currentPosition],
+		([$planned, $onchain]) => planEnd($planned, $onchain),
+	);
+
+	function collect(bodies: readonly bigint[]): number {
+		if (!plannableNow()) return 0;
+		const planned = currentPlan();
+		if (planned.some(endsTheTurn)) return 0;
+		let onchain: Position | undefined;
+		currentPosition.subscribe((v) => (onchain = v))();
+		// only an avatar in the world collects (`_collectable`)
+		if (onchain === undefined) return 0;
+		const named = new Set(
+			planned
+				.filter((a) => a.actionType === ActionType.Collect)
+				.map((a) => a.data),
+		);
+		const fresh = bodies.filter((body) => !named.has(body));
+		const chosen = chooseBodies(fresh, collectRoom(named.size));
+		if (chosen.length === 0) return 0;
+		submission.plan([
+			...planned,
+			...chosen.map((body) => ({actionType: ActionType.Collect, data: body})),
+		]);
+		return chosen.length;
+	}
+
 	function undo() {
 		if (!plannableNow()) return;
 		const planned = currentPlan();
@@ -330,6 +383,9 @@ export function createPlanning(params: {
 		stepTo,
 		stepBy,
 		exitAt,
+		collect,
+		collectsLeft,
+		planEnd: planEndStore,
 		undo,
 		clear,
 	};

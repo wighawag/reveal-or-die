@@ -29,15 +29,20 @@ export type PlannedAction = {
  * drawn from two different vocabularies.
  */
 export function toPlannedActions(actions: readonly Action[]): PlannedAction[] {
-	return actions.map((a) => ({
-		type:
-			a.actionType === ActionType.Enter
-				? ('enter' as const)
-				: a.actionType === ActionType.Exit
-					? ('exit' as const)
-					: ('move' as const),
-		to: bigIntIDToXY(a.data),
-	}));
+	// A COLLECT names a body, not a cell (step R1a): it moves nothing, so it is
+	// not part of the path the board draws, and the cell it is made on is
+	// wherever the steps before it ended.
+	return actions
+		.filter((a) => a.actionType !== ActionType.Collect)
+		.map((a) => ({
+			type:
+				a.actionType === ActionType.Enter
+					? ('enter' as const)
+					: a.actionType === ActionType.Exit
+						? ('exit' as const)
+						: ('move' as const),
+			to: bigIntIDToXY(a.data),
+		}));
 }
 
 /**
