@@ -22,7 +22,9 @@ import {zeroAddress} from 'viem';
  * `030_deploy_lobby.ts` by path on every cascade.
  *
  * The offline world imports its scripts one by one (`web/src/lib/offline.ts`)
- * and not this one: an in-tab chain has nobody to invite.
+ * and this one among them: a table offline runs the world's clock, the
+ * Manual cycle with both durations zero, from `data.Table`'s `offline` entry
+ * (stratagems' plan, step OT3, OT3-1).
  */
 export default deployScript(
 	async ({get, deploy, deployViaRouter, namedAccounts, data}) => {

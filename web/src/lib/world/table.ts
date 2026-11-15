@@ -112,14 +112,6 @@ export const revealOrDieLobby: TableLobby = {
 	options: tableOptions,
 };
 
-/**
- * Whether `name` is one of the contracts `030_deploy_tables.ts` deploys, which
- * the offline world does not (an in-tab chain has nobody to invite).
- */
-export function isTableContract(name: string): boolean {
-	return name.startsWith('GameTable');
-}
-
 /** Whether this record's game is a table: only a table's routes have `getTable`. */
 export function isTableGame(game: {abi: Abi}): boolean {
 	return game.abi.some(

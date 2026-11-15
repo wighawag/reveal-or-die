@@ -84,13 +84,19 @@ const TABLE_DEFAULT = {
  * in a tab has no clock between transactions, and a world (or a table in it)
  * is closed phase by phase by its members (`web/src/lib/offline.ts`, point 1).
  */
-function offline<T extends object>(entry: T) {
+function offline<T extends object>(
+	entry: T,
+): Omit<T, 'cyclePolicy' | 'commitPhaseDuration' | 'revealPhaseDuration'> & {
+	readonly cyclePolicy: typeof CYCLE_POLICY.Manual;
+	readonly commitPhaseDuration: 0n;
+	readonly revealPhaseDuration: 0n;
+} {
 	return {
 		...entry,
 		cyclePolicy: CYCLE_POLICY.Manual,
 		commitPhaseDuration: 0n,
 		revealPhaseDuration: 0n,
-	} as const;
+	};
 }
 
 // we define our config and export it as "config"

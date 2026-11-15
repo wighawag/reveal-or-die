@@ -5,12 +5,30 @@ import buildTimeDeployments from '$lib/deployments';
 import {config, extensions} from 'reveal-or-die-contracts/rocketh/config.js';
 import {
 	OFFLINE_DEPLOYMENT,
+	TABLE_STORAGE_KEY,
 	offlineIdentityOf,
+	playedByTheWorld,
+	stakeForEveryoneAtTheTable,
 	stakeForEveryoneInTheWorld,
 	stakeForOfflinePlayer,
 } from '$lib/offline';
-import {SEATS_BY_DEFAULT, tableOf} from '$lib/game/lobby/seats';
+import {
+	SEATS_BY_DEFAULT,
+	seatsPlayedByTheWorld,
+	tableOf,
+	type Table,
+} from '$lib/game/lobby/seats';
 import {resolveWorldConfig} from '$lib/world/config';
+import {createPublicClient, createWalletClient, custom} from 'viem';
+import {privateKeyToAccount} from 'viem/accounts';
+import {lobby as gameLobby} from '$lib/context/index';
+import {TABLE_SEATS} from '$lib/game/lobby/lobby';
+import {
+	seatTheOfflineTable,
+	type OfflineTableCreator,
+} from '$lib/game/lobby/offline-table';
+import {readRoster} from '$lib/game/lobby/table';
+import {encodeTableMode, AVATAR_MODE, ETH_MODE} from '$lib/world/table';
 
 // No `.svelte.` infix, so this runs in the `server` project: node, no DOM.
 // That is not a compromise, it is the harness this deserves - webevm's core
@@ -225,5 +243,210 @@ describe('this game’s offline world', () => {
 			})) as {owner: `0x${string}`};
 			expect(avatar.owner.toLowerCase(), address).toBe(address.toLowerCase());
 		}
+	});
+});
+
+/**
+ * A TABLE IN THIS GAME'S OFFLINE WORLD (stratagems' plan, step OT3, OT3-3 to
+ * OT3-5, OT3-12): the boot's chain half, as `$lib/offline` runs it, in node.
+ * The table is created by the person's account (here a key, there the world's
+ * wallet), every seat taken AT it by the mode's rail, started, and its address
+ * recorded; a reload repeats nothing; a record the chain does not hold is
+ * refused. What needs a page (the wallet, the context on the table's record,
+ * the close by the tab) is the e2e's, `tables-offline.e2e.ts`.
+ */
+describe('a table in this game\u2019s offline world', () => {
+	const CREATOR = {
+		privateKey:
+			'0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
+		address: PLAYER,
+	} as const;
+	const seats: Table = tableOf(3, 1, [], TABLE_SEATS);
+	const PLAY_MONEY = `0x${(10n ** 24n).toString(16)}`;
+
+	async function tableWorld() {
+		world = await buildWorld({
+			provision: async ({node}) => {
+				// gas and play money, as provisioning gives them
+				for (const address of [
+					CREATOR.address,
+					...seatsPlayedByTheWorld(seats).map((seat) => seat.address),
+				]) {
+					await node.provider.request({
+						method: 'evm_setBalance',
+						params: [address, PLAY_MONEY],
+					} as never);
+				}
+			},
+		});
+		const records = world.deployments.get();
+		const chain = {
+			id: records.chain.id,
+			name: records.chain.name,
+			nativeCurrency: records.chain.nativeCurrency,
+			rpcUrls: {default: {http: [] as string[]}},
+		};
+		const reader = createPublicClient({
+			chain,
+			transport: custom(world.provider as never),
+		});
+		const account = privateKeyToAccount(CREATOR.privateKey);
+		const client = createWalletClient({
+			account,
+			chain,
+			transport: custom(world.provider as never),
+		});
+		const calls: string[] = [];
+		const creator: OfflineTableCreator = {
+			address: CREATOR.address,
+			writeContract: (request) => {
+				calls.push(request.functionName);
+				return client.writeContract({
+					...request,
+					account,
+					chain: null,
+				} as never);
+			},
+		};
+		const store = new Map<string, string>();
+		const storage = {
+			getItem: (key: string) => store.get(key) ?? null,
+			setItem: (key: string, value: string) => void store.set(key, value),
+		};
+		const nonces = async () =>
+			Promise.all(
+				[
+					OFFLINE_DEPLOYMENT.accounts.deployer,
+					...seatsPlayedByTheWorld(seats).map((seat) => seat.privateKey),
+				].map((key) =>
+					reader.getTransactionCount({
+						address: privateKeyToAccount(key).address,
+					}),
+				),
+			);
+		return {records, chain, reader, creator, calls, storage, store, nonces};
+	}
+
+	async function boot(
+		at: Awaited<ReturnType<typeof tableWorld>>,
+		mode: number,
+	) {
+		return seatTheOfflineTable({
+			reader: at.reader as never,
+			creator: at.creator,
+			factory: gameLobby!.factory(at.records).address,
+			implementation: gameLobby!.implementation(at.records).address,
+			storage: at.storage,
+			storageKey: TABLE_STORAGE_KEY,
+			seats: seats.length,
+			cycles: 2,
+			gameOptions: encodeTableMode(mode),
+			stake: (table) =>
+				stakeForEveryoneAtTheTable({
+					env: world!.env,
+					provider: world!.provider,
+					chain: at.chain,
+					table: table.address,
+					you: at.creator,
+					seats,
+				}),
+		});
+	}
+
+	const read = (deployment: unknown, args: unknown) =>
+		(
+			world!.env as unknown as {
+				read: (deployment: unknown, args: unknown) => Promise<unknown>;
+			}
+		).read(deployment, args);
+
+	for (const [mode, label] of [
+		[AVATAR_MODE, 'avatar'],
+		[ETH_MODE, 'eth'],
+	] as const) {
+		it(`in ${label} mode: creates the table from the person, takes every seat AT it by the mode's rail, starts it, records it, and a reload repeats nothing`, async () => {
+			const at = await tableWorld();
+			const opened = await boot(at, mode);
+			expect(opened.kind).toBe('table');
+			if (opened.kind !== 'table') return;
+			expect(opened.created).toBe(true);
+			expect(at.store.get(TABLE_STORAGE_KEY)).toBe(opened.table.address);
+			expect(at.calls).toEqual(
+				mode === ETH_MODE
+					? ['createGame', 'join', 'start']
+					: ['createGame', 'start'],
+			);
+
+			const roster = await readRoster(at.reader as never, opened.table.address);
+			expect(roster.creator.toLowerCase()).toBe(CREATOR.address.toLowerCase());
+			expect(roster.started).toBe(true);
+			expect(roster.cycles).toBe(2);
+			expect(roster.members).toHaveLength(3);
+
+			const Table = {
+				address: opened.table.address,
+				abi: at.records.contracts.GameTableImplementation.abi,
+			};
+			const state = (await read(Table, {functionName: 'getTable'})) as {
+				mode: number;
+				seated: bigint;
+			};
+			expect(Number(state.mode)).toBe(mode);
+			expect(state.seated).toBe(3n);
+			// every seat is its own at the table, by the mode's identity (OT3-5)
+			const addresses = [
+				CREATOR.address,
+				...seatsPlayedByTheWorld(seats).map((seat) => seat.address),
+			];
+			const tableMode = label;
+			for (const address of addresses) {
+				const avatar = (await read(Table, {
+					functionName: 'getAvatar',
+					args: [offlineIdentityOf(address, tableMode)],
+				})) as {owner: `0x${string}`};
+				expect(avatar.owner.toLowerCase(), address).toBe(address.toLowerCase());
+			}
+			expect(
+				playedByTheWorld(seats, tableMode).map((seat) => seat.identity),
+			).toEqual(
+				seatsPlayedByTheWorld(seats).map((seat) =>
+					offlineIdentityOf(seat.address, tableMode),
+				),
+			);
+			// NOBODY IN THE WORLD'S `Game`
+			const inTheWorld = (await read(at.records.contracts.Game, {
+				functionName: 'getAttendance',
+			})) as {waitedFor: bigint};
+			expect(inTheWorld.waitedFor).toBe(0n);
+
+			// A RELOAD: no second create, purchase, join or start
+			const calls = at.calls.length;
+			const nonces = await at.nonces();
+			const again = await boot(at, mode);
+			expect(again).toMatchObject({
+				kind: 'table',
+				created: false,
+				table: {address: opened.table.address},
+			});
+			expect(at.calls.length).toBe(calls);
+			expect(await at.nonces()).toEqual(nonces);
+		}, 60_000);
+	}
+
+	it('refuses a stored table the chain does not hold, with nothing sent', async () => {
+		const at = await tableWorld();
+		at.store.set(
+			TABLE_STORAGE_KEY,
+			'0x00000000000000000000000000000000000000aa',
+		);
+		const opened = await boot(at, AVATAR_MODE);
+		expect(opened.kind).toBe('incoherent');
+		expect(at.calls).toEqual([]);
+	});
+
+	it('plays an avatar in the world and at an avatar table, and the account at an ETH table', () => {
+		expect(offlineIdentityOf(PLAYER)).toBe(offlineIdentityOf(PLAYER, 'avatar'));
+		expect(offlineIdentityOf(PLAYER, 'eth')).toBe(BigInt(PLAYER));
+		expect(offlineIdentityOf(PLAYER, 'avatar')).not.toBe(BigInt(PLAYER));
 	});
 });
