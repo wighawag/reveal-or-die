@@ -2,6 +2,7 @@ import {describe, it, expect} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {
 	closable,
+	closeAndReleaseOnceClosable,
 	encodeTableMode,
 	ETH_MODE,
 	AVATAR_MODE,
@@ -352,5 +353,77 @@ describe('the table store', () => {
 		expect(state.carried).toBe(3n);
 		expect(leftoversOf(state.seats)).toEqual([OTHER]);
 		expect(closable(state.table)).toBe(true);
+	});
+});
+
+describe("an offline table's end, by the tab", () => {
+	// STRATAGEMS' PLAN, STEP OT3, OT3-7: once closable the tab closes, then
+	// releases every leftover, through the store's own calls; once per boot.
+	function fakeTable(initial: WorldTableState) {
+		const state = writable(initial);
+		const calls: string[] = [];
+		return {
+			state,
+			calls,
+			table: {
+				subscribe: state.subscribe,
+				close: async () => {
+					calls.push('close');
+				},
+				releaseLeftovers: async () => {
+					calls.push('release');
+				},
+			},
+		};
+	}
+
+	it('closes once closable, then releases the leftovers, once each', () => {
+		const t = fakeTable(loaded({alive: 2}, [seat(ME), seat(OTHER)]));
+		const stop = closeAndReleaseOnceClosable(t.table);
+		expect(t.calls).toEqual([]);
+		// one alive: closable
+		const dead = seat(OTHER, {life: 0});
+		t.state.set(loaded({alive: 1}, [seat(ME), dead]));
+		expect(t.calls).toEqual(['close']);
+		t.state.set(loaded({alive: 1}, [seat(ME), dead]));
+		expect(t.calls).toEqual(['close']);
+		// closed, a leftover to release
+		t.state.set(loaded({alive: 1, closed: true}, [seat(ME), dead]));
+		expect(t.calls).toEqual(['close', 'release']);
+		t.state.set(loaded({alive: 1, closed: true}, [seat(ME), dead]));
+		expect(t.calls).toEqual(['close', 'release']);
+		stop();
+	});
+
+	it('closes an ended table, and releases nothing when nobody died', () => {
+		const t = fakeTable(loaded({ended: true}, [seat(ME), seat(OTHER)]));
+		closeAndReleaseOnceClosable(t.table)();
+		expect(t.calls).toEqual(['close']);
+		const u = fakeTable(
+			loaded({ended: true, closed: true}, [seat(ME), seat(OTHER)]),
+		);
+		closeAndReleaseOnceClosable(u.table)();
+		expect(u.calls).toEqual([]);
+	});
+
+	it('on a reload of a closed table, only releases what is left', () => {
+		const t = fakeTable(
+			loaded({closed: true, alive: 1}, [
+				seat(ME),
+				seat(OTHER, {life: 0}),
+				seat(THIRD, {life: 0, released: true}),
+			]),
+		);
+		closeAndReleaseOnceClosable(t.table)();
+		expect(t.calls).toEqual(['release']);
+	});
+
+	it('does nothing before the start or while the table plays', () => {
+		const t = fakeTable({step: 'Unloaded'});
+		const stop = closeAndReleaseOnceClosable(t.table);
+		t.state.set(loaded({started: false, alive: 0}, []));
+		t.state.set(loaded({alive: 2}, [seat(ME), seat(OTHER)]));
+		expect(t.calls).toEqual([]);
+		stop();
 	});
 });

@@ -533,6 +533,40 @@ export function createWorldTable(params: {
 	};
 }
 
+/**
+ * THE END OF AN OFFLINE TABLE, BY THE TAB (stratagems' plan, step OT3, OT3-7):
+ * once the table can be closed it is closed, then every leftover is released,
+ * through the store's own `close` and `releaseLeftovers`, the HUD's calls. In
+ * the offline world each is a press with one answer (anyone may send it, gas
+ * is free, and there is nobody else to), so the tab sends it. ONCE per call of
+ * this (a boot): a reload repeats nothing, since the chain refuses a second
+ * close and `releaseLeftovers` skips what is released; a send that failed
+ * leaves the HUD's buttons, which still find what is left. The winnings stay
+ * the person's to take. Answers the unsubscriber.
+ */
+export function closeAndReleaseOnceClosable(
+	table: Pick<WorldTableStore, 'subscribe' | 'close' | 'releaseLeftovers'>,
+): () => void {
+	let closing = false;
+	let releasing = false;
+	return table.subscribe((state) => {
+		if (state.step !== 'Loaded') return;
+		if (!closing && closable(state.table)) {
+			closing = true;
+			void table.close();
+			return;
+		}
+		if (
+			!releasing &&
+			state.table.closed &&
+			leftoversOf(state.seats).length > 0
+		) {
+			releasing = true;
+			void table.releaseLeftovers();
+		}
+	});
+}
+
 /** The table panel's model, from the stores it reads. */
 export function tablePanel(params: {
 	table: WorldTableStore;
