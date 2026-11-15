@@ -18,8 +18,6 @@ import {boardState, skipTutorial} from '../fixtures/board';
  * the context's records being the table's.
  */
 
-const WORLD_UP = 'Everything below runs against a chain inside this tab';
-
 const READ = `
 	const world = globalThis.offlineWorld;
 	const records = world && world.context.deployments.get();
@@ -180,12 +178,20 @@ async function story(page: Page, mode: 'avatar' | 'eth', seats: number) {
 	await page
 		.getByTestId('table-option-mode')
 		.selectOption(mode === 'eth' ? '1' : '0');
+	// RANDOM WORLD SEATS where the game offers levels (bomber-world, by
+	// cascade): a random seat walks and never bombs, so nobody dies here
+	for (const random of await page
+		.locator('[data-testid^="level-"][data-testid$="-random"]')
+		.all()) {
+		await random.click();
+	}
 	await page.getByTestId('sit-down').click();
-	await expect(page.getByText(WORLD_UP)).toBeVisible({timeout: 180_000});
 
-	// STARTED BY THE TAB: the panel, not the table's lobby, on cycle 1 of 2
+	// STARTED BY THE TAB: the panel, not the table's lobby, on cycle 1 of 2.
+	// The panel is the signal the world is up, whatever chrome a game gives
+	// its offline world (bomber-world shows no offline-world bar).
 	const panel = page.getByTestId('table-panel');
-	await expect(panel).toBeVisible({timeout: 60_000});
+	await expect(panel).toBeVisible({timeout: 180_000});
 	await expect(page.getByTestId('table-lobby')).toHaveCount(0);
 	await expect(panel.getByTestId('table-progress')).toHaveText('Cycle 1 of 2', {
 		timeout: 60_000,
@@ -235,9 +241,8 @@ async function story(page: Page, mode: 'avatar' | 'eth', seats: number) {
 
 	// A RELOAD INSIDE THE TABLE: the same table, on the cycle it was in
 	await page.reload();
-	await expect(page.getByText(WORLD_UP)).toBeVisible({timeout: 180_000});
 	await expect(panel.getByTestId('table-progress')).toHaveText('Cycle 2 of 2', {
-		timeout: 60_000,
+		timeout: 180_000,
 	});
 	expect(await tableOnChain(page)).toMatchObject({
 		address: opened.address,
