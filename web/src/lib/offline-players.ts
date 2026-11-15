@@ -1,4 +1,4 @@
-import {keccak256, encodePacked, zeroAddress} from 'viem';
+import {keccak256, encodePacked, zeroAddress, type Abi} from 'viem';
 import type {DeploymentsStore} from '$lib/deployments-store';
 import type {EIP1193ProviderLike} from '$lib/embedded';
 import {
@@ -17,6 +17,7 @@ import {
 import {createCycleReader} from '$lib/world/advance';
 import type {WorldSeatStrategyFactory} from '$lib/world/strategy';
 import type {WorldConfig} from '$lib/world/config';
+import {isTableGame} from '$lib/world/table';
 import {
 	ActionType,
 	bigIntIDToXY,
@@ -362,6 +363,45 @@ export function createOfflinePlayers(params: {
 	/** Dead seats this session has already tried to release. */
 	const released = new Set<bigint>();
 
+	/**
+	 * AT A TABLE (stratagems' plan, step OT3, OT3-6) a seat commits only
+	 * between the start and the end, and not once the table has nothing left to
+	 * play: closed, or closable with at most one alive (`world/table.ts`'s
+	 * `tableStopsPlay`, the human's client's rule), so that the close can be
+	 * taken in a commit phase nobody living has committed in. Nor once it is no
+	 * member: a seat its creator forfeited (OT1-7). Each of those commits would
+	 * revert (`NotInGame`, `GameEnded`, `TableCommitmentOpen` for the close), and
+	 * a throw stops the pass for every seat after it, every pass. It still
+	 * reveals, settles and releases its own, as in the world. The world's record
+	 * has no `getTable`, and every seat commits as before.
+	 */
+	const atTable = isTableGame(game as {abi: Abi});
+	async function whoMayCommit(
+		cycleNumber: number,
+	): Promise<(identity: bigint) => boolean> {
+		if (!atTable) return () => true;
+		const [end, table, roster] = (await Promise.all([
+			publicClient.readContract({...game, functionName: 'getEnd'} as never),
+			publicClient.readContract({...game, functionName: 'getTable'} as never),
+			publicClient.readContract({...game, functionName: 'getRoster'} as never),
+		])) as unknown as [
+			readonly [bigint, bigint, boolean],
+			{started: boolean; closed: boolean; alive: bigint},
+			readonly [unknown, readonly bigint[]],
+		];
+		const [, lastCycleNumber, ended] = end;
+		const playing =
+			table.started &&
+			lastCycleNumber !== 0n &&
+			!ended &&
+			BigInt(cycleNumber) <= lastCycleNumber &&
+			!table.closed &&
+			table.alive > 1n;
+		if (!playing) return () => false;
+		const members = new Set(roster[1]);
+		return (identity) => members.has(identity);
+	}
+
 	function send(
 		player: OfflinePlayer,
 		request: Record<string, unknown>,
@@ -567,7 +607,11 @@ export function createOfflinePlayers(params: {
 
 	async function act(
 		player: OfflinePlayer,
-		cycle: {cycleNumber: number; commiting: boolean},
+		cycle: {
+			cycleNumber: number;
+			commiting: boolean;
+			mayCommit: (identity: bigint) => boolean;
+		},
 	): Promise<void> {
 		const avatar = await avatarOf(player);
 
@@ -626,9 +670,10 @@ export function createOfflinePlayers(params: {
 			return;
 		}
 
-		if (cycle.commiting)
-			await commit(player, cycle.cycleNumber, onChain, avatar);
-		else await reveal(player, cycle.cycleNumber, onChain, avatar);
+		if (cycle.commiting) {
+			if (cycle.mayCommit(player.identity))
+				await commit(player, cycle.cycleNumber, onChain, avatar);
+		} else await reveal(player, cycle.cycleNumber, onChain, avatar);
 	}
 
 	/**
@@ -645,6 +690,10 @@ export function createOfflinePlayers(params: {
 			const at = {
 				cycleNumber: cycle.cycleNumber,
 				commiting: cycle.isCommitPhase,
+				// read once a pass, for every seat: the table's state
+				mayCommit: cycle.isCommitPhase
+					? await whoMayCommit(cycle.cycleNumber)
+					: () => false,
 			};
 			// IN SEQUENCE, NOT IN PARALLEL. Each of these players is a separate
 			// account so their nonces do not collide, but they share one chain in

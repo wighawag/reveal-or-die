@@ -1,5 +1,16 @@
-import {describe, it, expect, afterEach} from 'vitest';
-import {createPublicClient, custom} from 'viem';
+import {describe, it, expect, afterEach, vi} from 'vitest';
+import {
+	createPublicClient,
+	createWalletClient,
+	custom,
+	parseEventLogs,
+	zeroAddress,
+} from 'viem';
+import {privateKeyToAccount} from 'viem/accounts';
+import {readable} from 'svelte/store';
+import {lobby as gameLobby} from '$lib/context/index';
+import type {DeploymentsStore} from '$lib/deployments-store';
+import {encodeTableMode, ETH_MODE} from '$lib/world/table';
 import {createEmbeddedWorld, type EmbeddedWorld} from '$lib/embedded';
 import {config, extensions} from 'reveal-or-die-contracts/rocketh/config.js';
 import {
@@ -349,6 +360,50 @@ describe('a derived turn', () => {
 		}
 	});
 
+	it('is PINNED: the same turns as the build before tables offline (a wire: an earlier build\u2019s commitment must open)', () => {
+		// Measured on reveal-or-die ea50a397 (stratagems' plan, step OT3, OT3-6).
+		const entry = turnFor({
+			game: GAME,
+			identity: 3n,
+			cycleNumber: 2,
+			avatar: {inGame: false, position: 0n},
+			numMoves: 10,
+		});
+		expect(entry).toEqual([{actionType: ActionType.Enter, data: 25769803772n}]);
+		expect(
+			turnFor({
+				game: GAME,
+				identity: 3n,
+				cycleNumber: 3,
+				avatar: {inGame: true, position: entry[0].data},
+				numMoves: 10,
+			}),
+		).toEqual([
+			{actionType: ActionType.Move, data: 21474836476n},
+			{actionType: ActionType.Move, data: 25769803772n},
+			{actionType: ActionType.Move, data: 25769803771n},
+		]);
+	});
+
+	it('never EXITS, so a table (which drops an exit) is played as the world is', () => {
+		for (let identity = 1n; identity <= 40n; identity++) {
+			for (const inGame of [false, true]) {
+				for (const cycleNumber of [2, 3, 9]) {
+					const actions = turnFor({
+						game: GAME,
+						identity,
+						cycleNumber,
+						avatar: {inGame, position: 25769803772n},
+						numMoves: 10,
+					});
+					for (const action of actions) {
+						expect(action.actionType).not.toBe(ActionType.Exit);
+					}
+				}
+			}
+		}
+	});
+
 	it('is EMPTY when there is nothing legal to do, so the cycle can still close', () => {
 		// The acceptance criterion in one assertion. A player boxed in on all four
 		// sides still has to hand the cycle something, because unanimity waits for
@@ -486,6 +541,175 @@ describe('a seat with a level', () => {
 				expect(avatar.inGame).toBe(true);
 				expect(bigIntIDToXY(avatar.position)).toEqual(scriptedEntry(seat));
 			}
+		},
+	);
+});
+
+describe('the played seats at a table', () => {
+	// STRATAGEMS' PLAN, STEP OT3, OT3-6: at a table a seat commits only between
+	// the start and the end, and not once the table has nothing left to play
+	// (closed, or closable with at most one alive); it still reveals, settles
+	// and releases its own. ETH mode, so each seat joins with its own key, and
+	// the creator is the deployer (no seat), which the contract allows.
+	type Env = {
+		get: (name: string) => {address: `0x${string}`; abi: never};
+		execute: (deployment: unknown, args: unknown) => Promise<unknown>;
+		read: (deployment: unknown, args: unknown) => Promise<unknown>;
+		namedAccounts: Record<string, `0x${string}`>;
+	};
+
+	async function tableOver(w: EmbeddedWorld, seats: number, cycles: number) {
+		const env = w.env as unknown as Env;
+		const records = w.deployments.get();
+		const receipt = (await env.execute(env.get('GameTableFactory'), {
+			account: env.namedAccounts.deployer,
+			functionName: 'createGame',
+			args: [seats, cycles, encodeTableMode(ETH_MODE)],
+		})) as {logs: never; blockNumber: bigint};
+		const [created] = parseEventLogs({
+			abi: env.get('GameTableFactory').abi,
+			logs: receipt.logs,
+			eventName: 'GameCreated',
+		}) as unknown as {args: {game: `0x${string}`}}[];
+		const atTable = gameLobby!.deploymentsAt(records, {
+			address: created.args.game,
+			openedAtBlock: Number(receipt.blockNumber),
+		});
+		const deployments = {
+			...readable(atTable),
+			get: () => atTable,
+		} as DeploymentsStore;
+		const Table = atTable.contracts.Game;
+		const chain = {
+			id: records.chain.id,
+			name: records.chain.name,
+			nativeCurrency: records.chain.nativeCurrency,
+			rpcUrls: {default: {http: [] as string[]}},
+		};
+		const reader = clientFor(w);
+		const stake = BigInt(
+			(atTable.contracts.Game.linkedData as unknown as {stake: string}).stake,
+		);
+		const seated = played.slice(0, seats);
+		const atPlayers = playedByTheWorld(table, 'eth').slice(0, seats);
+		for (const seat of seated) {
+			const hash = await createWalletClient({
+				account: privateKeyToAccount(seat.privateKey),
+				chain,
+				transport: custom(w.provider as never),
+			}).writeContract({
+				address: Table.address,
+				abi: Table.abi as never,
+				functionName: 'join',
+				args: [zeroAddress, 0n],
+				value: stake,
+			} as never);
+			await reader.waitForTransactionReceipt({hash});
+		}
+		const send = (functionName: string, args: readonly unknown[] = []) =>
+			env.execute(Table, {
+				account: env.namedAccounts.deployer,
+				functionName,
+				args,
+			});
+		const loop = (onActed?: () => void) =>
+			createOfflinePlayers({
+				provider: w.provider,
+				deployments,
+				config: resolveWorldConfig(atTable),
+				players: atPlayers,
+				onActed,
+			});
+		/**
+		 * One pass: whether any seat sent anything in it, and whether the pass
+		 * FAILED. A commit the contract refuses (`NotInGame`, `GameEnded`) fails
+		 * at its estimate, sends nothing, and stops the pass for every seat after
+		 * it, every pass. (A refused release of a dead seat is tried once per
+		 * session, warned about, and is neither.)
+		 */
+		const pass = async () => {
+			let acted = false;
+			const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+			try {
+				await loop(() => {
+					acted = true;
+				}).tick();
+				const failed = warn.mock.calls.some(([message]) =>
+					String(message).includes('could not act this pass'),
+				);
+				return {acted, failed};
+			} finally {
+				warn.mockRestore();
+			}
+		};
+		/** Whether a pass sent or tried to send anything. */
+		const sends = async () => {
+			const {acted, failed} = await pass();
+			return acted || failed;
+		};
+		const attendance = async () =>
+			(await env.read(Table, {functionName: 'getAttendance'})) as {
+				waitedFor: bigint;
+				committed: bigint;
+				revealed: bigint;
+			};
+		return {Table, send, loop, pass, sends, attendance, atPlayers, env};
+	}
+
+	it(
+		'commits nothing before the start or after the end, and plays every cycle between',
+		{timeout: 120_000},
+		async () => {
+			world = await buildWorld();
+			const t = await tableOver(world, 3, 2);
+			// BEFORE THE START: seated, and nothing sent
+			expect(await t.sends()).toBe(false);
+			await t.send('start');
+			for (let cycle = 0; cycle < 2; cycle++) {
+				await t.loop().tick();
+				expect((await t.attendance()).committed).toBe(3n);
+				await t.send('moveToNextPhase');
+				await t.loop().tick();
+				expect((await t.attendance()).revealed).toBe(3n);
+				await t.send('moveToNextPhase');
+			}
+			// AFTER THE END: nothing sent, every pass
+			expect(await t.sends()).toBe(false);
+			expect(await t.sends()).toBe(false);
+		},
+	);
+
+	it(
+		'commits nothing once the table is closable, so the close can be taken',
+		{timeout: 120_000},
+		async () => {
+			world = await buildWorld();
+			const t = await tableOver(world, 2, 10);
+			await t.send('start');
+			// the second seat is forfeited before it ever enters, and dies on the
+			// table's clock for a seat that never entered
+			await t.send('forfeitMember', [t.atPlayers[1].identity]);
+			// the forfeited seat is no member: it tries no commit, so the pass does
+			// not fail at it
+			for (let cycle = 0; cycle < 2; cycle++) {
+				expect(await t.pass()).toEqual({acted: true, failed: false});
+				await t.send('moveToNextPhase');
+				expect(await t.pass()).toEqual({acted: true, failed: false});
+				await t.send('moveToNextPhase');
+			}
+			const state = (await t.env.read(t.Table, {
+				functionName: 'getTable',
+			})) as {alive: bigint};
+			expect(state.alive).toBe(1n);
+			// the one alive commits nothing now, and the close is taken
+			expect(await t.sends()).toBe(false);
+			expect((await t.attendance()).committed).toBe(0n);
+			await t.send('closeTable');
+			const closed = (await t.env.read(t.Table, {
+				functionName: 'getTable',
+			})) as {closed: boolean};
+			expect(closed.closed).toBe(true);
+			expect(await t.sends()).toBe(false);
 		},
 	);
 });
