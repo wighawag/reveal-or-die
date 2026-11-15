@@ -48,6 +48,51 @@ export const CYCLE_POLICY = {
  */
 export const AVATAR_STAKE = parseEther('0.0001');
 
+/**
+ * The world's own game, on every chain but the offline world's (below).
+ */
+const GAME_DEFAULT = {
+	commitPhaseDuration: 30n,
+	revealPhaseDuration: 10n,
+	cyclePolicy: CYCLE_POLICY.Timed,
+	numMoves: 10n,
+	numMissesAllowed: 3n,
+	// The longest turn that can resolve, in one reveal: every move,
+	// its collects (MAX_COLLECTS, 3), then an exit. The contract
+	// refuses less.
+	actionsPerReveal: 14n,
+} as const;
+
+/**
+ * Every table's rules, on every chain but the offline world's (below).
+ */
+const TABLE_DEFAULT = {
+	commitPhaseDuration: 30n,
+	revealPhaseDuration: 10n,
+	cyclePolicy: CYCLE_POLICY.TimedWithEarlyAdvance,
+	numMoves: 10n,
+	numMissesAllowed: 1n,
+	// as the world's: every move, its collects, then an exit (which a
+	// table drops, but the reveal's bound is the world's code)
+	actionsPerReveal: 14n,
+	stake: AVATAR_STAKE,
+} as const;
+
+/**
+ * WHAT THE OFFLINE WORLD CHANGES, and it is one decision rather than three:
+ * the Manual cycle, whose durations the contract requires to be zero. A chain
+ * in a tab has no clock between transactions, and a world (or a table in it)
+ * is closed phase by phase by its members (`web/src/lib/offline.ts`, point 1).
+ */
+function offline<T extends object>(entry: T) {
+	return {
+		...entry,
+		cyclePolicy: CYCLE_POLICY.Manual,
+		commitPhaseDuration: 0n,
+		revealPhaseDuration: 0n,
+	} as const;
+}
+
 // we define our config and export it as "config"
 export const config = {
 	// Chain properties are exported with the deployments and read by the web app
@@ -252,17 +297,15 @@ export const config = {
 				// refuses less.
 				actionsPerReveal: 14n,
 			},
-			default: {
-				commitPhaseDuration: 30n,
-				revealPhaseDuration: 10n,
-				cyclePolicy: CYCLE_POLICY.Timed,
-				numMoves: 10n,
-				numMissesAllowed: 3n,
-				// The longest turn that can resolve, in one reveal: every move,
-				// its collects (MAX_COLLECTS, 3), then an exit. The contract
-				// refuses less.
-				actionsPerReveal: 14n,
-			},
+			default: GAME_DEFAULT,
+			/**
+			 * THE OFFLINE WORLD'S (`web/src/lib/offline.ts`, which reads this
+			 * entry): the Manual cycle with both durations zero, everything else
+			 * the default's. Here rather than in the web, so that a contract test
+			 * deploying under the `offline` environment deploys exactly what the
+			 * tab does (stratagems' plan, step OT3).
+			 */
+			offline: offline(GAME_DEFAULT),
 		},
 		/**
 		 * TABLES (stratagems' plan, step R1b): games for a fixed set of seats,
@@ -274,17 +317,15 @@ export const config = {
 		 * avatar's own in avatar mode and the ETH paid at `join` in ETH mode.
 		 */
 		Table: {
-			default: {
-				commitPhaseDuration: 30n,
-				revealPhaseDuration: 10n,
-				cyclePolicy: CYCLE_POLICY.TimedWithEarlyAdvance,
-				numMoves: 10n,
-				numMissesAllowed: 1n,
-				// as the world's: every move, its collects, then an exit (which a
-				// table drops, but the reveal's bound is the world's code)
-				actionsPerReveal: 14n,
-				stake: AVATAR_STAKE,
-			},
+			default: TABLE_DEFAULT,
+			/**
+			 * A TABLE IN THE OFFLINE WORLD runs the world's clock, for the world's
+			 * reason (`web/src/lib/offline.ts`, point 1): the Manual cycle with both
+			 * durations zero, every phase closed by its members. The stake, the
+			 * moves and the one miss allowed are the default's (stratagems' plan,
+			 * step OT3, OT3-1).
+			 */
+			offline: offline(TABLE_DEFAULT),
 		},
 	},
 	signerProtocols: {
