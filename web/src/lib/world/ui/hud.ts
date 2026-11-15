@@ -19,7 +19,7 @@ import type {Context} from '$lib/context/types';
 import type {SubmissionState} from '$lib/game/core/submission';
 
 import type {Action} from '../commit-reveal';
-import type {DepositedState} from '../deposited';
+import {isAtRisk, type DepositedState} from '../deposited';
 import {blocksCommitting, type MissedRevealState} from '../missed-reveal';
 import type {RecoveryState} from '$lib/game/core/recovery';
 import type {CycleAdvanceState} from '$lib/game/core/advance';
@@ -31,7 +31,7 @@ import {causeOfDeath, explainDeath, type DeathCause} from '../death';
 import {opensAWallet, type AcquisitionState} from '$lib/game/acquire';
 import {purchaseValue} from 'reveal-or-die-contracts';
 import {formatBalance} from '$lib/core/utils/format/balance';
-import type {WorldTableState} from '../table';
+import {tableStopsPlay, type WorldTableState} from '../table';
 
 /** One avatar the player could switch to. */
 export type AvatarChoice = {
@@ -173,6 +173,11 @@ export type HudModel = {
 	submissionLabel: string;
 	submissionTone: 'idle' | 'busy' | 'good' | 'bad';
 	canCommit: boolean;
+	/**
+	 * Whether "Stay put" is offered: an empty turn, committed now (see
+	 * {@link canStayPut}).
+	 */
+	canStayPut: boolean;
 	canReveal: boolean;
 	canClear: boolean;
 	/**
@@ -562,6 +567,50 @@ export function phaseLabelOf(phase: CyclePhase): string {
 }
 
 /**
+ * WHETHER THE PERSON MAY STAY PUT THIS CYCLE: commit an empty turn now, with
+ * nothing planned (stratagems' plan, step P1).
+ *
+ * An avatar in the world goes on living only by acting each cycle, so the
+ * submission commits an empty turn for it by itself (`commitWhenIdle`) when
+ * the commit phase is about to close. That needs a clock. Under the MANUAL
+ * cycle (the offline world, and a table in it) there is none: a phase closes
+ * only once everyone has acted, the automatic empty turn never comes, and a
+ * person who wanted to stand still had no way to act at all, so the cycle
+ * waited for them for ever. "Commit now" needs a plan, which standing still
+ * is not.
+ *
+ * So the HUD offers the empty turn as a press, on every policy (under a clock
+ * it also lets a table advance early instead of waiting out the phase), on
+ * exactly the terms the submission takes it: an avatar at risk (in the world
+ * and alive), nothing pending for this cycle, a table that still plays, the
+ * commit phase open, no unrevealed commitment in the way, the account's data
+ * loaded. A Planning submission commits its plan instead ("Commit now").
+ */
+export function canStayPut(params: {
+	submission: SubmissionState<Action>;
+	currentCycleNumber: number;
+	atRisk: boolean;
+	tableStopsPlay: boolean;
+	blocked: boolean;
+	playable: boolean;
+	ready: boolean;
+}): boolean {
+	const {submission} = params;
+	const nothingPending =
+		submission.step === 'Idle' ||
+		((submission.step === 'Revealed' || submission.step === 'Missed') &&
+			submission.cycleNumber < params.currentCycleNumber);
+	return (
+		nothingPending &&
+		params.atRisk &&
+		!params.tableStopsPlay &&
+		!params.blocked &&
+		params.playable &&
+		params.ready
+	);
+}
+
+/**
  * The instruction while the account's data loads: the submission takes no plan
  * until it has (`SubmissionStore.ready`, stratagems' port plan, step H1b).
  */
@@ -823,6 +872,15 @@ export function createHud(context: Context): Readable<HudModel> {
 							$submission.during === 'commit')) &&
 					plannedCount > 0 &&
 					playable,
+				canStayPut: canStayPut({
+					submission: $submission as SubmissionState<Action>,
+					currentCycleNumber: $cycle.currentCycleNumber,
+					atRisk: isAtRisk(deposited, $avatarID as bigint | undefined),
+					tableStopsPlay: tableStopsPlay(table),
+					blocked,
+					playable,
+					ready: $ready === true,
+				}),
 				// Offered as a fallback only. The submission reveals on its own, because
 				// missed reveal loses the turn and blocks the next one, and the
 				// window can be seconds long.

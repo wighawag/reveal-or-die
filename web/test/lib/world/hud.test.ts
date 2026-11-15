@@ -1,6 +1,7 @@
 import {describe, it, expect} from 'vitest';
 import {get, writable} from 'svelte/store';
 import {
+	canStayPut,
 	createHud,
 	describeMissedReveal,
 	describeSubmission,
@@ -927,5 +928,72 @@ describe('a turn that only collects', () => {
 		);
 		expect(model.plannedCount).toBe(1);
 		expect(model.canCommit).toBe(true);
+	});
+});
+
+/**
+ * STAYING PUT (stratagems' plan, step P1): under the Manual cycle nothing
+ * commits the empty turn an avatar at risk needs, so the HUD offers it as a
+ * press, on the terms the submission takes it.
+ */
+describe('staying put', () => {
+	const open = {
+		submission: idle(),
+		currentCycleNumber: 3,
+		atRisk: true,
+		tableStopsPlay: false,
+		blocked: false,
+		playable: true,
+		ready: true,
+	};
+
+	it('is offered to an avatar at risk with nothing pending, in the commit phase', () => {
+		expect(canStayPut(open)).toBe(true);
+		// the turn that ended last cycle is still being reported: nothing pending now
+		expect(
+			canStayPut({
+				...open,
+				submission: {step: 'Revealed', cycleNumber: 2} as unknown as State,
+			}),
+		).toBe(true);
+	});
+
+	it('is not offered with a turn for this cycle, nor with nothing at risk, a table that stopped, an open commitment, outside the commit phase, or before the data loads', () => {
+		expect(
+			canStayPut({
+				...open,
+				submission: {
+					step: 'Planning',
+					cycleNumber: 3,
+					actions: [action],
+				} as State,
+			}),
+		).toBe(false);
+		expect(
+			canStayPut({
+				...open,
+				submission: {step: 'Revealed', cycleNumber: 3} as unknown as State,
+			}),
+		).toBe(false);
+		expect(canStayPut({...open, atRisk: false})).toBe(false);
+		expect(canStayPut({...open, tableStopsPlay: true})).toBe(false);
+		expect(canStayPut({...open, blocked: true})).toBe(false);
+		expect(canStayPut({...open, playable: false})).toBe(false);
+		expect(canStayPut({...open, ready: false})).toBe(false);
+	});
+
+	it('is on the HUD for an avatar in the world and alive, and not for one waiting to enter', () => {
+		const inside = get(
+			createHud(
+				fakeContext(idle(), {
+					avatars: [avatar({inGame: true, life: 2})],
+					currentPosition: {x: 1, y: 1},
+				}),
+			),
+		);
+		expect(inside.canStayPut).toBe(true);
+		expect(inside.canCommit).toBe(false);
+		const outside = get(createHud(fakeContext(idle())));
+		expect(outside.canStayPut).toBe(false);
 	});
 });

@@ -302,6 +302,18 @@
 					>
 						Commit now
 					</Button>
+					{#if $hud.canStayPut}
+						<!-- An empty turn, now: the way to stand still when no clock
+						     commits one (`canStayPut`). -->
+						<Button
+							size="sm"
+							variant="secondary"
+							data-testid="stay-put"
+							onclick={() => submission.commit()}
+						>
+							Stay put
+						</Button>
+					{/if}
 					{#if $hud.canReveal}
 						<Button
 							size="sm"

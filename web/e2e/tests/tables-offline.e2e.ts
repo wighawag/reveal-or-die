@@ -118,9 +118,7 @@ async function account(
 
 /**
  * Plan a turn through the planning store (`enterAt` out of the world, `stepTo`
- * in it), commit it, and wait for its reveal. Under the Manual cycle the
- * person's client commits no empty turn by itself (that is the clocked
- * policies' `commitWhenIdle`), so each cycle they play a move.
+ * in it), commit it, and wait for its reveal.
  */
 async function playTurn(
 	page: Page,
@@ -250,9 +248,23 @@ async function story(page: Page, mode: 'avatar' | 'eth', seats: number) {
 		cycleNumber: opened.last,
 	});
 
-	// THE LAST CYCLE: a step, and then the TAB closes the table, with nothing
-	// pressed
-	await playTurn(page, 'stepTo', {x: 0, y: 2});
+	// THE LAST CYCLE: the person stays put. Under the Manual cycle no clock
+	// commits the empty turn for them, so it is a press (stratagems' step P1);
+	// then the TAB closes the table, with nothing else pressed
+	await expect
+		.poll(async () => (await boardState(page)).readyToPlay, {timeout: 120_000})
+		.toBe(true);
+	await skipTutorial(page);
+	const stay = page.getByTestId('stay-put');
+	await expect(stay).toBeVisible({timeout: 60_000});
+	await expect(page.getByRole('button', {name: /commit now/i})).toBeDisabled();
+	await stay.click();
+	await expect
+		.poll(async () => (await boardState(page)).step, {
+			message: 'the empty turn should be revealed',
+			timeout: 120_000,
+		})
+		.toBe('Revealed');
 	await expect
 		.poll(async () => (await tableOnChain(page))?.closed, {
 			message: 'the tab should close the table after its last cycle',
