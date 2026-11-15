@@ -281,3 +281,12 @@ web/e2e/tests/table-link.e2e.ts
 # `UsingVirtualTime` any more; keeping it would be a second, unused copy of the
 # same immutable. The stem keeps it for now, and nothing there uses it either.
 contracts/src/game/internal/UsingVirtualTime.sol
+
+# ---------------------------------------------------------------------------
+# THE STEM'S OFFLINE TABLE STORY PLAYS ITS REFERENCE GAME'S BOARD (stratagems'
+# step OT3, 2026-11-15). It clicks placements and reads the stem's records
+# (`GameFactory`, "Revealed. Your placements are on the board."), and skipped
+# here until this game offered its tables offline. This game's own story is
+# `web/e2e/tests/tables-offline.e2e.ts` (both modes, closed by the tab). For
+# ever, as `offline-ai.e2e.ts` would be in a game with its own AI story.
+web/e2e/tests/offline-table.e2e.ts

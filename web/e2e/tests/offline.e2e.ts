@@ -1,5 +1,5 @@
 import {avatarIDFor} from 'reveal-or-die-contracts';
-import {test, expect, describe} from '../fixtures/test';
+import {test, expect, describe, chooseTheWorld} from '../fixtures/test';
 import {boardState, skipTutorial} from '../fixtures/board';
 import {seatsPlayedByTheWorld, tableOf} from '../../src/lib/game/lobby/seats';
 
@@ -103,6 +103,9 @@ describe('Playing offline', () => {
 		await expect(page.getByText('How many at the table?')).toBeVisible({
 			timeout: 60_000,
 		});
+		// THE WORLD, which this story is about: the lobby offers a table first
+		// since this game offers its tables offline (stratagems' step OT3)
+		await chooseTheWorld(page);
 		await page.getByTestId('sit-down').click();
 
 		// The world is up: this strip is rendered only once the chain, the deploy
