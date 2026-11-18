@@ -137,3 +137,9 @@ web/test/lib/placement/commit-reveal.test.ts           the commit and reveal key
 web/test/lib/placement/config.test.ts                  the avatar sale's configuration
 web/test/lib/placement/missed-reveal.test.ts           a missed reveal, keyed by the avatar
 web/test/lib/placement/reserve.test.ts                 the reserve per avatar
+
+[with/all]
+# AND BELOW THIS LINE, WHAT `with/all` MODIFIES FROM BOTH ITS STEMS,
+# `with/pixi-js` and `with/nft-identity`: nothing. The two merge without a file
+# holding both, so every file is one stem's. An entry belongs here the day a
+# file has to combine them.
