@@ -127,6 +127,7 @@ web/src/lib/placement/stake.ts                         staking buys an avatar fr
 # The e2e and the unit tests
 web/e2e/fixtures/game.ts                               the game fixture buys an avatar
 web/e2e/tests/game.e2e.ts                              the game played as an avatar
+web/test/lib/app-world.ts                              the world test's scripts deploy the avatars before the game
 web/test/lib/embedded/world.test.ts                    the offline world with avatars
 web/test/lib/placement/acquisition.test.ts             acquisition by avatar
 web/test/lib/placement/commit-reveal.test.ts           the commit and reveal keyed by the avatar

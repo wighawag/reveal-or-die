@@ -1,4 +1,5 @@
 import deployToken from 'template-commit-reveal-contracts/deploy/001_deploy_token.js';
+import deployAvatars from 'template-commit-reveal-contracts/deploy/005_deploy_avatars.js';
 import deployGame from 'template-commit-reveal-contracts/deploy/010_deploy_game.js';
 import deployStakeSale from 'template-commit-reveal-contracts/deploy/020_deploy_stake_sale.js';
 import deployLobby from 'template-commit-reveal-contracts/deploy/030_deploy_lobby.js';
@@ -27,6 +28,9 @@ export {
 /** The deploy scripts a world runs, in order. */
 export const APP_SCRIPTS = [
 	{id: '001_deploy_token', module: deployToken},
+	// THIS BRANCH'S FOURTH SCRIPT: the avatars exist before the game that takes
+	// custody of them (as `OFFLINE_DEPLOYMENT` of `$lib/offline` deploys).
+	{id: '005_deploy_avatars', module: deployAvatars},
 	{id: '010_deploy_game', module: deployGame},
 	{id: '020_deploy_stake_sale', module: deployStakeSale},
 	{id: '030_deploy_lobby', module: deployLobby},
