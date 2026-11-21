@@ -70,7 +70,7 @@ web/src/lib/kit/environment.ts                         `browser` exported by the
 web/src/routes/+layout.svelte                          the splash over everything until the game's art has arrived
 web/src/routes/play/+page.svelte                       the game's play page through the context
 web/src/lib/game/identity.ts                           a player is an avatar, the whole identity difference in one alias
-web/src/lib/offline.ts                                 this game's offline world and its tables in both modes (K2: the shared boot)
+web/src/lib/offline.ts                                 this game's offline world on the template's steps ($lib/game/offline): its avatars, its tables in both modes, its funded key, its tables closed by the tab
 web/src/lib/offline-players.ts                         the offline seats of this game, committing at a table only while it plays
 
 # The e2e and the unit tests
@@ -86,3 +86,4 @@ web/test/lib/context/setup-gate.test.ts                one transaction, one sign
 web/test/lib/context/ssr-context.test.ts               a purchase that outlived its tab, recovered from the ledger
 web/test/lib/embedded/world.test.ts                    this game's offline world and its tables
 web/test/lib/offline-players.test.ts                   this game's offline seats
+web/test/lib/app-world.ts                              the world test constants: this game's contracts package and its deploy scripts (read by the stem's offline-world.test.ts)
