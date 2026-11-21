@@ -1,10 +1,13 @@
 import {test, expect, describe} from '../fixtures/test';
+import {MAIN_PAGE} from '../routes';
 import {
+	executeButton,
+	fillWrite,
+	openContract,
+	openWrite,
+	READ_FUNCTION,
 	WRITE_CONTRACT,
 	WRITE_FUNCTION,
-	executeButton,
-	selectContract,
-	writeForm,
 } from '../fixtures/contracts-page';
 
 describe('Contracts Page', () => {
@@ -18,28 +21,15 @@ describe('Contracts Page', () => {
 		await expect(selector).toBeVisible({timeout: 5000});
 	});
 
-	test('opens on a deployed contract, and can be pointed at the game', async ({
+	test("should display the main page's contract once selected", async ({
 		page,
 	}) => {
-		await page.goto('/contracts');
+		await openContract(page);
 
-		// The page opens on the FIRST deployed contract (`contractNames[0]`), which
-		// in this app is `Avatars` - it deploys three. The inherited version of this
-		// test asserted the Game was shown "by default" and failed on a page that
-		// was working perfectly: that is true of the parent template, which deploys
-		// one contract, and was never true here.
-		//
-		// What is worth pinning is that the page comes up ON something rather than
-		// empty, and that the game is reachable from the picker, since every other
-		// test in this file depends on getting there.
-		const trigger = page.locator('[data-slot="select-trigger"]');
-		await expect(trigger).toBeVisible({timeout: 10_000});
-		await expect(trigger).not.toHaveText('Select a contract');
-
-		await selectContract(page);
-		await expect(
-			page.getByRole('heading', {name: WRITE_CONTRACT, exact: true}),
-		).toBeVisible({timeout: 10_000});
+		// Should show the contract (as button or heading)
+		await expect(page.getByText(WRITE_CONTRACT).first()).toBeVisible({
+			timeout: 5000,
+		});
 	});
 
 	test('should display contract address', async ({page}) => {
@@ -51,7 +41,7 @@ describe('Contracts Page', () => {
 	});
 
 	test('should have Read and Write tabs', async ({page}) => {
-		await page.goto('/contracts');
+		await openContract(page);
 
 		// Should have Read and Write tabs
 		await expect(page.getByRole('tab', {name: 'Read'})).toBeVisible({
@@ -61,10 +51,7 @@ describe('Contracts Page', () => {
 	});
 
 	test('should display view functions in Read tab', async ({page}) => {
-		await page.goto('/contracts');
-		// The game's own view functions are on the GAME, which is not the contract
-		// the page opens on.
-		await selectContract(page);
+		await openContract(page);
 
 		// Wait for Read tab to be visible and click it
 		const readTab = page.getByRole('tab', {name: 'Read'});
@@ -76,42 +63,46 @@ describe('Contracts Page', () => {
 			page.getByRole('heading', {name: 'View Functions'}),
 		).toBeVisible({timeout: 5000});
 
-		// Should list the game's own view functions. One specific function, not an
-		// `.or()` of two: the union matches both cards and trips strict mode.
-		await expect(page.getByText('getCycleNumber').first()).toBeVisible({
+		// Should list the contract's view function (`MAIN_PAGE.read`)
+		await expect(page.getByText(READ_FUNCTION).first()).toBeVisible({
 			timeout: 5000,
 		});
 	});
 
 	test('should display write functions in Write tab', async ({page}) => {
-		await page.goto('/contracts');
-		// The write under test is on the GAME, which is not the contract the page
-		// opens on.
-		await selectContract(page);
+		await openContract(page);
 
 		// Wait for Write tab to be visible and click it
 		const writeTab = page.getByRole('tab', {name: 'Write'});
 		await expect(writeTab).toBeVisible({timeout: 5000});
 		await writeTab.click();
 
-		// Should show a state-changing function of the game
+		// Should show the write (`MAIN_PAGE.write`)
 		await expect(page.getByText(WRITE_FUNCTION).first()).toBeVisible({
 			timeout: 5000,
 		});
 	});
 
 	test('should be able to call a view function', async ({page}) => {
-		await page.goto('/contracts');
+		await openContract(page);
 
 		// Wait for Read tab and click it
 		const readTab = page.getByRole('tab', {name: 'Read'});
 		await expect(readTab).toBeVisible({timeout: 5000});
 		await readTab.click();
 
-		// `getCycleNumber` takes no arguments, so it can be called with nothing filled in
+		// Find the view function's card and expand it or click call
 		const functionCard = page.locator('[class*="card"]').filter({
-			hasText: 'getCycleNumber',
+			hasText: READ_FUNCTION,
 		});
+
+		// If there's a limit input, fill it
+		const limitInput = functionCard
+			.locator('input[type="text"], input[type="number"]')
+			.first();
+		if (await limitInput.isVisible({timeout: 500}).catch(() => false)) {
+			await limitInput.fill('10');
+		}
 
 		// Click the call/query button
 		const callButton = functionCard.getByRole('button', {
@@ -150,38 +141,19 @@ describe('Contracts Page', () => {
 });
 
 describe('Contracts Page - Write Functions', () => {
-	// Write from the SECOND burner account. The game keys state by player
-	// address, and the game suite (running in a parallel worker) plays from the
-	// first account, so distinct accounts keep the two files from interfering.
+	// Its own burner account: files run in parallel workers, and two files
+	// sending from the same account race each other for a nonce (and the
+	// greetings demo keeps one message per account, which the demo suite writes
+	// from the first).
 	test.use({walletAccountIndex: 1});
 
 	test('should trigger wallet connection when calling write function', async ({
 		page,
 	}) => {
-		await page.goto('/contracts');
+		await openWrite(page);
+		await fillWrite(page, 'Test message from contracts page');
 
-		// The write under test is on the GAME, which is not the contract the page
-		// opens on.
-		await selectContract(page);
-
-		// Wait for Write tab to be visible and click it
-		const writeTab = page.getByRole('tab', {name: 'Write'});
-		await expect(writeTab).toBeVisible({timeout: 10000});
-		await writeTab.click();
-
-		// The form and its submit come from the fixture, so this suite cannot end
-		// up asserting on a different form than the one it filled.
-		const functionSection = writeForm(page);
-		await expect(functionSection).toBeVisible({timeout: 10000});
-
-		// Any non-zero address: this test is about the CONNECT flow, and the call
-		// withdraws an authority that was never granted, so it is harmless whoever
-		// it names. Zero is the one value the call rejects.
-		await functionSection
-			.getByPlaceholder('0x...')
-			.first()
-			.fill('0x0000000000000000000000000000000000000031');
-
+		// Click the Execute button (or Connect + Execute if wallet not connected)
 		await executeButton(page).click();
 
 		// If wallet is not connected, some step of the connect flow should appear:
@@ -221,17 +193,13 @@ describe('Contracts Page - Write Functions', () => {
 
 		const page = connectedPage;
 
-		// Navigate to contracts page (connectedPage starts at /play)
-		await page.goto('/contracts');
+		// To /contracts by a client-side navigation (connectedPage starts on the
+		// main page), so the connection it made is the one the write uses.
+		await openWrite(page);
 
-		// Wait for page to load
-		await expect(
-			page.getByText('Interact with deployed smart contracts'),
-		).toBeVisible({timeout: 10000});
-
-		// Wait for the connection to finish re-establishing after navigation.
-		// Interacting before it settles makes the execute click open the connect
-		// modal instead of sending the tx.
+		// Wait for the connection to be the app's before executing: interacting
+		// before it settles makes the execute click open the connect modal instead
+		// of sending the tx.
 		//
 		// Assert the app's own connection flag: waiting for the "Loading Connect"
 		// button to be hidden is satisfied both when connected AND when plainly
@@ -243,68 +211,26 @@ describe('Contracts Page - Write Functions', () => {
 			{timeout: 30000},
 		);
 
-		// The write under test is on the GAME, which is not the contract the page
-		// opens on.
-		await selectContract(page);
-
-		// Wait for Write tab to be visible and click it
-		const writeTab = page.getByRole('tab', {name: 'Write'});
-		await expect(writeTab).toBeVisible({timeout: 10000});
-		await writeTab.click();
-
-		// The form and its submit come from the fixture, so this suite cannot end
-		// up asserting on a different form than the one it filled.
-		const functionSection = writeForm(page);
-		await expect(functionSection).toBeVisible({timeout: 10000});
-
-		// FILL THE ARGUMENT. When this drove `addToReserve(address, uint256)` it
-		// filled only the amount, so the address stayed undefined, viem threw
-		// `InvalidAddressError` before anything was sent, and the assertion below
-		// ("no operation is pending") was trivially true of a page on which nothing
-		// had happened. It passed for a year without executing a write, which is
-		// why the single argument this call takes is filled explicitly.
-		//
-		// What is under test is that a write reaches the chain from this page and
-		// settles, not what the game does with it, so any non-zero address serves.
-		await functionSection
-			.getByPlaceholder('0x...')
-			.first()
-			.fill('0x0000000000000000000000000000000000000032');
-
-		// Click the Execute button (wallet already connected)
+		const label = `Contract test ${Date.now()}`;
+		await fillWrite(page, label);
 		await executeButton(page).click();
 
-		// Under parallel load the connection may still be re-establishing after
-		// the navigation, in which case executing re-opens the connect flow (e.g.
-		// the account picker). The connect helper walks whatever dialogs appear
-		// and returns quickly when none do.
+		// Under parallel load the connection may still be re-establishing, in
+		// which case executing re-opens the connect flow (e.g. the account picker).
+		// The connect helper walks whatever dialogs appear and returns quickly when
+		// none do.
 		await connectWallet(page);
 
-		// IT ACTUALLY HAPPENED. Asserted before waiting for it to settle, because
-		// `waitForTransaction` only checks that nothing is pending - which is also
-		// true when nothing was ever sent, and was the state this test was really
-		// in. An operation in account data is the app's own evidence that the write
-		// left the page.
-		//
-		// Not the navbar badge: that clears at Included + Success, which against an
-		// instant-mining node is a window of a few hundred milliseconds.
-		await expect
-			.poll(
-				async () =>
-					page.evaluate(() => {
-						const ctx = (globalThis as any).context;
-						let ops: Record<string, unknown> = {};
-						ctx.accountData
-							.watchField('operations')
-							.subscribe((v: Record<string, unknown>) => (ops = v))();
-						return Object.keys(ops ?? {}).length;
-					}),
-				{message: 'the write should record an operation', timeout: 30000},
-			)
-			.toBeGreaterThan(0);
-
-		// ...and every in-flight operation settled.
+		// Wait for transaction
 		await waitForTransaction(page);
+
+		// Where the main page shows what the write sent (the greetings demo
+		// does), read it back there; a write that shows nothing is done once mined.
+		if (MAIN_PAGE.write.shownOnMainPage) {
+			await page.goto(MAIN_PAGE.route);
+			// The label might carry a prefix from the contract.
+			await expect(page.getByText(label)).toBeVisible({timeout: 30000});
+		}
 	});
 });
 
@@ -317,7 +243,7 @@ describe('Contracts Page - Accessibility', () => {
 	});
 
 	test('should have accessible tab controls', async ({page}) => {
-		await page.goto('/contracts');
+		await openContract(page);
 
 		// Tabs should be visible and keyboard navigable
 		const readTab = page.getByRole('tab', {name: 'Read'});

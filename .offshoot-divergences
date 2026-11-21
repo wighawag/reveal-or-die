@@ -74,13 +74,9 @@ web/src/lib/offline.ts                                 this game's offline world
 web/src/lib/offline-players.ts                         the offline seats of this game, committing at a table only while it plays
 
 # The e2e and the unit tests
-web/e2e/fixtures/contracts-page.ts                     the contracts page's locators, kept out of the stalling-wallet fixture
-web/e2e/fixtures/stalling-wallet.ts                    this game's own write, whose argument is an ADDRESS
-web/e2e/tests/contracts.e2e.ts                         the contracts page on this game's contract
-web/e2e/tests/escape-hatch.e2e.ts                      the same, an address argument
+web/e2e/routes.ts                                      `MAIN_PAGE.write` is this game's revokeDelegate, its address argument made from the label
 web/e2e/tests/faucet.e2e.ts                            the play key authorises itself on a LAN box, its gas price declared
 web/e2e/tests/offline.e2e.ts                           this game's offline world and its tables, one story per mode
-web/e2e/tests/pending-operation.e2e.ts                 the inspector on this game's own write
 web/test/lib/context/resume-on-gas.test.ts             the game through the context
 web/test/lib/context/setup-gate.test.ts                one transaction, one signature, one faucet claim; cycle
 web/test/lib/context/ssr-context.test.ts               a purchase that outlived its tab, recovered from the ledger
