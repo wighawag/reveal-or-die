@@ -133,11 +133,13 @@ async function world(names: Who[]) {
 		const receipts: Record<Who, {gasUsed: bigint}> = {};
 		for (const name of order ?? who) {
 			const a = avatars[name];
-			receipts[name] = await env.execute(Game, {
+			const receipt = await env.execute(Game, {
 				account: a.account,
 				functionName: 'reveal',
 				args: [a.id, turns[name], a.secret, zeroAddress],
 			});
+			// The receipt's gasUsed is the node's hex quantity, not a bigint.
+			receipts[name] = {gasUsed: BigInt(receipt.gasUsed)};
 		}
 		return receipts;
 	}
