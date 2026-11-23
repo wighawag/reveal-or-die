@@ -28,11 +28,14 @@ const {deployAll} = setupFixtures(provider);
  * the world's routes byte-identical but for the metadata hash since the
  * tables' `virtual` keywords; re-pinned by stratagems' step R2, whose rules
  * put the collects last (collecting ends the movement) and read a body's death
- * a cycle earlier: 563,916 for that turn under R1b's rules, 564,993 under R2's.
+ * a cycle earlier: 563,916 for that turn under R1b's rules, 564,993 under R2's;
+ * 566,368 behind @rocketh/router 0.21's default `Router` (solidity-proxy 0.6,
+ * its routes read from a data contract; solidity-proxy 0.6's `Router10X60`,
+ * built for london, gives 565,313).
  * THIS REPO'S NUMBER: a descendant whose world differs (bomber-world's bombs)
  * pins its own here.
  */
-const WORLD_REVEAL_GAS_BEFORE_TABLES = 564_993n;
+const WORLD_REVEAL_GAS_BEFORE_TABLES = 566_368n;
 
 const AVATAR_MODE = 0;
 const ETH_MODE = 1;
