@@ -50,7 +50,10 @@ interface IGameReveal is UsingGameTypes {
 }
 
 interface IGameGetters is UsingGameTypes {
-    function getCycleNumber() external view returns (uint64 cycleNumber, bool commiting);
+    function getCycleNumber()
+        external
+        view
+        returns (uint64 cycleNumber, bool commiting);
 
     function getAvatarsInZone(
         uint64 zone,
@@ -87,10 +90,7 @@ interface IGameGetters is UsingGameTypes {
 }
 
 interface IGameDeposit is UsingGameTypes {
-    function deposit(
-        uint256 avatarID,
-        address payable payee
-    ) external payable;
+    function deposit(uint256 avatarID, address payable payee) external payable;
     function withdraw(uint256 avatarID, address to) external;
     function avatarsPerOwner(
         address owner,

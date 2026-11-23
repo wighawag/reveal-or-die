@@ -9,10 +9,7 @@ contract GameDeposit is IGameDeposit, UsingGameInternal, IERC721Receiver {
     constructor(Config memory config) UsingGameInternal(config) {}
 
     // TODO deposit via permit
-    function deposit(
-        uint256 avatarID,
-        address payable payee
-    ) external payable {
+    function deposit(uint256 avatarID, address payable payee) external payable {
         // The depositor is the owner. No `controller` argument any more: who
         // may PLAY this avatar is decided by delegation (GameDelegation),
         // account-wide and granted by the owner's own signature, rather than

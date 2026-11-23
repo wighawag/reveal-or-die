@@ -7,7 +7,11 @@ import "../interfaces/IGame.sol";
 contract GameGetters is IGameGetters, UsingGameInternal {
     constructor(Config memory config) UsingGameInternal(config) {}
 
-    function getCycleNumber() external view returns (uint64 cycleNumber, bool commiting) {
+    function getCycleNumber()
+        external
+        view
+        returns (uint64 cycleNumber, bool commiting)
+    {
         return _cycleNumber();
     }
 

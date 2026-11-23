@@ -577,7 +577,10 @@ abstract contract UsingGameInternal is
         uint256 avatarID,
         uint64 cycleNumber
     ) internal view returns (PublicAvatar memory) {
-        AvatarResolved memory avatar = _getResolvedAvatar(avatarID, cycleNumber);
+        AvatarResolved memory avatar = _getResolvedAvatar(
+            avatarID,
+            cycleNumber
+        );
         Player memory player = _players[avatarID];
 
         return
@@ -645,7 +648,14 @@ abstract contract UsingGameInternal is
             avatars = new PublicAvatar[](limit);
 
             // Fill the result array by traversing zones
-            _fillAvatarResults(zones, fromIndex, limit, state, avatars, cycleNumber);
+            _fillAvatarResults(
+                zones,
+                fromIndex,
+                limit,
+                state,
+                avatars,
+                cycleNumber
+            );
         } else {
             // No avatars to return
             avatars = new PublicAvatar[](0);
@@ -795,7 +805,7 @@ abstract contract UsingGameInternal is
         if (
             !lying.inGame ||
             lying.position !=
-            PositionUtils.fromXY(resolution.currentX, resolution.currentY)
+                PositionUtils.fromXY(resolution.currentX, resolution.currentY)
         ) {
             return false;
         }
@@ -899,10 +909,11 @@ abstract contract UsingGameInternal is
         uint256 body
     ) internal view virtual returns (PublicBody memory) {
         Body memory state = _bodies[body];
-        uint256 value = state.released
-            ? state.pot
-            : IAvatarsWithStake(address(AVATARS)).stakeOf(body) +
-                _carried[body];
+        uint256 value =
+            state.released
+                ? state.pot
+                : IAvatarsWithStake(address(AVATARS)).stakeOf(body) +
+                    _carried[body];
         return
             PublicBody({
                 firstClaimCycle: state.firstClaimCycle,

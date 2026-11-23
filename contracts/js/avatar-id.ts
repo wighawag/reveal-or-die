@@ -100,7 +100,8 @@ export function purchaseArgs(params: {
 	// A recipient with nothing to send is worse than no recipient: the contract
 	// takes the `!= address(0)` branch and makes a zero-value call, which a
 	// contract wallet can reject and turn into `FailedToTransferNativeToken`.
-	const stipendTo = stipend > 0n ? (params.stipendTo ?? zeroAddress) : zeroAddress;
+	const stipendTo =
+		stipend > 0n ? (params.stipendTo ?? zeroAddress) : zeroAddress;
 
 	return [
 		params.gameAddress,

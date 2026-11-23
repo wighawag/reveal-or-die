@@ -149,7 +149,9 @@ describe('Game', function () {
 		const owner = unnamedAccounts[0];
 		const delegate = unnamedAccounts[1];
 
-		const {cycleNumber: initialCycleNumber} = getCycleNumber(await getTimestamp());
+		const {cycleNumber: initialCycleNumber} = getCycleNumber(
+			await getTimestamp(),
+		);
 		const subID = 0n;
 		const avatarID = avatarIDFor(owner, subID);
 
@@ -288,7 +290,10 @@ describe('Game', function () {
 			const avatar = {A: avatarA, B: avatarB};
 			const secret = {A: secretA, B: secretB};
 
-			async function round(cycleNumber: number, actions: {A: Action[]; B: Action[]}) {
+			async function round(
+				cycleNumber: number,
+				actions: {A: Action[]; B: Action[]},
+			) {
 				await advanceToCycle(cycleNumber);
 				for (const who of ['A', 'B'] as const) {
 					await env.execute(Game, {
@@ -714,7 +719,8 @@ describe('Game', function () {
 				cycleNumber += 1;
 				await advanceToCycle(cycleNumber, true);
 			},
-			avatar: () => env.read(Game, {functionName: 'getAvatar', args: [avatarID]}),
+			avatar: () =>
+				env.read(Game, {functionName: 'getAvatar', args: [avatarID]}),
 			withdraw: () =>
 				env.execute(Game, {
 					account: player,
@@ -771,9 +777,9 @@ describe('Game', function () {
 		expect(inZone.some((x) => x.avatarID === a.avatarID)).toEqual(true);
 
 		// And it cannot act: no commitment, so no exit and no way out.
-		await expect(a.commit([{actionType: 2, data: pos(0n, 1n)}])).toBeRejectedWith(
-			'AvatarIsDead',
-		);
+		await expect(
+			a.commit([{actionType: 2, data: pos(0n, 1n)}]),
+		).toBeRejectedWith('AvatarIsDead');
 	});
 
 	it('lets an avatar that never entered be withdrawn', async function () {
@@ -859,7 +865,9 @@ describe('Game', function () {
 		await a.commitAndGoQuiet(missed);
 
 		// Blocked until it is settled: going quiet is not a way to start over.
-		await expect(a.commit([])).toBeRejectedWith('PreviousCommitmentNotRevealed');
+		await expect(a.commit([])).toBeRejectedWith(
+			'PreviousCommitmentNotRevealed',
+		);
 
 		// Shown anything else, it refuses: the chain checks what is settled.
 		await expect(
