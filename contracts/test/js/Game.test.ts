@@ -17,7 +17,7 @@ import {
 } from '../../js/avatar-id.js';
 import {decodeEventLog, encodeAbiParameters, zeroAddress} from 'viem';
 
-const {provider, networkHelpers, viem} = await network.connect();
+const {provider, networkHelpers, viem} = await network.create();
 const {deployAll} = setupFixtures(provider);
 
 /** A packed board position, as the contract stores it: `y << 32 | x`. */
