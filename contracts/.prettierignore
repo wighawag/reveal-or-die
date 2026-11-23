@@ -30,3 +30,8 @@ docs
 deployments
 package.json
 pnpm-lock.yaml
+
+# The area templates are Handlebars over Solidity and TypeScript: prettier
+# would format them as Handlebars, which joins the Solidity template's first
+# lines into its licence comment.
+*.hbs

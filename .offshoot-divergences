@@ -37,6 +37,7 @@ scripts/run-e2e-tests.sh                               the e2e generates the are
 assets/sprites/cell.png                                the game's own cell sprite
 
 # The contracts: reveal-or-die on the commit-reveal base (avatars, their stake, the bodies, the tables)
+contracts/.prettierignore                              the area templates (`data/*.hbs`) left unformatted: prettier reads them as Handlebars and breaks the Solidity one
 contracts/.env                                         one transaction, one signature, one faucet claim: the dev faucet's amounts for this game
 contracts/hardhat.config.ts                            the game's compiler settings; the dev node mines every second
 contracts/package.json                                 the offline world's and the delegation's packages, and the template's fork:deploy spelling
