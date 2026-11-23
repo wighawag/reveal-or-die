@@ -19,7 +19,7 @@ import {avatarIDFor, purchaseArgs} from '../../js/avatar-id.js';
  * nobody claimed. The dead get nothing.
  */
 
-const {provider, networkHelpers} = await network.connect();
+const {provider, networkHelpers} = await network.create();
 const {deployAll} = setupFixtures(provider);
 
 /**

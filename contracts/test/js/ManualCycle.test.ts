@@ -6,7 +6,7 @@ import {setupFixtures, deployGameWith, CYCLE_POLICY} from './utils/index.js';
 import {commitmentHash, type Action} from '../../js/commitment.js';
 import {avatarIDFor, purchaseArgs, salePriceOf} from '../../js/avatar-id.js';
 
-const {provider, networkHelpers} = await network.connect();
+const {provider, networkHelpers} = await network.create();
 const {deployAll} = setupFixtures(provider);
 
 /**

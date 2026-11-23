@@ -28,7 +28,7 @@ import {REVEAL_GAS} from '../../js/gas.js';
  * No loop here is longer than `MAX_COLLECTS`.
  */
 
-const {provider, networkHelpers} = await network.connect();
+const {provider, networkHelpers} = await network.create();
 const {deployAll} = setupFixtures(provider);
 
 const pos = (x: bigint, y: bigint) => (y << 32n) | x;

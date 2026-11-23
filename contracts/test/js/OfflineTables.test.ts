@@ -27,7 +27,7 @@ import {avatarIDFor, purchaseArgs} from '../../js/avatar-id.js';
  * seat that never entered and can no longer commit.
  */
 
-const {provider, networkHelpers} = await network.connect();
+const {provider, networkHelpers} = await network.create();
 
 const AVATAR_MODE = 0;
 const ETH_MODE = 1;

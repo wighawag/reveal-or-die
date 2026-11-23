@@ -5,7 +5,7 @@ import {setupFixtures} from './utils/index.js';
 import {avatarIDFor, purchaseArgs, salePriceOf} from '../../js/avatar-id.js';
 import {encodeAbiParameters, zeroAddress} from 'viem';
 
-const {provider, networkHelpers} = await network.connect();
+const {provider, networkHelpers} = await network.create();
 const {deployAll} = setupFixtures(provider);
 
 /**
